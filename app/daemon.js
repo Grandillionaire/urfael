@@ -11,6 +11,8 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { MODELS, classifyModel, segmentSentences, resolveProfile } = require('./lib');
+const jobstore = require('./jobstore');
+const runner = require('./runner');
 
 const VAULT = path.join(os.homedir(), process.env.JARVIS_VAULT_DIR || 'Jarvis');
 const MEMORY_DIR = path.join(os.homedir(), process.env.JARVIS_MEMORY_DIR || 'Jarvis-memory');
@@ -242,12 +244,40 @@ const server = http.createServer(async (req, res) => {
   } else if (req.url === '/vitals') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(vitals()));
+  } else if (req.method === 'POST' && req.url === '/job') {
+    // enqueue a detached background job (runs concurrently with voice — NOT in the serialized chain).
+    const body = await readBody(req);
+    let spec = {}; try { spec = JSON.parse(body); } catch {}
+    const KINDS = ['goal', 'ask', 'research']; // allowlist; 'goal' => isolated-repo, never-push goal-loop.sh
+    if (!KINDS.includes(spec.kind)) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'unknown kind; allowed: ' + KINDS.join(',') })); return; }
+    const clamp = (v, lo, hi) => Math.min(Math.max(parseInt(v, 10) || lo, lo), hi); // caps clamped server-side
+    if (spec.maxIters != null) spec.maxIters = clamp(spec.maxIters, 1, 50);
+    if (spec.maxMins != null) spec.maxMins = clamp(spec.maxMins, 1, 240);
+    if (spec.turnTimeout != null) spec.turnTimeout = clamp(spec.turnTimeout, 30, 3600);
+    const job = jobstore.create(spec);
+    runner.run(jobstore.get(job.id));
+    logEvent({ ev: 'job_create', id: job.id, kind: spec.kind });
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: job.id, state: 'running' }));
+  } else if (req.url === '/jobs') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(jobstore.list().map((j) => ({ id: j.id, kind: j.kind, state: j.state, createdAt: j.createdAt, endedAt: j.endedAt }))));
+  } else if (req.url && req.url.startsWith('/job/')) {
+    const m = req.url.match(/^\/job\/([A-Za-z0-9-]{4,64})(\/cancel)?$/); // id validated; never interpolated into a shell
+    if (!m) { res.writeHead(404); res.end(); return; }
+    if (m[2]) { // POST /job/:id/cancel — a real kill switch (signals the whole process group)
+      if (req.method !== 'POST') { res.writeHead(405); res.end(); return; }
+      const ok = runner.cancel(m[1]); logEvent({ ev: 'job_cancel', id: m[1], ok });
+      res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok })); return;
+    }
+    const j = jobstore.get(m[1]);
+    if (!j) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ...j, log: jobstore.tailLog(m[1], 60) }));
   } else if (req.method === 'POST' && req.url === '/shutdown') {
     res.writeHead(200); res.end('{}'); logEvent({ ev: 'daemon_shutdown' }); setTimeout(shutdown, 100); // stop the brain on request
   } else { res.writeHead(404); res.end(); }
 });
 
-function listen() { try { fs.unlinkSync(SOCK); } catch {} cleanupOrphanBrains(); server.listen(SOCK, () => { try { fs.chmodSync(SOCK, 0o600); } catch {} logEvent({ ev: 'daemon_start' }); brain.warmUp(); }); } // 0600: only the owner can POST to the brain
+function listen() { try { fs.unlinkSync(SOCK); } catch {} cleanupOrphanBrains(); jobstore.reconcile(); server.listen(SOCK, () => { try { fs.chmodSync(SOCK, 0o600); } catch {} logEvent({ ev: 'daemon_start' }); brain.warmUp(); }); } // 0600: only the owner can POST to the brain
 // single-instance: if a daemon already answers on the socket, don't double-run (safe for launchd + overlay both trying)
 const probe = http.request({ socketPath: SOCK, method: 'GET', path: '/health', timeout: 1000 }, (res) => { res.resume(); logEvent({ ev: 'daemon_already_running' }); process.exit(0); });
 probe.on('error', listen);
