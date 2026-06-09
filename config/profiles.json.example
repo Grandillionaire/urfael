@@ -1,0 +1,22 @@
+{
+  "_comment": "Reference for Jarvis permission profiles (the structural sandbox). These are built into app/lib.js (resolveProfile); this file documents them and is a template if you want to tighten them. The daemon maps every /ask to a profile by its `channel`: the local voice overlay sends NO channel and gets `local`; every remote channel (telegram, discord, …) is forced to `untrusted`. resolveProfile is FAIL-CLOSED — any unknown channel resolves to `untrusted`, never `local`.",
+
+  "local": {
+    "_for": "the owner at the mic / overlay on this machine",
+    "permissionMode": null,
+    "_permissionMode": "null = use the daemon default (acceptEdits, or bypassPermissions only if JARVIS_YOLO=1). Reachable ONLY by the local channel.",
+    "allowedTools": null,
+    "_allowedTools": "null = no restriction (full tool access).",
+    "trustFraming": false
+  },
+
+  "untrusted": {
+    "_for": "anything arriving over a network channel (Telegram/Discord/etc.) — treated as untrusted input",
+    "permissionMode": "acceptEdits",
+    "_permissionMode": "NEVER bypassPermissions, regardless of JARVIS_YOLO. No unrestricted shell.",
+    "allowedTools": ["Read", "Grep", "Glob", "WebFetch", "WebSearch", "Write", "Edit", "Bash(git:*)"],
+    "_allowedTools": "read/search/web/notes/git only — no unrestricted Bash, no send/delete, and --strict-mcp-config disables all computer-use MCP hands. Tighten further (e.g. drop Write/Edit for read-only) by editing PROFILES in app/lib.js.",
+    "trustFraming": true,
+    "_trustFraming": "wraps the message in an untrusted-data envelope so prompt-injection in forwarded content is contained."
+  }
+}
