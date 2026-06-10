@@ -11,15 +11,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { execFileSync } = require('child_process');
 
 const HOST = '127.0.0.1';                                  // loopback ONLY — never 0.0.0.0, never a LAN/public iface
 const PORT = Math.min(Math.max(parseInt(process.env.URFAEL_DASHBOARD_PORT, 10) || 7717, 1), 65535);
 const JDIR = path.join(os.homedir(), '.claude', 'urfael');
 const SOCK = path.join(JDIR, 'daemon.sock');
 const TOKENF = path.join(JDIR, 'dashboard.token');
-const MEMORY_DIR = path.join(os.homedir(), process.env.URFAEL_MEMORY_DIR || 'Urfael-memory');
-const SESSIONS_DIR = path.join(MEMORY_DIR, 'sessions');
 const MAX_BODY = 262144;                                   // 256KB request-body cap (mirror the daemon)
 
 // ---- token: generate-once, 0600, never world-readable --------------------------------------------
@@ -90,18 +87,15 @@ function daemonAsk(text) {
   });
 }
 
-// sessions full-text search — mirror cli.js: grep the private session archive on disk (no daemon endpoint exists).
-function searchSessions(query) {
-  if (!query || !fs.existsSync(SESSIONS_DIR)) return [];
-  let out = '';
-  try { out = execFileSync('grep', ['-ih', '--', query, '-r', SESSIONS_DIR], { maxBuffer: 1 << 24 }).toString(); } catch { return []; }
-  const rows = [];
-  for (const ln of out.trim().split('\n').slice(-40)) {
-    try { const e = JSON.parse(ln);
-      rows.push({ t: (e.t || '').slice(0, 16).replace('T', ' '), channel: e.channel || '', user: (e.user || '').slice(0, 200),
-        urfael: (e.urfael || '').replace(/\[\/?SPOKEN\]/gi, '').replace(/\s+/g, ' ').slice(0, 300) }); } catch {}
-  }
-  return rows;
+// sessions search — RANKED recall via the daemon's GET /recall (BM25), not substring grep. The daemon
+// reads the private archive (bounded, never outside the sessions dir); we just shape the rows for display.
+async function searchSessions(query) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const ranked = await daemonGet('/recall?q=' + encodeURIComponent(q.slice(0, 500)) + '&k=40').catch(() => null);
+  if (!Array.isArray(ranked)) return [];
+  return ranked.map((e) => ({ t: (e.t || '').slice(0, 16).replace('T', ' '), channel: e.channel || '', user: (e.user || '').slice(0, 200),
+    urfael: (e.urfael || '').replace(/\[\/?SPOKEN\]/gi, '').replace(/\s+/g, ' ').slice(0, 300) }));
 }
 
 function readBody(req) {
@@ -224,7 +218,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/vitals') return sendJson(res, 200, (await daemonGet('/vitals')) || {});
     if (req.method === 'GET' && pathname === '/api/reminders') return sendJson(res, 200, (await daemonGet('/reminders')) || []);
     if (req.method === 'GET' && pathname === '/api/jobs') return sendJson(res, 200, (await daemonGet('/jobs')) || []);
-    if (req.method === 'GET' && pathname === '/api/sessions') return sendJson(res, 200, searchSessions(u.searchParams.get('q') || ''));
+    if (req.method === 'GET' && pathname === '/api/sessions') return sendJson(res, 200, await searchSessions(u.searchParams.get('q') || ''));
     if (req.method === 'POST' && pathname === '/api/ask') {
       const body = await readBody(req); let parsed = {}; try { parsed = JSON.parse(body); } catch {}
       const text = typeof parsed.text === 'string' ? parsed.text.slice(0, 8000) : '';

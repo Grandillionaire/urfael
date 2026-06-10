@@ -8,6 +8,7 @@
 //   urfael reminders                           list reminders
 //   urfael remind "text" --in 20 [--repeat daily|weekly|<mins>]   or  --at "2026-06-11T15:00"
 //   urfael sessions search <query>             full-text search of every past conversation
+//   urfael tui                                 full-screen terminal cockpit (streams turns, scrollback, status bar)
 //   urfael dashboard                           open the token-gated localhost web console (prints the URL)
 //   urfael stop                                abort the current in-flight turn (also: Ctrl+C while asking)
 //   urfael health | shutdown
@@ -51,7 +52,7 @@ function ask(text) {
     const onSigint = () => { Promise.race([req('POST', '/abort').catch(() => {}), new Promise((r) => setTimeout(r, 1500))]).then(() => process.exit(0)); };
     process.on('SIGINT', onSigint);
     const done = () => { process.removeListener('SIGINT', onSigint); resolve(); };
-    const r = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' } }, (res) => {
+    const r = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 300000 }, (res) => {
       let buf = '', started = false, lastTool = '';
       res.on('data', (d) => {
         buf += d.toString(); let i;
@@ -67,6 +68,7 @@ function ask(text) {
       res.on('end', done);
     });
     r.on('error', () => { console.error('brain unreachable'); done(); });
+    r.on('timeout', () => { r.destroy(); done(); }); // a wedged daemon mid-stream shouldn't hang the CLI forever
     r.end(JSON.stringify({ text }));
   });
 }
@@ -75,7 +77,7 @@ function searchSessions(query) {
   const dir = path.join(MEMORY_DIR, 'sessions');
   if (!fs.existsSync(dir)) { console.log('no session archive yet'); return; }
   let out = '';
-  try { out = execFileSync('grep', ['-ih', query, '-r', dir], { maxBuffer: 1 << 24 }).toString(); } catch { console.log('no matches'); return; }
+  try { out = execFileSync('grep', ['-ih', '-r', '--', query, dir], { maxBuffer: 1 << 24 }).toString(); } catch { console.log('no matches'); return; } // -- so a query starting with '-' isn't parsed as a flag
   const lines = out.trim().split('\n').slice(-30);
   for (const ln of lines) {
     try {
@@ -112,6 +114,8 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
   }
 
   if (!(await ensureDaemon())) { console.error('✗ brain offline and could not be started'); process.exit(1); }
+  // tui: hand the terminal to the full-screen cockpit (ensureDaemon ran first so spawn logs can't corrupt the alt buffer)
+  if (cmd === 'tui') { require('./tui').run(); return; }
   if (cmd === 'health') { console.log(JSON.stringify(await req('GET', '/health'))); return; }
   if (cmd === 'shutdown') { await req('POST', '/shutdown').catch(() => {}); console.log('brain stopped'); return; }
   if (cmd === 'status') {

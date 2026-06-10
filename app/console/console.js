@@ -216,13 +216,38 @@ async function renderDay(day) {
   if (!entries.length) { body.innerHTML = '<div class="empty"><p>Nothing recorded that day.</p></div>'; return; }
   for (const e of entries) body.appendChild(archTurn(e));
 }
+// Inline BM25 (k1=1.5,b=0.75) mirroring app/recall.js: the daemon's sessionsSearch returns substring
+// matches in archive order; we re-rank them so the most RELEVANT turns float to the top in the Console.
+function bm25rank(entries, query, k = 60) {
+  if (!entries || !entries.length) return entries || [];
+  const tok = (s) => String(s == null ? '' : s).toLowerCase().match(/[a-z0-9]+/g) || [];
+  const qUniq = [...new Set(tok(query))];
+  if (!qUniq.length) return entries;
+  const K1 = 1.5, B = 0.75, N = entries.length;
+  const docs = entries.map((e) => {
+    const toks = tok(((e.user || '') + ' ' + (e.urfael || '').replace(/\[\/?SPOKEN\]/gi, ' ')));
+    const tf = new Map(); for (const t of toks) tf.set(t, (tf.get(t) || 0) + 1);
+    return { e, tf, len: toks.length };
+  });
+  const avgdl = docs.reduce((a, d) => a + d.len, 0) / N || 1;
+  const df = new Map(); for (const d of docs) for (const t of d.tf.keys()) df.set(t, (df.get(t) || 0) + 1);
+  const idf = new Map(); for (const t of qUniq) { const n = df.get(t) || 0; idf.set(t, Math.log(1 + (N - n + 0.5) / (n + 0.5))); }
+  const scored = [];
+  for (const d of docs) {
+    let s = 0;
+    for (const t of qUniq) { const f = d.tf.get(t); if (!f) continue; s += idf.get(t) * (f * (K1 + 1)) / (f + K1 * (1 - B + B * (d.len / avgdl))); }
+    if (s > 0) scored.push({ e: d.e, s }); // drop non-matching docs (mirror recall.js's score>0 gate) — no irrelevant trailing rows
+  }
+  scored.sort((a, b) => (b.s - a.s) || (String(b.e.t || '') < String(a.e.t || '') ? -1 : 1)); // BM25 desc, recency tiebreak
+  return scored.slice(0, k).map((x) => x.e);
+}
 let searchT = null;
 $('#arch-search').addEventListener('input', () => {
   clearTimeout(searchT);
   searchT = setTimeout(async () => {
     const q = $('#arch-search').value.trim();
     if (!q) { $('#arch-body').innerHTML = '<div class="empty"><p>Pick a day — or search. Every word is kept.</p></div>'; return; }
-    const hits = await window.urfael.sessionsSearch(q);
+    const hits = bm25rank(await window.urfael.sessionsSearch(q), q); // re-rank by relevance, not archive order
     const body = $('#arch-body'); body.innerHTML = '';
     if (!hits.length) { body.innerHTML = '<div class="empty"><p>No trace of that.</p></div>'; return; }
     for (const e of hits) body.appendChild(archTurn(e));

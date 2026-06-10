@@ -7,7 +7,7 @@
 // the HUD rail deploys to its left inside the SAME window (transparent windows can't be resized on
 // macOS, so the window is always large and the lit content expands/collapses via CSS altitudes).
 // Mouse events pass through everything except elements the renderer marks interactive.
-const { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, session } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, session, Tray } = require('electron');
 const { spawn } = require('child_process');
 const { Worker } = require('worker_threads');
 const http = require('http');
@@ -22,6 +22,8 @@ const DAEMON = path.join(__dirname, 'daemon.js');
 let win = null;
 let consoleWin = null;
 let wakeWorker = null;
+let tray = null;        // MODULE-LEVEL so the menu-bar Tray is never garbage-collected
+let trayTimer = null;   // vitals refresh interval for the tray status line
 function forward(channel, p) { for (const w of [win, consoleWin]) if (w && !w.isDestroyed()) w.webContents.send(channel, p); }
 function targetDisplay() { return screen.getDisplayNearestPoint(screen.getCursorScreenPoint()); } // multi-display: follow the cursor's screen
 
@@ -297,6 +299,61 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(tpl));
 }
 
+// ---- macOS menu-bar Tray (third lightweight surface) -----------------------
+// A monochrome Template image evoking the Uruz rune (ASCII). The icon is built at runtime from an
+// macOS Template image — a black-on-transparent PNG (Electron's nativeImage CANNOT decode SVG data URLs;
+// it would return an empty image and `new Tray()` would throw). The @2x file is picked up automatically.
+function trayIcon() {
+  const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'trayTemplate.png'));
+  img.setTemplateImage(true); // monochrome; macOS tints it for the active menu-bar appearance
+  return img;
+}
+function shortModel(m) { // '/vitals' returns a full model id - keep the tray line terse
+  if (!m) return '?';
+  const s = String(m).toLowerCase();
+  if (s.includes('opus')) return 'Opus';
+  if (s.includes('sonnet')) return 'Sonnet';
+  if (s.includes('haiku')) return 'Haiku';
+  return String(m).replace(/^claude-/, '').replace(/-\d{6,}$/, '').slice(0, 18) || '?';
+}
+function buildTrayMenu(status) {
+  return Menu.buildFromTemplate([
+    { label: 'Open Console', click: createConsole },
+    { label: 'Toggle Orb HUD', click: () => { toggleOrb(); menuSend('toggle-orb'); } },
+    { label: 'New Conversation', click: () => menuSend('new') },
+    { label: 'Stop Generation', click: () => menuSend('stop') },
+    { type: 'separator' },
+    { label: status || 'brain offline', enabled: false },
+    { type: 'separator' },
+    { label: 'Quit Urfael', click: () => shutdownAll() },
+  ]);
+}
+async function refreshTray() {
+  if (!tray || tray.isDestroyed()) return;
+  const v = await daemonGet('/vitals');
+  const status = v ? `${shortModel(v.model)} - ${v.turnsToday || 0} turn${v.turnsToday === 1 ? '' : 's'} today` : 'brain offline';
+  if (!tray || tray.isDestroyed()) return; // may have been torn down during the await
+  tray.setContextMenu(buildTrayMenu(status));
+}
+function createTray() {
+  if (process.platform !== 'darwin' || tray) return; // menu-bar presence is macOS-only
+  try {
+    tray = new Tray(trayIcon());
+    tray.setToolTip('Urfael');
+    tray.setIgnoreDoubleClickEvents(true);
+    tray.on('click', () => { if (consoleWin && !consoleWin.isDestroyed()) { consoleWin.show(); consoleWin.focus(); } else createConsole(); }); // left-click -> Console
+    tray.setContextMenu(buildTrayMenu(null));
+    refreshTray();
+    trayTimer = setInterval(refreshTray, 10000);
+    if (trayTimer.unref) trayTimer.unref(); // don't keep the event loop alive for the tray poll
+  } catch { tray = null; }
+}
+function destroyTray() {
+  if (trayTimer) { clearInterval(trayTimer); trayTimer = null; }
+  if (tray && !tray.isDestroyed()) { try { tray.destroy(); } catch {} }
+  tray = null;
+}
+
 // ---- config for the renderer -----------------------------------------------
 let ttsEnvCache = { mtime: -1, val: null }; // read per TTS/STT call — only re-parse when the file actually changed
 function readTtsEnv() {
@@ -375,6 +432,7 @@ else app.on('second-instance', () => { if (win) { win.show(); } });
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'media'));
   buildMenu();                                                     // native menu bar + accelerators
+  createTray();                                                    // macOS menu-bar presence (third surface; no-op off-darwin)
   const orbOn = readTtsEnv().orb || process.env.URFAEL_ORB === '1';
   createConsole();                                                 // the Console IS the app
   globalShortcut.register('CommandOrControl+Shift+O', createConsole);
@@ -392,7 +450,7 @@ app.whenReady().then(() => {
   startWhisper();   // warm local STT (Console push-to-talk + orb voice)
 });
 
-app.on('will-quit', () => { globalShortcut.unregisterAll(); stopWhisper(); try { wakeWorker && wakeWorker.postMessage('stop'); } catch {} }); // daemon (brain) intentionally keeps running
+app.on('will-quit', () => { globalShortcut.unregisterAll(); stopWhisper(); destroyTray(); try { wakeWorker && wakeWorker.postMessage('stop'); } catch {} }); // daemon (brain) intentionally keeps running
 app.on('activate', () => { if (!consoleWin) createConsole(); });       // dock click → Console
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); }); // macOS: app lives in the dock; reopen via click
 ipcMain.on('urfael:hide', () => win && win.hide());

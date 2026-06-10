@@ -12,6 +12,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 const { MODELS, classifyModel, segmentSentences, resolveProfile } = require('./lib');
+const recall = require('./recall');
 const jobstore = require('./jobstore');
 const runner = require('./runner');
 const scheduler = require('./scheduler');
@@ -282,6 +283,24 @@ function recordSession(entry) {
     fs.appendFileSync(path.join(SESSIONS_DIR, entry.t.slice(0, 10) + '.jsonl'), JSON.stringify(entry) + '\n');
   } catch {}
 }
+// Load the recent session archive for RANKED recall: newest ~90 daily files, total lines capped, parsed.
+// Bounded so a huge history can't blow up memory; reads ONLY from SESSIONS_DIR and never shells out.
+const RECALL_MAX_FILES = 90, RECALL_MAX_LINES = 20000;
+function loadSessions() {
+  const out = [];
+  let files;
+  try { files = fs.readdirSync(SESSIONS_DIR).filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f)).sort().reverse().slice(0, RECALL_MAX_FILES); }
+  catch { return out; }
+  for (const f of files) {
+    for (const ln of tailLines(path.join(SESSIONS_DIR, f), 1 << 20)) { // tail-bounded per file (mirrors the vitals reader)
+      if (!ln) continue;
+      let e; try { e = JSON.parse(ln); } catch { continue; }
+      out.push(e);
+      if (out.length >= RECALL_MAX_LINES) return out;
+    }
+  }
+  return out;
+}
 
 // ---- proactive delivery: notification + spoken aloud + phone push -------------------------------
 // Used by reminders and the heartbeat. Speaks via local `say` (free, works with the overlay closed);
@@ -533,6 +552,15 @@ const server = http.createServer(async (req, res) => {
     runner.run(jobstore.get(job.id));
     logEvent({ ev: 'job_create', id: job.id, kind: spec.kind });
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: job.id, state: 'running' }));
+  } else if (req.url && req.url.startsWith('/recall')) {
+    // GET /recall?q=<query>&k=<n> — BM25-ranked recall over the recent session archive (bounded reads,
+    // never outside SESSIONS_DIR, never shells out). Empty/absent q -> []; k clamped 1..50.
+    let q = '', k = 20;
+    try { const u = new URL(req.url, 'http://x'); q = (u.searchParams.get('q') || '').slice(0, 500); k = Math.min(Math.max(parseInt(u.searchParams.get('k'), 10) || 20, 1), 50); } catch {}
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    if (!q.trim()) { res.end('[]'); return; }
+    const ranked = recall.rank(loadSessions(), q, k);
+    res.end(JSON.stringify(ranked.map((e) => ({ t: e.t, channel: e.channel || '', user: e.user || '', urfael: e.urfael || '', score: e.score }))));
   } else if (req.url === '/jobs') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(jobstore.list().map((j) => ({ id: j.id, kind: j.kind, state: j.state, createdAt: j.createdAt, endedAt: j.endedAt }))));
