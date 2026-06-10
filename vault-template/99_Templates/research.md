@@ -1,7 +1,7 @@
-![[jarvis-logo.svg|90]]
+![[urfael-logo.svg|90]]
 
 # Research — {{topic}}
-*Compiled by Jarvis · {{date}}*
+*Compiled by Urfael · {{date}}*
 
 ---
 

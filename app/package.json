@@ -1,7 +1,7 @@
 {
-  "name": "jarvis-app",
+  "name": "urfael-app",
   "version": "0.1.0",
-  "description": "Floating arc-reactor voice overlay for Jarvis (Claude Code + Obsidian)",
+  "description": "Floating arc-reactor voice overlay for Urfael (Claude Code + Obsidian)",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

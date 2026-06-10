@@ -1,5 +1,5 @@
 'use strict';
-// Jarvis overlay — thin client of the brain daemon (daemon.js). It owns the J.A.R.V.I.S. HUD
+// Urfael overlay — thin client of the brain daemon (daemon.js). It owns the Urfael HUD
 // window, the wake word, and audio config for the renderer; the brain (warm Claude sessions,
 // routing, memory) lives in the always-on daemon and survives this window closing.
 //
@@ -15,8 +15,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const TTS_ENV = path.join(os.homedir(), '.claude', 'jarvis', 'tts.env');
-const SOCK = path.join(os.homedir(), '.claude', 'jarvis', 'daemon.sock');
+const TTS_ENV = path.join(os.homedir(), '.claude', 'urfael', 'tts.env');
+const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
 const DAEMON = path.join(__dirname, 'daemon.js');
 
 let win = null;
@@ -58,9 +58,9 @@ function askDaemon(text) {
           const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
           if (!line) continue;
           let e; try { e = JSON.parse(line); } catch { continue; }
-          if (e.kind === 'thinking') { const { kind, ...p } = e; forward('jarvis:thinking', p); }
-          else if (e.kind === 'say') { const { kind, ...p } = e; forward('jarvis:say', p); }
-          else if (e.kind === 'done') { done = true; forward('jarvis:done', { model: e.model, ms: e.ms, text: e.text }); resolve({ ok: true, text: e.text, model: e.model }); }
+          if (e.kind === 'thinking') { const { kind, ...p } = e; forward('urfael:thinking', p); }
+          else if (e.kind === 'say') { const { kind, ...p } = e; forward('urfael:say', p); }
+          else if (e.kind === 'done') { done = true; forward('urfael:done', { model: e.model, ms: e.ms, text: e.text }); resolve({ ok: true, text: e.text, model: e.model }); }
         }
       });
       res.on('end', () => { if (!done) resolve({ ok: true, text: '', model: '' }); });
@@ -79,15 +79,15 @@ function daemonGet(p) {
   });
 }
 
-ipcMain.handle('jarvis:ask', (_e, text) => askDaemon(text));
-ipcMain.handle('jarvis:vitals', () => daemonGet('/vitals'));
-ipcMain.on('jarvis:conversation-end', () => daemonPost('/conversation-end'));
+ipcMain.handle('urfael:ask', (_e, text) => askDaemon(text));
+ipcMain.handle('urfael:vitals', () => daemonGet('/vitals'));
+ipcMain.on('urfael:conversation-end', () => daemonPost('/conversation-end'));
 
 // ---- click-through: pass mouse to apps below except over lit/interactive elements ----
-ipcMain.on('jarvis:interactive', (_e, on) => { if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!on, { forward: true }); });
+ipcMain.on('urfael:interactive', (_e, on) => { if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!on, { forward: true }); });
 
 // ---- full shutdown (brain daemon + overlay) --------------------------------
-const PLIST = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.jarvis.daemon.plist');
+const PLIST = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.urfael.daemon.plist');
 function shutdownAll() {
   daemonPost('/shutdown');
   try { spawn('launchctl', ['unload', PLIST], { stdio: 'ignore' }); } catch {}
@@ -95,10 +95,10 @@ function shutdownAll() {
   stopWhisper();
   setTimeout(() => app.quit(), 450);
 }
-ipcMain.on('jarvis:shutdown', shutdownAll);
+ipcMain.on('urfael:shutdown', shutdownAll);
 
 // ---- look/theme ------------------------------------------------------------
-const THEMES = ['mk2', 'arc', 'reactor', 'face'];
+const THEMES = ['sigil', 'rune', 'ember', 'eye'];
 function setTtsEnvValue(key, val) {
   let lines = [];
   try { lines = fs.readFileSync(TTS_ENV, 'utf8').split('\n'); } catch {}
@@ -108,13 +108,13 @@ function setTtsEnvValue(key, val) {
   try { fs.writeFileSync(TTS_ENV, lines.join('\n')); } catch {}
 }
 function cycleTheme() {
-  const next = THEMES[(THEMES.indexOf(readTtsEnv().theme) + 1) % THEMES.length] || 'mk2';
-  setTtsEnvValue('JARVIS_THEME', next); forward('jarvis:theme', next);
+  const next = THEMES[(THEMES.indexOf(readTtsEnv().theme) + 1) % THEMES.length] || 'sigil';
+  setTtsEnvValue('URFAEL_THEME', next); forward('urfael:theme', next);
 }
-ipcMain.on('jarvis:set-theme', (_e, t) => { if (THEMES.includes(t)) { setTtsEnvValue('JARVIS_THEME', t); forward('jarvis:theme', t); } });
-ipcMain.on('jarvis:hud', () => forward('jarvis:hud-toggle')); // ⌘⇧H: renderer toggles expanded altitude
+ipcMain.on('urfael:set-theme', (_e, t) => { if (THEMES.includes(t)) { setTtsEnvValue('URFAEL_THEME', t); forward('urfael:theme', t); } });
+ipcMain.on('urfael:hud', () => forward('urfael:hud-toggle')); // ⌘⇧H: renderer toggles expanded altitude
 
-// ---- cursor gaze (face/mk2 look at the cursor) -----------------------------
+// ---- cursor gaze (eye/sigil look at the cursor) -----------------------------
 function startGaze() {
   let lastX = 9, lastY = 9;
   setInterval(() => {
@@ -125,18 +125,18 @@ function startGaze() {
       const x = Math.max(-1, Math.min(1, (c.x - ox) / 600)), y = Math.max(-1, Math.min(1, (c.y - oy) / 600));
       if (Math.abs(x - lastX) < 0.005 && Math.abs(y - lastY) < 0.005) return; // cursor still — no IPC churn
       lastX = x; lastY = y;
-      forward('jarvis:gaze', { x, y });
+      forward('urfael:gaze', { x, y });
     } catch {}
   }, 60);
 }
 
 // ---- wake word -------------------------------------------------------------
-function sendWake(p) { forward('jarvis:wake', p); }
+function sendWake(p) { forward('urfael:wake', p); }
 function startWake() {
-  const key = readTtsEnv().picovoiceKey;
-  if (!key) { sendWake({ noKey: true }); return; }
+  const cfg = readTtsEnv();
+  if (!cfg.picovoiceKey) { sendWake({ noKey: true }); return; }
   try {
-    wakeWorker = new Worker(path.join(__dirname, 'wake-worker.js'), { workerData: { accessKey: key, sensitivity: 0.55 } });
+    wakeWorker = new Worker(path.join(__dirname, 'wake-worker.js'), { workerData: { accessKey: cfg.picovoiceKey, keyword: cfg.wakeKeyword, keywordPath: cfg.wakeKeywordPath, sensitivity: 0.55 } });
     wakeWorker.on('message', (m) => {
       if (m.type === 'wake') { if (win) { win.showInactive(); win.show(); } sendWake({ detected: true }); }
       else if (m.type === 'ready') sendWake({ ready: true });
@@ -145,8 +145,8 @@ function startWake() {
     wakeWorker.on('error', (e) => sendWake({ error: String(e.message || e) }));
   } catch (e) { sendWake({ error: String(e.message || e) }); }
 }
-ipcMain.on('jarvis:wake-pause', () => wakeWorker && wakeWorker.postMessage('pause'));
-ipcMain.on('jarvis:wake-done', () => wakeWorker && wakeWorker.postMessage('resume'));
+ipcMain.on('urfael:wake-pause', () => wakeWorker && wakeWorker.postMessage('pause'));
+ipcMain.on('urfael:wake-done', () => wakeWorker && wakeWorker.postMessage('resume'));
 
 // ---- window (one big transparent click-through HUD) ------------------------
 function createWindow() {
@@ -167,7 +167,7 @@ function createWindow() {
 function toggle() {
   if (!win) return;
   if (win.isVisible()) { win.hide(); if (wakeWorker) wakeWorker.postMessage('pause'); }
-  else { win.showInactive(); win.show(); win.webContents.send('jarvis:shown'); if (wakeWorker) wakeWorker.postMessage('resume'); }
+  else { win.showInactive(); win.show(); win.webContents.send('urfael:shown'); if (wakeWorker) wakeWorker.postMessage('resume'); }
 }
 
 // ---- config for the renderer -----------------------------------------------
@@ -200,32 +200,35 @@ function readTtsEnv() {
     model: cfg.ELEVENLABS_TTS_MODEL || 'eleven_turbo_v2_5',
     speed: parseFloat(cfg.ELEVENLABS_SPEED || '1.0'),
     picovoiceKey: cfg.PICOVOICE_ACCESS_KEY || '',
-    theme: cfg.JARVIS_THEME || 'mk2',
-    acks: cfg.JARVIS_ACKS !== '0',   // instant spoken acknowledgments while thinking (default on)
+    wakeKeyword: cfg.WAKE_KEYWORD || 'Computer',                  // any Porcupine builtin
+    wakeKeywordPath: cfg.WAKE_KEYWORD_PATH || '',                 // custom .ppn (train "Urfael" free at console.picovoice.ai)
+    wakeLabel: cfg.WAKE_WORD_LABEL || (cfg.WAKE_KEYWORD_PATH ? 'Urfael' : (cfg.WAKE_KEYWORD || 'Computer')),
+    theme: cfg.URFAEL_THEME || 'sigil',
+    acks: cfg.URFAEL_ACKS !== '0',   // instant spoken acknowledgments while thinking (default on)
   };
   ttsEnvCache = { mtime, val: out };
   return out;
 }
-ipcMain.handle('jarvis:config', () => readTtsEnv());
+ipcMain.handle('urfael:config', () => readTtsEnv());
 
 // ---- local voice (API-free): TTS via `say`/Kokoro, STT via a warm whisper-server ----
 const voice = require('./voice');
-ipcMain.handle('jarvis:tts', async (_e, text) => { const b = await voice.synth(text, readTtsEnv()); return b; });        // returns mp3 bytes
-ipcMain.handle('jarvis:stt', async (_e, buf) => voice.transcribe(Buffer.from(buf), readTtsEnv()));                       // returns transcript text
+ipcMain.handle('urfael:tts', async (_e, text) => { const b = await voice.synth(text, readTtsEnv()); return b; });        // returns mp3 bytes
+ipcMain.handle('urfael:stt', async (_e, buf) => voice.transcribe(Buffer.from(buf), readTtsEnv()));                       // returns transcript text
 
 let whisperProc = null, whisperStopped = false, whisperRestarts = 0;
 function whisperBin() { for (const p of ['/opt/homebrew/bin/whisper-server', '/usr/local/bin/whisper-server']) { try { fs.accessSync(p); return p; } catch {} } return 'whisper-server'; }
 function startWhisper() {
   const cfg = readTtsEnv();
   if (cfg.sttProvider !== 'whispercpp') return;                                  // only the local-STT path needs the server
-  const model = path.join(os.homedir(), '.claude', 'jarvis', 'models', `ggml-${cfg.whisperModel}.bin`);
-  if (!fs.existsSync(model)) { forward('jarvis:wake', { error: 'Local STT model missing — run install.sh (downloads whisper)' }); return; }
+  const model = path.join(os.homedir(), '.claude', 'urfael', 'models', `ggml-${cfg.whisperModel}.bin`);
+  if (!fs.existsSync(model)) { forward('urfael:wake', { error: 'Local STT model missing — run install.sh (downloads whisper)' }); return; }
   whisperStopped = false;
   try {
     const spawnedAt = Date.now();
     whisperProc = spawn(whisperBin(), ['--model', model, '--host', '127.0.0.1', '--port', String(cfg.sttPort), '--language', 'en', '--no-timestamps'],
       { stdio: 'ignore' });
-    whisperProc.on('exit', () => {                                               // supervised: auto-respawn with backoff so a crash never leaves Jarvis deaf
+    whisperProc.on('exit', () => {                                               // supervised: auto-respawn with backoff so a crash never leaves Urfael deaf
       whisperProc = null;
       if (whisperStopped) return;
       if (Date.now() - spawnedAt > 60000) whisperRestarts = 0;                   // it ran fine for a while — reset the backoff
@@ -243,9 +246,9 @@ else app.on('second-instance', () => { if (win) { win.show(); } });
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'media'));
   createWindow();
-  globalShortcut.register('CommandOrControl+Shift+J', toggle);
+  globalShortcut.register('CommandOrControl+Shift+U', toggle);
   globalShortcut.register('CommandOrControl+Shift+T', cycleTheme);
-  globalShortcut.register('CommandOrControl+Shift+H', () => forward('jarvis:hud-toggle'));
+  globalShortcut.register('CommandOrControl+Shift+H', () => forward('urfael:hud-toggle'));
   globalShortcut.register('CommandOrControl+Shift+Q', shutdownAll);
   win.once('ready-to-show', () => { win.showInactive(); win.show(); });
   ensureDaemon();
@@ -256,5 +259,5 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => { globalShortcut.unregisterAll(); stopWhisper(); try { wakeWorker && wakeWorker.postMessage('stop'); } catch {} }); // daemon (brain) intentionally keeps running
 app.on('window-all-closed', () => app.quit());
-ipcMain.on('jarvis:hide', () => win && win.hide());
-ipcMain.on('jarvis:quit', () => app.quit());
+ipcMain.on('urfael:hide', () => win && win.hide());
+ipcMain.on('urfael:quit', () => app.quit());

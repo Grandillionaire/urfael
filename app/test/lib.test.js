@@ -20,7 +20,7 @@ test('routing: "report" must not trip "repo"', () => {
 test('profile: local keeps full power (no tool allowlist, inherits permission mode)', () => {
   const p = resolveProfile('local');
   assert.equal(p.name, 'local');
-  assert.equal(p.permissionMode, null);   // daemon applies PERM_MODE / JARVIS_YOLO
+  assert.equal(p.permissionMode, null);   // daemon applies PERM_MODE / URFAEL_YOLO
   assert.equal(p.allowedTools, null);      // no restriction
   assert.equal(p.trustFraming, false);
 });

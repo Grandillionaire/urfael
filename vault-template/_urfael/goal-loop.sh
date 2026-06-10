@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# goal-loop.sh — guardrailed autonomous coding loop for Jarvis (wraps Claude Code).
+# goal-loop.sh — guardrailed autonomous coding loop for Urfael (wraps Claude Code).
 #
 # SAFETY (the user's hard rule: kill-switches, not just exit traps):
 #   • requires a git repo (so you can `git reset --hard`)
@@ -7,7 +7,7 @@
 #   • `timeout` SIGKILLs a hung turn — exit traps don't fire on hung subprocesses
 #   • no-progress circuit breaker (git state unchanged N turns → abort)
 #   • needs a real completion signal (GOAL_COMPLETE marker + optional --check command)
-#   • prints everything; logs to .jarvis-goal.log; never auto-merges, never auto-pushes
+#   • prints everything; logs to .urfael-goal.log; never auto-merges, never auto-pushes
 # Run it in a git worktree or container, not your only copy. Supervise the first run.
 set -uo pipefail
 
@@ -20,25 +20,25 @@ while [ $# -gt 0 ]; do case "$1" in
 
 [ -n "$GOAL" ] || { echo "✗ no goal given."; usage; exit 1; }
 # SECURITY (M6): never default to the current dir. Require an explicit --repo pointing at an ISOLATED git
-# worktree/container so a runaway loop can't touch your real work. Bypass mode is opt-in (JARVIS_YOLO=1).
+# worktree/container so a runaway loop can't touch your real work. Bypass mode is opt-in (URFAEL_YOLO=1).
 [ -n "$REPO" ] || { echo "✗ no --repo given. Point this at an ISOLATED git worktree/container, not your live checkout."; usage; exit 1; }
 [ -d "$REPO/.git" ] || { echo "✗ $REPO is not a git repo (need one so you can reset). Aborting."; exit 1; }
 command -v claude >/dev/null || { echo "✗ claude not found."; exit 1; }
 TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"   # macOS coreutils installs as gtimeout
 [ -n "$TIMEOUT_BIN" ] || { echo "✗ no 'timeout'/'gtimeout' (brew install coreutils) — needed for the hung-turn watchdog. Aborting."; exit 1; }
-CLAUDE_BIN="$(command -v claude)"; LOG="$REPO/.jarvis-goal.log"; : > "$LOG"
+CLAUDE_BIN="$(command -v claude)"; LOG="$REPO/.urfael-goal.log"; : > "$LOG"
 
 cat <<BANNER
-── Jarvis goal-loop ──────────────────────────────────
+── Urfael goal-loop ──────────────────────────────────
   goal:       $GOAL
   repo:       $REPO
   caps:       $MAX_ITERS iters · ${MAX_MINS}m wall · ${TURN_TIMEOUT}s/turn · stop after $STALE_LIMIT stale
   completion: GOAL_COMPLETE marker${CHECK:+ + check: $CHECK}
-  model:      $MODEL   (perm mode: ${JARVIS_YOLO:+bypassPermissions}${JARVIS_YOLO:-acceptEdits} — supervise; isolated worktree/container)
+  model:      $MODEL   (perm mode: ${URFAEL_YOLO:+bypassPermissions}${URFAEL_YOLO:-acceptEdits} — supervise; isolated worktree/container)
 ──────────────────────────────────────────────────────
 BANNER
 
-START=$(date +%s); cd "$REPO" || exit 1; prev=""; stale=0; errs=0; sid=""; DONE=""; MARKER="JARVIS-GOAL-DONE"
+START=$(date +%s); cd "$REPO" || exit 1; prev=""; stale=0; errs=0; sid=""; DONE=""; MARKER="URFAEL-GOAL-DONE"
 parse_field(){ printf '%s' "$1" | python3 -c "import sys,json
 try: print(json.load(sys.stdin).get('$2',''))
 except Exception: print('')"; }
@@ -51,7 +51,7 @@ for (( i=1; i<=MAX_ITERS; i++ )); do
   echo "── iteration $i/$MAX_ITERS · $(( (now-START)/60 ))m elapsed ──"
   PROMPT="Work toward this goal in this repo: ${GOAL}
 Make concrete, committed progress this turn. When the goal is fully achieved and verified${CHECK:+ (so '$CHECK' passes)}, end your reply with a line containing only: ${MARKER}. If you are blocked or it is unsafe to proceed, explain why and stop."
-  PERM="${JARVIS_YOLO:+bypassPermissions}"; PERM="${PERM:-acceptEdits}"; FLAGS=(--model "$MODEL" --permission-mode "$PERM" --output-format json)
+  PERM="${URFAEL_YOLO:+bypassPermissions}"; PERM="${PERM:-acceptEdits}"; FLAGS=(--model "$MODEL" --permission-mode "$PERM" --output-format json)
   [ -n "$sid" ] && FLAGS+=(--resume "$sid")     # pin OUR session so a stray claude in this dir can't be hijacked
   out=$("$TIMEOUT_BIN" -k 10 "$TURN_TIMEOUT" "$CLAUDE_BIN" -p "$PROMPT" "${FLAGS[@]}" 2>>"$LOG"); rc=$?
   if [ $rc -eq 124 ]; then echo "⏰ turn $i exceeded ${TURN_TIMEOUT}s — killed. Continuing."; errs=0
@@ -83,5 +83,5 @@ if [ -n "$DONE" ]; then echo "Result: COMPLETED after $i iters. Review:  git -C 
 else echo "Result: STOPPED (not confirmed complete) after $i iters. Review $LOG and:  git -C \"$REPO\" diff"; OUTCOME="stopped (needs you) ⚠️"; fi
 echo "Nothing was pushed or merged — that's yours to do."
 # phone push (best-effort; silent no-op if no bridge.env / node)
-NOTIFY="$HOME/jarvis/app/bridge/notify.js"
+NOTIFY="$HOME/urfael/app/bridge/notify.js"
 [ -f "$NOTIFY" ] && command -v node >/dev/null 2>&1 && node "$NOTIFY" "Goal $OUTCOME after $i iters: $GOAL" >/dev/null 2>&1 || true

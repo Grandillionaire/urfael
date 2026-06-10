@@ -1,5 +1,5 @@
 'use strict';
-// Telegram bridge — owner-allowlisted phone control of Jarvis. Outbound long-poll only (NO inbound port).
+// Telegram bridge — owner-allowlisted phone control of Urfael. Outbound long-poll only (NO inbound port).
 // Every owner message is relayed to POST /ask with channel:'telegram', which the daemon forces into the
 // sandboxed 'untrusted' profile (no bypass, no computer-use, read/search/web/notes only). Works on Node 18+.
 //   node telegram-bridge.js            run the bridge
@@ -34,7 +34,7 @@ async function handle(text) {
 
 async function main() {
   if (await notifyMode()) return;
-  if (!TOKEN || !OWNER) { console.error('telegram-bridge: set TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_CHAT_ID in ~/.claude/jarvis/bridge.env'); process.exit(1); }
+  if (!TOKEN || !OWNER) { console.error('telegram-bridge: set TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_CHAT_ID in ~/.claude/urfael/bridge.env'); process.exit(1); }
 
   const bucket = new core.TokenBucket(8, 20); // 8 burst, ~20/min sustained — bounds a flood/injection loop
   let offset = 0;

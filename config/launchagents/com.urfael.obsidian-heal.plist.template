@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Jarvis Obsidian auto-heal watchdog — opt-in. install.sh fills {{HOME}}. -->
+<!-- Urfael Obsidian auto-heal watchdog — opt-in. install.sh fills {{HOME}}. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>com.jarvis.obsidian-heal</string>
+  <key>Label</key><string>com.urfael.obsidian-heal</string>
   <key>ProgramArguments</key>
-  <array><string>/bin/bash</string><string>{{HOME}}/Jarvis/_jarvis/obsidian-heal.sh</string></array>
+  <array><string>/bin/bash</string><string>{{HOME}}/Urfael/_urfael/obsidian-heal.sh</string></array>
   <key>StartInterval</key><integer>120</integer>
   <key>ThrottleInterval</key><integer>120</integer>
   <key>RunAtLoad</key><true/>

@@ -1,21 +1,21 @@
 'use strict';
-// Jarvis visualizer with switchable looks: 'arc' (classic arc-reactor), 'reactor' (triangular
-// Mark-style reactor), 'face' (a smiley that follows the cursor + reacts to audio).
+// Urfael visualizer with switchable looks: 'sigil' (rings + telemetry), 'rune' (radiant ring),
+// 'ember' (forge coil), 'eye' (a face that follows the cursor + reacts to audio).
 // All reuse one audio loop; theme is swapped live via setTheme().
 
 const STATE_COLORS = {
-  idle:      { r: 25,  g: 224, b: 255 },
-  listening: { r: 120, g: 233, b: 255 },
-  thinking:  { r: 255, g: 179, b: 71  },
-  speaking:  { r: 25,  g: 224, b: 255 },
+  idle:      { r: 212, g: 168, b: 90  },   // burnished gold
+  listening: { r: 240, g: 214, b: 156 },   // bright gold
+  thinking:  { r: 255, g: 138, b: 66  },   // ember
+  speaking:  { r: 228, g: 186, b: 110 },   // warm gold
 };
 
-class JarvisOrb {
+class UrfaelOrb {
   constructor(canvas) {
     this.canvas = canvas; this.ctx = canvas.getContext('2d');
     this.analyser = null; this.freq = null;
     this.state = 'idle'; this.level = 0; this.spin = 0;
-    this.theme = 'arc';
+    this.theme = 'sigil';
     this.gaze = { x: 0, y: 0 }; this.gazeS = { x: 0, y: 0 }; // target + smoothed cursor gaze
     this._resize();
     window.addEventListener('resize', () => this._resize());
@@ -30,7 +30,7 @@ class JarvisOrb {
   }
   attach(analyser) { this.analyser = analyser; this.freq = new Uint8Array(analyser.frequencyBinCount); }
   setState(s) { this.state = s; }
-  setTheme(t) { this.theme = t || 'arc'; }
+  setTheme(t) { this.theme = t || 'sigil'; }
   setGaze(g) { if (g) this.gaze = g; }
 
   _sampleLevel() {
@@ -55,9 +55,9 @@ class JarvisOrb {
     this.gazeS.x += (this.gaze.x - this.gazeS.x) * 0.15;
     this.gazeS.y += (this.gaze.y - this.gazeS.y) * 0.15;
     this.ctx.clearRect(0, 0, this.size, this.size);
-    if (this.theme === 'face') this._drawFace();
-    else if (this.theme === 'reactor') this._drawReactor();
-    else if (this.theme === 'mk2') this._drawMk2();
+    if (this.theme === 'eye') this._drawFace();
+    else if (this.theme === 'ember') this._drawReactor();
+    else if (this.theme === 'sigil') this._drawMk2();
     else this._drawArc();
   }
 
@@ -219,4 +219,4 @@ class JarvisOrb {
   }
 }
 
-window.JarvisOrb = JarvisOrb;
+window.UrfaelOrb = UrfaelOrb;

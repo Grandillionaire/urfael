@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="vault-template/_jarvis/assets/jarvis-logo.png" width="128" alt="J.A.R.V.I.S." />
+<img src="vault-template/_urfael/assets/urfael-logo.svg" width="128" alt="Urfael" />
 
-# J.A.R.V.I.S.
+# Urfael
 
-**The AI from the films, running on the Claude Code subscription you already have.**
+**A voice at your side, running on the Claude Code subscription you already have.**
 
 You talk. It answers in a real voice while the full detail lands on screen.
 
@@ -14,25 +14,25 @@ You talk. It answers in a real voice while the full detail lands on screen.
 
 </div>
 
-Jarvis listens, speaks, sees, and acts on your Mac. An always-on local brain runs the `claude` CLI on your existing Claude Code login, an Obsidian vault gives it durable memory, and a floating arc-reactor HUD shows the work. Voice runs entirely on-device. No paid API, no cloud lock-in.
+Urfael listens, speaks, sees, and acts on your Mac. An always-on local brain runs the `claude` CLI on your existing Claude Code login, an Obsidian vault gives it durable memory, and a floating seeing-stone HUD shows the work. Voice runs entirely on-device. No paid API, no cloud lock-in.
 
-It comments out loud while the full answer lands on screen, like the films, not a wall of read-aloud text. It ships safe: power stays off until you turn it on, after reading [SECURITY.md](SECURITY.md).
+It comments out loud while the full answer lands on screen — a remark, not a wall of read-aloud text. It ships safe: power stays off until you turn it on, after reading [SECURITY.md](SECURITY.md).
 
 ## Quickstart
 
 ```bash
-git clone https://github.com/Grandillionaire/jarvis.git && cd jarvis
+git clone https://github.com/Grandillionaire/urfael.git && cd urfael
 ./install.sh        # checks deps, fetches the local speech model, scaffolds your vault — no keys
 cd app && npm start # the orb appears, bottom-right
 ```
 
-Tap the orb and talk. That is a full voice assistant running on nothing but your Claude Code plan. Nicer voices, a "Jarvis" wake word, and browser or desktop control are all opt-in, covered in [docs/SETUP.md](docs/SETUP.md).
+Tap the orb and talk. That is a full voice assistant running on nothing but your Claude Code plan. Nicer voices, a spoken wake word (train a free custom "Urfael" keyword, or use a built-in one), and browser or desktop control are all opt-in, covered in [docs/SETUP.md](docs/SETUP.md).
 
-**Hotkeys**   `⌘⇧J` show or hide  ·  `⌘⇧H` expand HUD  ·  `⌘⇧T` change the look  ·  `⌘⇧Q` quit
+**Hotkeys**   `⌘⇧U` show or hide  ·  `⌘⇧H` expand HUD  ·  `⌘⇧T` change the look  ·  `⌘⇧Q` quit
 
 ## How it works
 
-The Electron overlay is a thin client: the arc-reactor HUD, an audio-reactive orb, multiple themes. The brain is an always-on `launchd` daemon of warm `claude` sessions, so it survives the UI closing and can act on its own. It simply runs your installed `claude` CLI as a subprocess, so it rides your existing Claude Code login — no API key, nothing to connect: if `claude` works in your terminal, the brain works. Most turns route to Sonnet; the hard ones, code and deep reasoning, escalate to Opus. Memory is plain markdown in a private git repo, re-injected every session. Voice in and out runs locally; the hands are opt-in MCP servers.
+The Electron overlay is a thin client: the gold-on-glass HUD, an audio-reactive seeing-stone orb, multiple themes. The brain is an always-on `launchd` daemon of warm `claude` sessions, so it survives the UI closing and can act on its own. It simply runs your installed `claude` CLI as a subprocess, so it rides your existing Claude Code login — no API key, nothing to connect: if `claude` works in your terminal, the brain works. Most turns route to Sonnet; the hard ones, code and deep reasoning, escalate to Opus. Memory is plain markdown in a private git repo, re-injected every session. Voice in and out runs locally; the hands are opt-in MCP servers.
 
 ```mermaid
 flowchart LR
@@ -44,17 +44,17 @@ flowchart LR
       daemon -->|MCP| hands["browser · desktop · vision"]
     end
     daemon -->|spoken comment| tts["local TTS"] --> ear([you hear])
-    daemon -->|full answer| hud["arc-reactor HUD"]
+    daemon -->|full answer| hud["seeing-stone HUD"]
     plan[/"Claude Code subscription"/] -.-> daemon
 ```
 
 ## What it can do
 
-Everything below is opt-in and guard-railed. Jarvis ships without unrestricted permissions or computer-use, and you turn power on deliberately.
+Everything below is opt-in and guard-railed. Urfael ships without unrestricted permissions or computer-use, and you turn power on deliberately.
 
-- **Voice.** Tap the orb or use a "Jarvis" wake word, then speak and it answers in a real voice over an audio-reactive orb. The spoken comment streams sentence-by-sentence (first audio the moment the first sentence lands), and if an answer takes a while it acknowledges out loud — "On it, sir." — instead of leaving silence. You can also just type into the HUD.
+- **Voice.** Tap the orb or speak the wake word, then talk and it answers in a real voice over an audio-reactive orb. The spoken comment streams sentence-by-sentence (first audio the moment the first sentence lands), and if an answer takes a while it acknowledges out loud — "On it, sir." — instead of leaving silence. You can also just type into the HUD.
 - **Memory.** An Obsidian markdown vault holds its knowledge and long-term memory. Each conversation auto-distills into a private, versioned note it reloads next session.
-- **Skills.** After it figures out a multi-step procedure, it writes the recipe to `_jarvis/skills/` and follows it next time instead of reasoning from scratch — it gets faster at the things you actually do.
+- **Skills.** After it figures out a multi-step procedure, it writes the recipe to `_urfael/skills/` and follows it next time instead of reasoning from scratch — it gets faster at the things you actually do.
 - **Reminders.** "Remind me in 20 minutes" / "every morning at 8" just works — persisted in the daemon, fired as a notification, spoken aloud, and pushed to your phone, with every window closed.
 - **Heartbeat (opt-in).** Every N minutes it runs your `HEARTBEAT.md` checklist — upcoming events, urgent email, slipping deadlines — and stays silent unless something genuinely needs you.
 - **Calendar and email.** Read, create, and update Google and Apple Calendar plus Reminders. Drafts email, never sends.
@@ -75,7 +75,7 @@ The default tier is fully local, offline, and free. Everything above it is optio
 | Quality | `small.en` model | [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), local | free, one extra service |
 | Premium | ElevenLabs Scribe | ElevenLabs | paid, opt-in |
 
-A "Jarvis" wake word is optional via Picovoice; otherwise, tap the orb.
+A wake word is optional via Picovoice — any built-in keyword works out of the box, and you can train a custom "Urfael" keyword free at console.picovoice.ai. Otherwise, tap the orb.
 
 ## Requirements
 
@@ -85,13 +85,13 @@ macOS, on Apple Silicon or Intel. [Claude Code](https://claude.com/claude-code) 
 brew install ffmpeg whisper-cpp coreutils
 ```
 
-The installer checks all of it and downloads the ~142 MB local speech model on first run. Sign in to Claude Code once before you start Jarvis.
+The installer checks all of it and downloads the ~142 MB local speech model on first run. Sign in to Claude Code once before you start Urfael.
 
-The brain uses Claude Code's model aliases, so it always tracks the latest models your plan supports. Opus escalation needs a **Max** plan; on **Pro**, set `JARVIS_OPUS_MODEL=sonnet` to keep everything on Sonnet (see [docs/SETUP.md](docs/SETUP.md)).
+The brain uses Claude Code's model aliases, so it always tracks the latest models your plan supports. Opus escalation needs a **Max** plan; on **Pro**, set `URFAEL_OPUS_MODEL=sonnet` to keep everything on Sonnet (see [docs/SETUP.md](docs/SETUP.md)).
 
 ## A note on power
 
-When you opt into full capability with `JARVIS_YOLO=1`, Jarvis becomes a real agent with shell, file, and network access that also reads untrusted email and web. Run that mode in a VM or a throwaway account, and read [SECURITY.md](SECURITY.md) first.
+When you opt into full capability with `URFAEL_YOLO=1`, Urfael becomes a real agent with shell, file, and network access that also reads untrusted email and web. Run that mode in a VM or a throwaway account, and read [SECURITY.md](SECURITY.md) first.
 
 ## Contributing
 
@@ -101,6 +101,6 @@ Issues and PRs welcome, see [CONTRIBUTING.md](CONTRIBUTING.md). Especially wante
 
 [MIT](LICENSE), provided as is, without warranty. You are responsible for how you run it.
 
-<sub>Not affiliated with, endorsed by, or sponsored by Marvel, Disney, or Anthropic. "J.A.R.V.I.S." is used as a cultural reference to a fictional AI assistant; this is an independent open-source project. "Claude" and "Claude Code" are trademarks of Anthropic.</sub>
+<sub>An independent open-source project, not affiliated with, endorsed by, or sponsored by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic.</sub>
 
 <div align="center"><sub>If it's useful, a star helps others find it.</sub></div>

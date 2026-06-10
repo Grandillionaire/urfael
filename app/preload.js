@@ -1,26 +1,26 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('jarvis', {
-  config: () => ipcRenderer.invoke('jarvis:config'),
-  ask: (text) => ipcRenderer.invoke('jarvis:ask', text),
-  vitals: () => ipcRenderer.invoke('jarvis:vitals'),
-  tts: (text) => ipcRenderer.invoke('jarvis:tts', text),   // local TTS → audio bytes
-  stt: (buf) => ipcRenderer.invoke('jarvis:stt', buf),     // local STT → transcript text
-  hide: () => ipcRenderer.send('jarvis:hide'),
-  quit: () => ipcRenderer.send('jarvis:quit'),
-  shutdown: () => ipcRenderer.send('jarvis:shutdown'),
-  setTheme: (t) => ipcRenderer.send('jarvis:set-theme', t),
-  setInteractive: (on) => ipcRenderer.send('jarvis:interactive', on), // mouse passthrough toggle
-  conversationEnd: () => ipcRenderer.send('jarvis:conversation-end'),
-  wakePause: () => ipcRenderer.send('jarvis:wake-pause'),
-  wakeDone: () => ipcRenderer.send('jarvis:wake-done'),
-  onShown: (cb) => ipcRenderer.on('jarvis:shown', () => cb()),
-  onThinking: (cb) => ipcRenderer.on('jarvis:thinking', (_e, p) => cb(p)),
-  onSay: (cb) => ipcRenderer.on('jarvis:say', (_e, p) => cb(p)),
-  onDone: (cb) => ipcRenderer.on('jarvis:done', (_e, p) => cb(p)),
-  onWake: (cb) => ipcRenderer.on('jarvis:wake', (_e, p) => cb(p)),
-  onTheme: (cb) => ipcRenderer.on('jarvis:theme', (_e, t) => cb(t)),
-  onGaze: (cb) => ipcRenderer.on('jarvis:gaze', (_e, g) => cb(g)),
-  onHudToggle: (cb) => ipcRenderer.on('jarvis:hud-toggle', () => cb()),
+contextBridge.exposeInMainWorld('urfael', {
+  config: () => ipcRenderer.invoke('urfael:config'),
+  ask: (text) => ipcRenderer.invoke('urfael:ask', text),
+  vitals: () => ipcRenderer.invoke('urfael:vitals'),
+  tts: (text) => ipcRenderer.invoke('urfael:tts', text),   // local TTS → audio bytes
+  stt: (buf) => ipcRenderer.invoke('urfael:stt', buf),     // local STT → transcript text
+  hide: () => ipcRenderer.send('urfael:hide'),
+  quit: () => ipcRenderer.send('urfael:quit'),
+  shutdown: () => ipcRenderer.send('urfael:shutdown'),
+  setTheme: (t) => ipcRenderer.send('urfael:set-theme', t),
+  setInteractive: (on) => ipcRenderer.send('urfael:interactive', on), // mouse passthrough toggle
+  conversationEnd: () => ipcRenderer.send('urfael:conversation-end'),
+  wakePause: () => ipcRenderer.send('urfael:wake-pause'),
+  wakeDone: () => ipcRenderer.send('urfael:wake-done'),
+  onShown: (cb) => ipcRenderer.on('urfael:shown', () => cb()),
+  onThinking: (cb) => ipcRenderer.on('urfael:thinking', (_e, p) => cb(p)),
+  onSay: (cb) => ipcRenderer.on('urfael:say', (_e, p) => cb(p)),
+  onDone: (cb) => ipcRenderer.on('urfael:done', (_e, p) => cb(p)),
+  onWake: (cb) => ipcRenderer.on('urfael:wake', (_e, p) => cb(p)),
+  onTheme: (cb) => ipcRenderer.on('urfael:theme', (_e, t) => cb(t)),
+  onGaze: (cb) => ipcRenderer.on('urfael:gaze', (_e, g) => cb(g)),
+  onHudToggle: (cb) => ipcRenderer.on('urfael:hud-toggle', () => cb()),
 });

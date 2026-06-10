@@ -1,12 +1,12 @@
 'use strict';
-// Tiny durable job store — one JSON file + one .log per job under ~/.claude/jarvis/jobs/. No DB.
+// Tiny durable job store — one JSON file + one .log per job under ~/.claude/urfael/jobs/. No DB.
 // Jobs outlive the daemon (they run detached), so state is reconciled on daemon start.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
-const JOBS_DIR = path.join(os.homedir(), '.claude', 'jarvis', 'jobs');
+const JOBS_DIR = path.join(os.homedir(), '.claude', 'urfael', 'jobs');
 const ID_RE = /^[a-z0-9-]{4,64}$/i; // opaque ids only — never interpolate an unvalidated id into a path/shell
 
 function ensure() { try { fs.mkdirSync(JOBS_DIR, { recursive: true }); } catch {} }

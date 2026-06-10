@@ -1,23 +1,23 @@
-# Contributing to Jarvis
+# Contributing to Urfael
 
-Thanks for considering a contribution! Jarvis is a personal AI assistant on Claude Code — issues, ideas,
+Thanks for considering a contribution! Urfael is a personal AI assistant on Claude Code — issues, ideas,
 and PRs are all welcome.
 
 ## Ground rules
-- **Never commit secrets or personal data.** Keys live in `~/.claude/jarvis/*.env` (gitignored); your real
-  vault (`~/Jarvis`) and memory (`~/Jarvis-memory`) are separate, private, and never part of this repo.
+- **Never commit secrets or personal data.** Keys live in `~/.claude/urfael/*.env` (gitignored); your real
+  vault (`~/Urfael`) and memory (`~/Urfael-memory`) are separate, private, and never part of this repo.
 - **Keep the safe defaults safe.** `bypassPermissions`, computer-use MCPs, and the autonomous loop are
   **opt-in** by design — don't make them default. See [SECURITY.md](SECURITY.md).
 - **Match the surrounding style.** Small, focused commits; no debug artifacts.
 
 ## Dev setup
 ```bash
-git clone https://github.com/Grandillionaire/jarvis.git && cd jarvis
+git clone https://github.com/Grandillionaire/urfael.git && cd urfael
 cd app && npm install
 node --test          # unit tests (lib.js: routing + sentence segmentation)
 ```
 The engine lives in `app/` (Electron overlay + the `daemon.js` brain + `voice.js`). Vault-side logic
-(commands, hooks, scripts) is in `vault-template/_jarvis/`.
+(commands, hooks, scripts) is in `vault-template/_urfael/`.
 
 ## High-value contributions
 - **Linux / Windows ports** — the brain/daemon are portable; the blockers are macOS-only bits (launchd,

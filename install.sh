@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Jarvis installer (macOS). Idempotent: scaffolds what's missing, never overwrites your vault or secrets,
+# Urfael installer (macOS). Idempotent: scaffolds what's missing, never overwrites your vault or secrets,
 # and enables NOTHING risky automatically. Read SECURITY.md first.
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-JDIR="$HOME/.claude/jarvis"
-VAULT="$HOME/Jarvis"
-MEM="$HOME/Jarvis-memory"
+JDIR="$HOME/.claude/urfael"
+VAULT="$HOME/Urfael"
+MEM="$HOME/Urfael-memory"
 LA="$HOME/Library/LaunchAgents"
 
 say(){ printf '%s\n' "$1"; }
 ok(){ printf '  ✓ %s\n' "$1"; }
 warn(){ printf '  ⚠ %s\n' "$1"; }
 
-[ "$(uname)" = "Darwin" ] || { say "✗ Jarvis is macOS-only for now."; exit 1; }
-say "── Jarvis install ───────────────────────────────"
+[ "$(uname)" = "Darwin" ] || { say "✗ Urfael is macOS-only for now."; exit 1; }
+say "── Urfael install ───────────────────────────────"
 
 # 1) dependency check (report, don't auto-install heavy things)
 say "Checking dependencies…"
@@ -53,23 +53,23 @@ done
 # 3) scaffold the vault from the template (never overwrite an existing vault)
 if [ -e "$VAULT" ]; then ok "$VAULT already exists (kept — not overwritten)"; else
   cp -R "$REPO/vault-template" "$VAULT"
-  rm -rf "$VAULT/memory"                                        # memory lives in ~/Jarvis-memory (step 4), not the vault
-  ( cd "$VAULT" && [ -L .claude ] || ln -s _jarvis .claude )   # Claude Code reads commands/hooks via .claude
-  chmod +x "$VAULT"/_jarvis/*.sh 2>/dev/null
+  rm -rf "$VAULT/memory"                                        # memory lives in ~/Urfael-memory (step 4), not the vault
+  ( cd "$VAULT" && [ -L .claude ] || ln -s _urfael .claude )   # Claude Code reads commands/hooks via .claude
+  chmod +x "$VAULT"/_urfael/*.sh 2>/dev/null
   ok "scaffolded $VAULT (fill the {{PLACEHOLDERS}} in CLAUDE.md)"
 fi
 
 # 4) local, private memory repo (never public)
 if [ -d "$MEM/.git" ]; then ok "$MEM already exists"; else
   mkdir -p "$MEM"; cp "$REPO/vault-template/memory/"*.md "$MEM/"
-  ( cd "$MEM" && git init -q && git add -A && git commit -q -m "init: Jarvis memory" 2>/dev/null )
+  ( cd "$MEM" && git init -q && git add -A && git commit -q -m "init: Urfael memory" 2>/dev/null )
   ok "created private local memory repo at $MEM"
 fi
 
-# 5) canonical location: the launchd plist + scripts expect the repo at ~/jarvis. Symlink if cloned elsewhere.
-if [ "$REPO" != "$HOME/jarvis" ]; then
-  if [ -e "$HOME/jarvis" ] && [ ! -L "$HOME/jarvis" ]; then warn "$HOME/jarvis exists and isn't a symlink — point the daemon plist at $REPO/app manually";
-  else ln -sfn "$REPO" "$HOME/jarvis"; ok "linked ~/jarvis → $REPO (daemon/scripts use this path)"; fi
+# 5) canonical location: the launchd plist + scripts expect the repo at ~/urfael. Symlink if cloned elsewhere.
+if [ "$REPO" != "$HOME/urfael" ]; then
+  if [ -e "$HOME/urfael" ] && [ ! -L "$HOME/urfael" ]; then warn "$HOME/urfael exists and isn't a symlink — point the daemon plist at $REPO/app manually";
+  else ln -sfn "$REPO" "$HOME/urfael"; ok "linked ~/urfael → $REPO (daemon/scripts use this path)"; fi
 fi
 
 # 6) app deps
@@ -89,16 +89,16 @@ cat <<NEXT
 ── Next steps ───────────────────────────────────
 1. Voice works out of the box — FREE & local (macOS \`say\` + whisper.cpp), no API key needed.
    Optional: edit "$JDIR/tts.env" for a higher-quality local voice (Kokoro) or to add an ElevenLabs key.
-2. Open ~/Jarvis as a vault in Obsidian → enable community plugins → install "Local REST API",
-   then register it:  cd ~/Jarvis && claude mcp add -s local --transport http obsidian \\
+2. Open ~/Urfael as a vault in Obsidian → enable community plugins → install "Local REST API",
+   then register it:  cd ~/Urfael && claude mcp add -s local --transport http obsidian \\
       http://127.0.0.1:27123/mcp/ --header "Authorization: Bearer <your REST key>"
-3. Fill the {{USER_NAME}} / {{CITY}} / {{TIMEZONE}} / {{LANGUAGE}} placeholders in ~/Jarvis/CLAUDE.md
+3. Fill the {{USER_NAME}} / {{CITY}} / {{TIMEZONE}} / {{LANGUAGE}} placeholders in ~/Urfael/CLAUDE.md
 4. Start the brain + UI:
-      launchctl load -w "$LA/com.jarvis.daemon.plist"      # the always-on brain
+      launchctl load -w "$LA/com.urfael.daemon.plist"      # the always-on brain
       cd "$REPO/app" && npm start                          # the overlay UI
    (optional, opt-in:  launchctl load -w the morningbrief / obsidian-heal plists)
 5. ⚠️  Hands/eyes, the autonomous loop, and full permissions are OFF by default.
-   Read SECURITY.md, then opt in (JARVIS_YOLO=1 in a sandbox; uncomment MCPs in config/mcp.json.example).
+   Read SECURITY.md, then opt in (URFAEL_YOLO=1 in a sandbox; uncomment MCPs in config/mcp.json.example).
 
-Done. Talk to Jarvis: tap the orb (or set a Picovoice key for the "Jarvis" wake word).
+Done. Talk to Urfael: tap the orb (or set a Picovoice key — see WAKE_KEYWORD in tts.env for the wake word).
 NEXT

@@ -23,8 +23,8 @@ build/
 
 # --- a user's PERSONAL instance must stay out of this repo ---
 # (your real vault and memory live elsewhere, as their own private repos)
-/Jarvis/
-/Jarvis-memory/
+/Urfael/
+/Urfael-memory/
 vault-template/**/90_Daily/*.md
 vault-template/**/00_Inbox/*.md
 vault-template/**/03_Resources/visuals/*.png

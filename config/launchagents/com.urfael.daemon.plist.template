@@ -1,24 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Jarvis brain daemon — always-on. install.sh fills {{HOME}} and {{NODE}}. -->
+<!-- Urfael brain daemon — always-on. install.sh fills {{HOME}} and {{NODE}}. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>com.jarvis.daemon</string>
+  <key>Label</key><string>com.urfael.daemon</string>
   <key>ProgramArguments</key>
-  <array><string>{{NODE}}</string><string>{{HOME}}/jarvis/app/daemon.js</string></array>
+  <array><string>{{NODE}}</string><string>{{HOME}}/urfael/app/daemon.js</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <!-- Uncomment to opt into the unrestricted agent (read SECURITY.md, run sandboxed): -->
-    <!-- <key>JARVIS_YOLO</key><string>1</string> -->
-    <!-- Heartbeat: every N minutes Jarvis runs your vault's HEARTBEAT.md checklist and only speaks
+    <!-- <key>URFAEL_YOLO</key><string>1</string> -->
+    <!-- Heartbeat: every N minutes Urfael runs your vault's HEARTBEAT.md checklist and only speaks
          up if something needs you. Off unless set. Active hours bound it (default 8-23). -->
-    <!-- <key>JARVIS_HEARTBEAT_MINS</key><string>30</string> -->
-    <!-- <key>JARVIS_HEARTBEAT_HOURS</key><string>8-23</string> -->
+    <!-- <key>URFAEL_HEARTBEAT_MINS</key><string>30</string> -->
+    <!-- <key>URFAEL_HEARTBEAT_HOURS</key><string>8-23</string> -->
     <!-- Per-turn watchdog in seconds (default 120; long work belongs in background jobs): -->
-    <!-- <key>JARVIS_TURN_TIMEOUT_S</key><string>180</string> -->
+    <!-- <key>URFAEL_TURN_TIMEOUT_S</key><string>180</string> -->
   </dict>
-  <key>StandardOutPath</key><string>{{HOME}}/.claude/jarvis/daemon.out.log</string>
-  <key>StandardErrorPath</key><string>{{HOME}}/.claude/jarvis/daemon.err.log</string>
+  <key>StandardOutPath</key><string>{{HOME}}/.claude/urfael/daemon.out.log</string>
+  <key>StandardErrorPath</key><string>{{HOME}}/.claude/urfael/daemon.err.log</string>
 </dict></plist>

@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# Jarvis — per-machine bootstrap. Run ONCE on each new Mac after Obsidian Sync has
+# Urfael — per-machine bootstrap. Run ONCE on each new Mac after Obsidian Sync has
 # pulled the vault down. Sets up the three things that don't (and shouldn't) sync:
-#   1. the .claude -> _jarvis symlink (Claude Code reads commands/hooks/settings here)
-#   2. ~/.claude/jarvis/tts.env  (your ElevenLabs key — a secret, stays off sync)
+#   1. the .claude -> _urfael symlink (Claude Code reads commands/hooks/settings here)
+#   2. ~/.claude/urfael/tts.env  (your ElevenLabs key — a secret, stays off sync)
 #   3. the Obsidian MCP registration (points at THIS machine's localhost + local key)
 #
-# Idempotent: safe to re-run. Usage:  bash _jarvis/bootstrap-machine.sh
+# Idempotent: safe to re-run. Usage:  bash _urfael/bootstrap-machine.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VAULT="$(dirname "$SCRIPT_DIR")"
 PLUGIN_DATA="$VAULT/.obsidian/plugins/obsidian-local-rest-api/data.json"
-TTS_ENV="$HOME/.claude/jarvis/tts.env"
+TTS_ENV="$HOME/.claude/urfael/tts.env"
 
-echo "Jarvis bootstrap — vault: $VAULT"
+echo "Urfael bootstrap — vault: $VAULT"
 command -v claude  >/dev/null || { echo "✗ Claude Code (claude) not installed. Install it first."; exit 1; }
 command -v python3 >/dev/null || { echo "✗ python3 not found."; exit 1; }
 
-# 1) .claude -> _jarvis symlink ------------------------------------------------
+# 1) .claude -> _urfael symlink ------------------------------------------------
 if [ -L "$VAULT/.claude" ]; then
   echo "✓ .claude symlink already present"
 elif [ -e "$VAULT/.claude" ]; then
   echo "✗ $VAULT/.claude exists and is NOT a symlink — move it aside, then re-run."; exit 1
 else
-  ( cd "$VAULT" && ln -s _jarvis .claude )
-  echo "✓ created .claude -> _jarvis symlink"
+  ( cd "$VAULT" && ln -s _urfael .claude )
+  echo "✓ created .claude -> _urfael symlink"
 fi
 
 # 2) tts.env (voice config — free local default, no API key) -------------------
@@ -33,7 +33,7 @@ if [ -f "$TTS_ENV" ]; then
   echo "✓ tts.env already present (kept)"
 else
   cat > "$TTS_ENV" <<'EOF'
-# Jarvis voice config. DEFAULT = free & local (macOS `say` + whisper.cpp), no API key.
+# Urfael voice config. DEFAULT = free & local (macOS `say` + whisper.cpp), no API key.
 # NEVER synced/committed. chmod 600.
 TTS_PROVIDER=say
 STT_PROVIDER=whispercpp
@@ -49,13 +49,13 @@ EOF
 fi
 
 # 2b) long-term memory repo ----------------------------------------------------
-if [ -d "$HOME/Jarvis-memory/.git" ]; then
-  echo "✓ jarvis-memory present"
+if [ -d "$HOME/Urfael-memory/.git" ]; then
+  echo "✓ urfael-memory present"
 elif command -v gh >/dev/null; then
-  gh repo clone ${JARVIS_MEMORY_REPO:-} "$HOME/Jarvis-memory" >/dev/null 2>&1 \
-    && echo "✓ cloned jarvis-memory" || echo "→ clone jarvis-memory manually: gh repo clone ${JARVIS_MEMORY_REPO:-} ~/Jarvis-memory"
+  gh repo clone ${URFAEL_MEMORY_REPO:-} "$HOME/Urfael-memory" >/dev/null 2>&1 \
+    && echo "✓ cloned urfael-memory" || echo "→ clone urfael-memory manually: gh repo clone ${URFAEL_MEMORY_REPO:-} ~/Urfael-memory"
 else
-  echo "→ install gh + run: gh repo clone ${JARVIS_MEMORY_REPO:-} ~/Jarvis-memory"
+  echo "→ install gh + run: gh repo clone ${URFAEL_MEMORY_REPO:-} ~/Urfael-memory"
 fi
 
 # 3) Obsidian MCP registration -------------------------------------------------
@@ -76,6 +76,6 @@ fi
 
 echo
 echo "Remaining manual steps on this machine:"
-echo "  • Obsidian: open the synced Jarvis vault + turn on community plugins (trust gate is per-machine)"
+echo "  • Obsidian: open the synced Urfael vault + turn on community plugins (trust gate is per-machine)"
 echo "  • Wispr Flow: install from wisprflow.ai, sign in, grant Mic + Accessibility"
 echo "Then:  cd \"$VAULT\" && claude"

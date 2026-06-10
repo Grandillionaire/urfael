@@ -1,5 +1,5 @@
 'use strict';
-// Jarvis brain daemon — always-on, headless, UI-independent. Owns the warm Claude sessions,
+// Urfael brain daemon — always-on, headless, UI-independent. Owns the warm Claude sessions,
 // model routing, end-of-conversation memory distillation, and telemetry. Exposes a local
 // Unix-socket API (no TCP port) that the overlay, a CLI, or a cron job talk to as thin clients.
 //   POST /ask {text}        -> streams NDJSON: {kind:thinking|say|done, ...}
@@ -17,19 +17,19 @@ const runner = require('./runner');
 const scheduler = require('./scheduler');
 const bridge = require('./bridge/bridge-core');
 
-const VAULT = path.join(os.homedir(), process.env.JARVIS_VAULT_DIR || 'Jarvis');
-const MEMORY_DIR = path.join(os.homedir(), process.env.JARVIS_MEMORY_DIR || 'Jarvis-memory');
-const CLAUDE_BIN = process.env.JARVIS_CLAUDE_BIN || ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude']
+const VAULT = path.join(os.homedir(), process.env.URFAEL_VAULT_DIR || 'Urfael');
+const MEMORY_DIR = path.join(os.homedir(), process.env.URFAEL_MEMORY_DIR || 'Urfael-memory');
+const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude']
   .find((p) => { try { fs.accessSync(p); return true; } catch { return false; } }) || 'claude';
 
-// SECURITY: bypassPermissions gives the agent an UNRESTRICTED shell. It is OPT-IN (set JARVIS_YOLO=1).
+// SECURITY: bypassPermissions gives the agent an UNRESTRICTED shell. It is OPT-IN (set URFAEL_YOLO=1).
 // Default is 'acceptEdits' (auto-accepts file edits; other risky tools are gated). See SECURITY.md.
 // Only enable bypass inside a dedicated VM / container / throwaway account — never your primary machine.
-const PERM_MODE = process.env.JARVIS_YOLO === '1' ? 'bypassPermissions' : (process.env.JARVIS_PERMISSION_MODE || 'acceptEdits');
-if (PERM_MODE === 'bypassPermissions') { try { fs.appendFileSync(path.join(os.homedir(), '.claude', 'jarvis', 'jarvis.log'), JSON.stringify({ t: new Date().toISOString(), ev: 'WARN', msg: 'JARVIS_YOLO active — agent has UNRESTRICTED shell. Run sandboxed.' }) + '\n'); } catch {} }
-const JDIR = path.join(os.homedir(), '.claude', 'jarvis');
+const PERM_MODE = process.env.URFAEL_YOLO === '1' ? 'bypassPermissions' : (process.env.URFAEL_PERMISSION_MODE || 'acceptEdits');
+if (PERM_MODE === 'bypassPermissions') { try { fs.appendFileSync(path.join(os.homedir(), '.claude', 'urfael', 'urfael.log'), JSON.stringify({ t: new Date().toISOString(), ev: 'WARN', msg: 'URFAEL_YOLO active — agent has UNRESTRICTED shell. Run sandboxed.' }) + '\n'); } catch {} }
+const JDIR = path.join(os.homedir(), '.claude', 'urfael');
 const SOCK = path.join(JDIR, 'daemon.sock');
-const LOGFILE = path.join(JDIR, 'jarvis.log');
+const LOGFILE = path.join(JDIR, 'urfael.log');
 const BRAIN_PIDFILE = path.join(JDIR, 'brain.pids');
 
 let logWrites = 0;
@@ -52,7 +52,7 @@ const MAX_SCOPED = 4;             // max concurrent remote turns
 const MAX_RUNNING_JOBS = 4;       // max concurrent background jobs
 const MAX_BODY = 262144;          // 256KB request-body cap
 const MAX_SPOKEN_CHARS = 700;     // hard cap on voiced text per turn — the spoken comment is 1-2 sentences by contract
-const TURN_TIMEOUT_MS = Math.min(Math.max(parseInt(process.env.JARVIS_TURN_TIMEOUT_S, 10) || 120, 30), 900) * 1000; // per-turn watchdog (long work belongs in /job)
+const TURN_TIMEOUT_MS = Math.min(Math.max(parseInt(process.env.URFAEL_TURN_TIMEOUT_S, 10) || 120, 30), 900) * 1000; // per-turn watchdog (long work belongs in /job)
 let distilling = false;           // single-flight guard for the memory-distill pass
 
 // the in-flight /ask response stream — brain events are written to it as NDJSON
@@ -69,7 +69,7 @@ class Session {
     this.proc = spawn(CLAUDE_BIN, [
       '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
       '--model', this.model, '--verbose', '--include-partial-messages', '--permission-mode', PERM_MODE,
-    ], { cwd: VAULT, env: { ...process.env, JARVIS_OVERLAY: '1' }, stdio: ['pipe', 'pipe', 'ignore'] });
+    ], { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: ['pipe', 'pipe', 'ignore'] });
     recordBrainPid(this.proc.pid);
     this.proc.stdout.on('data', (d) => this._onData(d));
     this.proc.on('exit', () => { logEvent({ ev: 'brain_exit', model: this.model }); this.proc = null; if (this.current) { this.current.cb('(restarted — try again)'); this.current = null; } });
@@ -170,7 +170,7 @@ const brain = {
     const reply = await getSession(model).ask(text, { speak: true, turnId });
     const ms = Date.now() - t0;
     logEvent({ ev: 'turn', model, in: text.length, out: (reply || '').length, ms });
-    transcript.push({ user: text, jarvis: reply });
+    transcript.push({ user: text, urfael: reply });
     return { text: reply, model, ms };
   },
   endConversation() { convoModel = MODELS.sonnet; softTurns = 0; },
@@ -196,8 +196,8 @@ const brain = {
       const args = ['-p', payload, '--model', model, '--permission-mode', permMode,
         '--strict-mcp-config', '--output-format', 'json', '--allowedTools', profile.allowedTools.join(',')];
       // minimal env: never hand the daemon's full environment (any tokens/secrets) to a sandboxed child.
-      const env = { PATH: process.env.PATH, HOME: process.env.HOME, JARVIS_OVERLAY: '1' };
-      for (const k of ['JARVIS_SONNET_MODEL', 'JARVIS_OPUS_MODEL', 'JARVIS_CLAUDE_BIN', 'JARVIS_VAULT_DIR']) if (process.env[k]) env[k] = process.env[k];
+      const env = { PATH: process.env.PATH, HOME: process.env.HOME, URFAEL_OVERLAY: '1' };
+      for (const k of ['URFAEL_SONNET_MODEL', 'URFAEL_OPUS_MODEL', 'URFAEL_CLAUDE_BIN', 'URFAEL_VAULT_DIR']) if (process.env[k]) env[k] = process.env[k];
       const proc = spawn(CLAUDE_BIN, args, { cwd: VAULT, env, stdio: ['ignore', 'pipe', 'ignore'] });
       inflightScoped.add(proc); // tracked in-memory (killed on shutdown); NOT persisted to the brain killfile (avoids pid-reuse kills)
       let out = '';
@@ -261,7 +261,7 @@ function sayVoiceArgs() { // respect the user's configured voice/rate (tts.env),
 function notifyOwner(text, { speak = true } = {}) {
   const clean = String(text || '').replace(/[\\"]/g, "'").replace(/\s+/g, ' ').trim().slice(0, 350);
   if (!clean) return;
-  try { const p = spawn('osascript', ['-e', `display notification "${clean}" with title "Jarvis"`], { stdio: 'ignore' }); p.unref(); } catch {}
+  try { const p = spawn('osascript', ['-e', `display notification "${clean}" with title "Urfael"`], { stdio: 'ignore' }); p.unref(); } catch {}
   if (speak) { try { const p = spawn('/usr/bin/say', [...sayVoiceArgs(), clean], { stdio: 'ignore' }); p.unref(); } catch {} }
   try { bridge.notifyAll(clean).catch(() => {}); } catch {}
 }
@@ -270,13 +270,13 @@ function deliverReminder(r) {
   notifyOwner('Reminder, sir: ' + r.text);
 }
 
-// ---- heartbeat: periodic proactive check (opt-in via JARVIS_HEARTBEAT_MINS) ----------------------
+// ---- heartbeat: periodic proactive check (opt-in via URFAEL_HEARTBEAT_MINS) ----------------------
 // Every N minutes, ask the warm session to run the owner-authored HEARTBEAT.md checklist in the vault.
 // Contract (OpenClaw-compatible): reply exactly HEARTBEAT_OK -> silence; anything else -> the owner is
 // alerted (notification + spoken + phone push). Skipped while a conversation is live or recent, and
-// outside active hours, so Jarvis never talks over you or pipes up at 3am.
-const HB_MINS = Math.max(0, parseInt(process.env.JARVIS_HEARTBEAT_MINS, 10) || 0);
-const HB_HOURS = process.env.JARVIS_HEARTBEAT_HOURS || '8-23';
+// outside active hours, so Urfael never talks over you or pipes up at 3am.
+const HB_MINS = Math.max(0, parseInt(process.env.URFAEL_HEARTBEAT_MINS, 10) || 0);
+const HB_HOURS = process.env.URFAEL_HEARTBEAT_HOURS || '8-23';
 let lastBeat = 0, lastLocalTurn = 0, beating = false;
 function hoursOk(d = new Date()) {
   const m = HB_HOURS.match(/^(\d{1,2})-(\d{1,2})$/);
@@ -315,17 +315,17 @@ async function heartbeat() {
 function distill() {
   if (!transcript.length || distilling) return;   // single-flight: don't stack distill passes
   distilling = true;
-  const convo = transcript.map((t) => `User: ${t.user}\nJarvis: ${t.jarvis}`).join('\n\n');
+  const convo = transcript.map((t) => `User: ${t.user}\nUrfael: ${t.urfael}`).join('\n\n');
   transcript = [];
   const prompt =
     '[Automated end-of-conversation memory + learning pass — do NOT reply conversationally.]\n' +
-    "Review this conversation and update Jarvis's memory where warranted:\n" +
+    "Review this conversation and update Urfael's memory where warranted:\n" +
     `- Durable facts/decisions/projects/people/commitments -> merge concisely into ${MEMORY_DIR}/MEMORY.md (right section, no dupes).\n` +
     `- If the user CORRECTED you or something went wrong -> append a lesson to ${MEMORY_DIR}/LESSONS.md (mistake -> rule -> trigger).\n` +
     `- If you noticed a recurring preference or way the user works -> add it to ${MEMORY_DIR}/WORKFLOW.md.\n` +
     `- REFLECT: if this conversation completed a multi-step task whose PROCEDURE is reusable (a workflow ` +
     `figured out, an API wrangled, a fix with a non-obvious path), write or update a skill file in ` +
-    `${VAULT}/_jarvis/skills/<short-kebab-slug>.md — purpose, numbered steps, gotchas; terse, under ~40 lines. ` +
+    `${VAULT}/_urfael/skills/<short-kebab-slug>.md — purpose, numbered steps, gotchas; terse, under ~40 lines. ` +
     `Routine chat/Q&A does NOT warrant a skill.\n` +
     `- Always append a one-line note to ${MEMORY_DIR}/log/<YYYY-MM-DD-HHMM>.md summarizing the conversation.\n` +
     'These files are injected into EVERY session, so keep them tight: MEMORY.md under ~150 lines; consolidate/prune, do not just append.\n' +
@@ -337,7 +337,7 @@ function distill() {
   // distill reads an UNTRUSTED transcript → never bypass. Scope it to memory-file writes + git only.
   const p = spawn(CLAUDE_BIN, ['-p', prompt, '--model', MODELS.sonnet, '--permission-mode', 'acceptEdits',
     '--allowedTools', 'Write,Edit,Bash(git:*),Bash(cd:*),Bash(mkdir:*)', '--strict-mcp-config'],
-    { cwd: VAULT, env: { ...process.env, JARVIS_OVERLAY: '1' }, stdio: 'ignore', detached: true });
+    { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: 'ignore', detached: true });
   const clear = setTimeout(() => { distilling = false; }, 300000); // safety: never get stuck if exit is missed
   p.on('exit', () => { clearTimeout(clear); distilling = false; });
   p.on('error', () => { clearTimeout(clear); distilling = false; });

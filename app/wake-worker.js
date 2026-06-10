@@ -1,14 +1,22 @@
 'use strict';
 // Wake-word listener, runs in its own thread so its blocking mic reads never freeze the UI.
-// Listens on-device for "Jarvis" (no cloud, no transcription) and posts a message on detect.
+// Listens on-device (no cloud, no transcription) and posts a message on detect.
+// Keyword is configurable: any Porcupine builtin via WAKE_KEYWORD (default "Computer"), or a
+// custom-trained .ppn (e.g. "Urfael", trained free at console.picovoice.ai) via WAKE_KEYWORD_PATH.
 const { parentPort, workerData } = require('worker_threads');
 const { Porcupine, BuiltinKeyword } = require('@picovoice/porcupine-node');
 const { PvRecorder } = require('@picovoice/pvrecorder-node');
 
 let porcupine = null, recorder = null, running = true, paused = false;
 
+function keywordFor(d) {
+  if (d.keywordPath) return d.keywordPath;                       // custom .ppn beats everything
+  const name = String(d.keyword || 'COMPUTER').toUpperCase().replace(/[\s-]+/g, '_');
+  return BuiltinKeyword[name] != null ? BuiltinKeyword[name] : BuiltinKeyword.COMPUTER;
+}
+
 try {
-  porcupine = new Porcupine(workerData.accessKey, [BuiltinKeyword.JARVIS], [workerData.sensitivity || 0.55]);
+  porcupine = new Porcupine(workerData.accessKey, [keywordFor(workerData)], [workerData.sensitivity || 0.55]);
   recorder = new PvRecorder(porcupine.frameLength, -1);
   recorder.start();
   parentPort.postMessage({ type: 'ready' });

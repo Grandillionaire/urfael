@@ -8,16 +8,16 @@ $ARGUMENTS
 The brain daemon runs detached background jobs over its local socket so long work (autonomous coding,
 deep research) doesn't tie up the live conversation. Talk to it with `curl --unix-socket`:
 
-- **List jobs:** `curl -s --unix-socket ~/.claude/jarvis/daemon.sock http://x/jobs`
-- **Status + log tail:** `curl -s --unix-socket ~/.claude/jarvis/daemon.sock http://x/job/<id>`
-- **Cancel (real kill switch):** `curl -s -X POST --unix-socket ~/.claude/jarvis/daemon.sock http://x/job/<id>/cancel`
+- **List jobs:** `curl -s --unix-socket ~/.claude/urfael/daemon.sock http://x/jobs`
+- **Status + log tail:** `curl -s --unix-socket ~/.claude/urfael/daemon.sock http://x/job/<id>`
+- **Cancel (real kill switch):** `curl -s -X POST --unix-socket ~/.claude/urfael/daemon.sock http://x/job/<id>/cancel`
 - **Start a job:** POST `/job` with one of these JSON specs:
   - **Autonomous coding** (guard-railed: needs an isolated worktree, caps, never pushes):
     `{"kind":"goal","goal":"<what to build>","repo":"<path to an isolated git worktree>","maxIters":15,"maxMins":120}`
   - **Long research / writing** (sandboxed: no shell, no computer-use; writes a note into the vault):
     `{"kind":"research","prompt":"<the task>"}`
   ```bash
-  curl -s -X POST --unix-socket ~/.claude/jarvis/daemon.sock http://x/job \
+  curl -s -X POST --unix-socket ~/.claude/urfael/daemon.sock http://x/job \
     -H 'Content-Type: application/json' -d '{"kind":"research","prompt":"..."}'
   ```
 

@@ -1,5 +1,5 @@
 {
-  "_comment": "Example MCP servers for the Jarvis vault. Register with: claude mcp add ... (run from ~/Jarvis).",
+  "_comment": "Example MCP servers for the Urfael vault. Register with: claude mcp add ... (run from ~/Urfael).",
   "_security": "Obsidian is safe. The computer-use servers below (browser, desktop, vision) give the agent real control of your machine — they are COMMENTED OUT by default. Enable deliberately, and read SECURITY.md first.",
 
   "obsidian": {

@@ -1,7 +1,7 @@
 'use strict';
 // Detached job runner. Spawns the work in its OWN process group (so it survives the daemon and so cancel
 // is a real kill switch), streams output to the job log, and on exit records state + pushes a phone notify.
-//   kind 'goal'      -> the guard-railed vault-template/_jarvis/goal-loop.sh (isolated --repo, never pushes)
+//   kind 'goal'      -> the guard-railed vault-template/_urfael/goal-loop.sh (isolated --repo, never pushes)
 //   kind 'ask'/'research' -> a sandboxed one-shot claude (no bypass, no computer-use) that writes a vault note
 const fs = require('fs');
 const os = require('os');
@@ -9,8 +9,8 @@ const path = require('path');
 const { spawn } = require('child_process');
 const store = require('./jobstore');
 
-const VAULT = path.join(os.homedir(), process.env.JARVIS_VAULT_DIR || 'Jarvis');
-const CLAUDE_BIN = process.env.JARVIS_CLAUDE_BIN || ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude']
+const VAULT = path.join(os.homedir(), process.env.URFAEL_VAULT_DIR || 'Urfael');
+const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude']
   .find((p) => { try { fs.accessSync(p); return true; } catch { return false; } }) || 'claude';
 const NOTIFY = path.join(__dirname, 'bridge', 'notify.js'); // best-effort; a no-op if no bridge.env
 
@@ -22,7 +22,7 @@ function notify(text) {
 function argvFor(job) {
   const s = job.spec || {};
   if (job.kind === 'goal') {
-    const args = ['bash', path.join(VAULT, '_jarvis', 'goal-loop.sh'), String(s.goal || '')];
+    const args = ['bash', path.join(VAULT, '_urfael', 'goal-loop.sh'), String(s.goal || '')];
     if (s.repo) args.push('--repo', String(s.repo));
     if (s.maxIters) args.push('--max-iters', String(s.maxIters));
     if (s.maxMins) args.push('--max-mins', String(s.maxMins));
@@ -45,7 +45,7 @@ function run(job) {
   let proc;
   try {
     const [cmd, ...args] = argvFor(job);
-    proc = spawn(cmd, args, { cwd: VAULT, env: { ...process.env, JARVIS_OVERLAY: '1' },
+    proc = spawn(cmd, args, { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' },
       stdio: ['ignore', fd, fd], detached: true });
   } catch (e) {
     store.update(id, { state: 'error', endedAt: new Date().toISOString(), result: String((e && e.message) || e) });
@@ -57,7 +57,7 @@ function run(job) {
     if (typeof fd === 'number') try { fs.closeSync(fd); } catch {}
     const state = signal ? 'cancelled' : (code === 0 ? 'done' : 'failed');
     store.update(id, { state, pid: null, endedAt: new Date().toISOString(), exitCode: code });
-    notify('Jarvis job ' + id + ' (' + job.kind + ') ' + state + '.');
+    notify('Urfael job ' + id + ' (' + job.kind + ') ' + state + '.');
   });
   proc.unref();
   return proc.pid;

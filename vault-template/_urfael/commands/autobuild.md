@@ -13,7 +13,7 @@ This is a RISKY autonomous action, so:
 3. **Launch the guardrailed loop** (it caps iterations + wall-clock, kills hung turns, and stops on
    no-progress — it does NOT push or merge):
    ```sh
-   bash ~/Jarvis/_jarvis/goal-loop.sh "<the goal>" --repo <repo-or-worktree> --check "<verify cmd, e.g. npm test>" --max-iters 15 --max-mins 120
+   bash ~/Urfael/_urfael/goal-loop.sh "<the goal>" --repo <repo-or-worktree> --check "<verify cmd, e.g. npm test>" --max-iters 15 --max-mins 120
    ```
    Pass a `--check` command whenever there's a real way to verify success (tests/build) — the loop
    only declares done when the model says GOAL_COMPLETE *and* that command exits 0.

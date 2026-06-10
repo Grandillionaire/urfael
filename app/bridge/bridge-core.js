@@ -8,7 +8,7 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 
-const JDIR = path.join(os.homedir(), '.claude', 'jarvis');
+const JDIR = path.join(os.homedir(), '.claude', 'urfael');
 const SOCK = path.join(JDIR, 'daemon.sock');
 const ENVF = path.join(JDIR, 'bridge.env');
 const AUDIT = path.join(JDIR, 'bridge-audit.log');
@@ -43,7 +43,7 @@ function askDaemon(text, channel) {
       });
       res.on('end', () => resolve(final || '(no reply)'));
     });
-    req.on('error', () => resolve('(brain unreachable — is the Jarvis daemon running?)'));
+    req.on('error', () => resolve('(brain unreachable — is the Urfael daemon running?)'));
     req.on('timeout', () => { req.destroy(); resolve('(timed out)'); });
     req.end(payload);
   });

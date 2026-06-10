@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Jarvis voice-out. Claude Code `Stop` hook: speaks the final assistant message via local macOS `say` by default (or
-cloud TTS: ElevenLabs/OpenAI). Scoped to the Jarvis vault.
+"""Urfael voice-out. Claude Code `Stop` hook: speaks the final assistant message via local macOS `say` by default (or
+cloud TTS: ElevenLabs/OpenAI). Scoped to the Urfael vault.
 
-Reads its key/config from ~/.claude/jarvis/tts.env (KEY=VALUE lines). If no key is
+Reads its key/config from ~/.claude/urfael/tts.env (KEY=VALUE lines). If no key is
 present it exits silently — so the vault still works without voice. Never blocks Claude:
 all errors are swallowed and it always exits 0.
 """
@@ -18,7 +18,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-CONFIG = Path.home() / ".claude" / "jarvis" / "tts.env"
+CONFIG = Path.home() / ".claude" / "urfael" / "tts.env"
 MAX_CHARS = 600  # keep spoken replies short + cheap
 
 
@@ -137,7 +137,7 @@ def synth_kokoro(text: str, cfg: dict):  # local Kokoro-FastAPI (no auth) -> mp3
 
 
 def main() -> None:
-    if os.environ.get("JARVIS_OVERLAY"):
+    if os.environ.get("URFAEL_OVERLAY"):
         return  # the desktop overlay does its own TTS; don't double-speak via afplay
     try:
         payload = json.load(sys.stdin)

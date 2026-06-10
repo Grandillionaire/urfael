@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Urfael — an eight-rayed gold star set in a dark seeing-stone -->
+  <defs>
+    <radialGradient id="stone" cx="42%" cy="36%" r="75%">
+      <stop offset="0%" stop-color="#3a2d18"/>
+      <stop offset="55%" stop-color="#1c150b"/>
+      <stop offset="100%" stop-color="#0c0905"/>
+    </radialGradient>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffe9b8"/>
+      <stop offset="60%" stop-color="#d4a85a"/>
+      <stop offset="100%" stop-color="#d4a85a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ecd3a0"/>
+      <stop offset="100%" stop-color="#9a7434"/>
+    </linearGradient>
+  </defs>
+  <circle cx="64" cy="64" r="60" fill="url(#stone)" stroke="url(#rim)" stroke-width="3"/>
+  <circle cx="64" cy="64" r="52" fill="none" stroke="#d4a85a" stroke-opacity="0.35" stroke-width="1"/>
+  <!-- eight rays: long cardinals, short diagonals -->
+  <g fill="#ecd3a0">
+    <path d="M64 22 L68 56 L64 64 L60 56 Z"/>
+    <path d="M64 106 L68 72 L64 64 L60 72 Z"/>
+    <path d="M22 64 L56 68 L64 64 L56 60 Z"/>
+    <path d="M106 64 L72 68 L64 64 L72 60 Z"/>
+  </g>
+  <g fill="#d4a85a" opacity="0.85">
+    <path d="M36 36 L58 58 L64 64 L58 58 Z M36 36 L60 54 L64 64 L54 60 Z"/>
+    <path d="M92 36 L68 54 L64 64 L74 60 Z"/>
+    <path d="M36 92 L60 74 L64 64 L54 68 Z"/>
+    <path d="M92 92 L68 74 L64 64 L74 68 Z"/>
+  </g>
+  <circle cx="64" cy="64" r="13" fill="url(#core)"/>
+  <circle cx="64" cy="64" r="5.5" fill="#fff3d6"/>
+</svg>

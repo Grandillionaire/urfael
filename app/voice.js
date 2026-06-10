@@ -1,5 +1,5 @@
 'use strict';
-// Local, API-free voice for Jarvis (runs in the Electron MAIN process).
+// Local, API-free voice for Urfael (runs in the Electron MAIN process).
 // TTS: macOS `say` (default) or local Kokoro. STT: local whisper.cpp (via a warm whisper-server).
 // Every function returns audio BYTES or text — it never plays audio itself, so the renderer can play
 // through its Web Audio graph and keep the orb audio-reactive. Errors are thrown (fail-loud), so the
@@ -55,7 +55,7 @@ async function synth(text, cfg) {
 
 // ---- STT (local whisper.cpp via the warm whisper-server) ----
 function postWav(port, wav) {
-  const boundary = '----jarvis' + Date.now();
+  const boundary = '----urfael' + Date.now();
   const head = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="a.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
   const tail = Buffer.from(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\njson\r\n--${boundary}--\r\n`);
   const bodyBuf = Buffer.concat([head, wav, tail]);

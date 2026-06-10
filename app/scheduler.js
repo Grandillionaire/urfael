@@ -1,6 +1,6 @@
 'use strict';
 // Persisted reminder scheduler — "remind me in 20 minutes" that actually fires, with no launchd
-// plumbing. One JSON file (~/.claude/jarvis/reminders.json), re-armed on daemon boot, ticked on a
+// plumbing. One JSON file (~/.claude/urfael/reminders.json), re-armed on daemon boot, ticked on a
 // coarse interval (reminders are minute-grained, not millisecond-grained). Delivery is injected by
 // the daemon so this module stays pure-ish and testable.
 const fs = require('fs');
@@ -9,7 +9,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { normalizeReminder, nextOccurrence } = require('./lib');
 
-const FILE = path.join(os.homedir(), '.claude', 'jarvis', 'reminders.json');
+const FILE = path.join(os.homedir(), '.claude', 'urfael', 'reminders.json');
 const MAX_ITEMS = 200; // sanity cap — the owner-only socket is trusted, but a buggy loop shouldn't fill the disk
 
 let items = [];

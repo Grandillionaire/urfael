@@ -1,0 +1,13 @@
+{
+  "_comment": "Project-scoped Claude Code settings for the Urfael vault. The Stop hook speaks the reply via ElevenLabs when you run `claude` directly in this vault (the overlay/daemon does its own TTS and sets URFAEL_OVERLAY=1 to suppress this).",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/speak.py\"" }
+        ]
+      }
+    ]
+  }
+}

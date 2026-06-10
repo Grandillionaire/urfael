@@ -1,7 +1,7 @@
 # Heartbeat checklist
 
-<!-- Read by the automated heartbeat (opt-in: set JARVIS_HEARTBEAT_MINS in the daemon plist).
-     Jarvis runs through this list every beat and stays SILENT unless something genuinely needs
+<!-- Read by the automated heartbeat (opt-in: set URFAEL_HEARTBEAT_MINS in the daemon plist).
+     Urfael runs through this list every beat and stays SILENT unless something genuinely needs
      attention — you only hear from it when it matters. Keep this list short: every line costs
      tokens on every beat. Delete what you don't use. -->
 

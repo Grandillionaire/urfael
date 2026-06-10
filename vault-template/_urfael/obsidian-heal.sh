@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Jarvis Obsidian auto-heal. Keeps the Local REST API (port 27123) alive so the Obsidian MCP tools
+# Urfael Obsidian auto-heal. Keeps the Local REST API (port 27123) alive so the Obsidian MCP tools
 # stay connected. Run by launchd every ~2 min. SAFE BY DESIGN (hardened after adversarial review):
 #  - Only acts when the port is genuinely down (HTTP 200 = healthy).
 #  - If Obsidian is CLOSED → do nothing (the user closed it on purpose; the vault still works via files).
@@ -8,12 +8,12 @@
 #    when Obsidian is not frontmost — so no data loss and no fighting the user.
 #  - Single-instance lock (atomic mkdir, auto-reclaimed if a prior run hung) → no overlapping/looping runs.
 #  - Notifies once when it can't self-heal; then backs off silently until the port recovers.
-#  - Pause anytime:  touch ~/.claude/jarvis/obsidian-heal.pause
+#  - Pause anytime:  touch ~/.claude/urfael/obsidian-heal.pause
 set -uo pipefail
 
 PORT=27123
-VAULT_URI="obsidian://open?path=$HOME/Jarvis"
-DIR="$HOME/.claude/jarvis"
+VAULT_URI="obsidian://open?path=$HOME/Urfael"
+DIR="$HOME/.claude/urfael"
 LOG="$DIR/obsidian-heal.log"; STATE="$DIR/obsidian-heal.state"; PAUSE="$DIR/obsidian-heal.pause"
 LOCKDIR="$DIR/obsidian-heal.lock.d"; LASTHARD="$DIR/obsidian-heal.lasthard"
 HARD_COOLDOWN=7200   # min seconds between graceful restarts (anti-flap)
@@ -39,7 +39,7 @@ fails=$(cat "$STATE" 2>/dev/null || echo 0); case "$fails" in ''|*[!0-9]*) fails
 fails=$((fails + 1)); echo "$fails" > "$STATE" 2>/dev/null
 
 if [ "$fails" -le 2 ]; then
-  # gentle, non-destructive: reload the Jarvis vault (fixes the common "wrong vault open" case)
+  # gentle, non-destructive: reload the Urfael vault (fixes the common "wrong vault open" case)
   log "REST API down — gentle vault reload (#$fails)"
   open "$VAULT_URI" >/dev/null 2>&1
   for i in $(seq 1 15); do port_up && { log "✓ healed in ${i}s (gentle)"; echo 0 > "$STATE" 2>/dev/null; exit 0; }; sleep 1; done
@@ -57,7 +57,7 @@ elif [ "$fails" -eq 3 ]; then
     log "skipping restart (within ${HARD_COOLDOWN}s cooldown)"
   fi
   log "✗ still down — notifying the user; backing off (community plugins likely OFF / Restricted Mode — needs a manual toggle)"
-  osascript -e 'display notification "Obsidian connection is down. Open the Jarvis vault and make sure community plugins are enabled." with title "Jarvis"' 2>/dev/null
+  osascript -e 'display notification "Obsidian connection is down. Open the Urfael vault and make sure community plugins are enabled." with title "Urfael"' 2>/dev/null
 fi
 # fails >= 4: silent back-off — do nothing until the port recovers (port_up resets state to 0)
 exit 0

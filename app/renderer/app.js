@@ -1,14 +1,15 @@
 'use strict';
-// Jarvis Mk II overlay. Voice: idle until "Jarvis"/tap → conversation (listen→answer→listen),
-// streaming TTS, barge-in. HUD: an altitude-based J.A.R.V.I.S. console that deploys on activity,
+// Urfael Mk II overlay. Voice: idle until "Urfael"/tap → conversation (listen→answer→listen),
+// streaming TTS, barge-in. HUD: an altitude-based Urfael console that deploys on activity,
 // shows live reasoning/response/vitals, and retracts when idle.
 
 const EL = { base: 'https://api.elevenlabs.io/v1' };
 let cfg = { apiKey: '', voiceId: '', model: 'eleven_flash_v2_5' };
+const wakeLabel = () => cfg.wakeLabel || 'Computer';
 
 const canvas = document.getElementById('orb');
 const caption = document.getElementById('caption');
-const orb = new JarvisOrb(canvas);
+const orb = new UrfaelOrb(canvas);
 
 let ctx, analyser, micAnalyser, td;
 let micStream = null, micSource = null, recorder = null, chunks = [];
@@ -40,7 +41,7 @@ const TOOL_LABEL = (n) => {
 function setState(s, text) {
   state = s;
   orb.setState(s === 'capturing' ? 'listening' : s);
-  const lbl = { idle: convo ? 'Listening…' : 'Say “Jarvis”…', capturing: 'Listening… (tap to stop)', thinking: 'Thinking…', speaking: '' };
+  const lbl = { idle: convo ? 'Listening…' : `Say “${wakeLabel()}”…`, capturing: 'Listening… (tap to stop)', thinking: 'Thinking…', speaking: '' };
   caption.textContent = text != null ? text : (lbl[s] || '');
   caption.classList.toggle('dim', s === 'idle' && !convo);
 }
@@ -55,7 +56,7 @@ function ensureAudio() {
   warmAcks();
 }
 
-// ---- instant acknowledgments — Jarvis answers the moment you stop talking ----
+// ---- instant acknowledgments — Urfael answers the moment you stop talking ----
 // Short phrases pre-synthesized once (cached AudioBuffers), played only if the real reply hasn't
 // started speaking within ACK_AFTER_MS — so fast turns aren't slowed down, slow ones aren't silent.
 const ACK_PHRASES = ['On it, sir.', 'Right away, sir.', 'Working on it.', 'One moment.', 'Let me look into that.'];
@@ -76,7 +77,7 @@ async function synthOne(text) { // one-shot synth → decoded AudioBuffer (no tu
     if (!r.ok) return null;
     bytes = await r.arrayBuffer();
   } else {
-    const u8 = await window.jarvis.tts(text);
+    const u8 = await window.urfael.tts(text);
     bytes = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
   }
   return ctx.decodeAudioData(bytes);
@@ -130,11 +131,11 @@ function reasonRow(text, cls) {
   reasonEl.scrollTop = reasonEl.scrollHeight;
 }
 
-window.jarvis.onThinking((p) => {
+window.urfael.onThinking((p) => {
   if (p.reset) {
     liveTurn = p.turnId; mutedTurn = -1; toolCount = 0; respText = '';
     reasonEl.innerHTML = ''; responseEl.textContent = ''; chipsEl.innerHTML = '';
-    reasonRow((modelLabel(p.model) || 'Jarvis') + ' engaged', 'model');
+    reasonRow((modelLabel(p.model) || 'Urfael') + ' engaged', 'model');
     escalate(isOpus(p.model) ? 'expanded' : 'active');
     refreshVitals();
   } else if (p.tool) {
@@ -161,7 +162,7 @@ function answerForScreen(t) {
   if (/\[SPOKEN\]/i.test(t)) return '';                 // comment still streaming, answer not started
   return t.replace(/\[\/?SPOKEN\]/gi, '').trim();        // no tags (fallback) → show all
 }
-window.jarvis.onDone((p) => {
+window.urfael.onDone((p) => {
   resolvePendingRows();
   const full = answerForScreen((p && p.text) || respText);
   responseEl.textContent = full.slice(0, 1400);
@@ -181,7 +182,7 @@ function renderChips(text) {
 
 // vitals (real data from the daemon)
 async function refreshVitals() {
-  let v; try { v = await window.jarvis.vitals(); } catch { v = null; }
+  let v; try { v = await window.urfael.vitals(); } catch { v = null; }
   if (!v) return;
   const set = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
   const mEl = document.getElementById('v-model');
@@ -214,7 +215,7 @@ function drawParticles() {
   for (const m of motes) {
     m.x += (m.tx - m.x) * 0.06; m.y += (m.ty - m.y) * 0.06; m.life -= 0.012;
     const d = Math.hypot(m.tx - m.x, m.ty - m.y);
-    pctx.strokeStyle = `rgba(25,224,255,${Math.min(0.6, m.life)})`; pctx.lineWidth = 1.6;
+    pctx.strokeStyle = `rgba(224,176,98,${Math.min(0.6, m.life)})`; pctx.lineWidth = 1.6;
     pctx.beginPath(); pctx.moveTo(m.x, m.y); pctx.lineTo(m.x + (m.tx - m.x) * 0.08, m.y + (m.ty - m.y) * 0.08); pctx.stroke();
     if (d < 14) m.life = 0;
   }
@@ -228,7 +229,7 @@ let interactiveNow = false;
 const HOT = '#orb, #close, .chip, #rail, #dock, #cmdline';
 window.addEventListener('mousemove', (e) => {
   const over = !!(e.target.closest && e.target.closest(HOT));
-  if (over !== interactiveNow) { interactiveNow = over; window.jarvis.setInteractive(over); }
+  if (over !== interactiveNow) { interactiveNow = over; window.urfael.setInteractive(over); }
 });
 
 // dock launcher chips — set these to your own projects/areas (tap a chip → "Brief me on <name>")
@@ -236,10 +237,10 @@ const PROJECTS = ['work', 'personal', 'research', 'health', 'finances', 'ideas']
 const dock = document.getElementById('dock');
 PROJECTS.forEach((p) => { const c = document.createElement('span'); c.className = 'chip hot'; c.textContent = p; c.onclick = () => { ensureAudio(); setState('thinking'); submitAsk('Brief me on ' + p); }; dock.appendChild(c); });
 
-window.jarvis.onHudToggle(() => setAltitude(altitude === 'expanded' ? 'idle' : 'expanded'));
+window.urfael.onHudToggle(() => setAltitude(altitude === 'expanded' ? 'idle' : 'expanded'));
 
 // ============================ voice (preserved) ============================
-window.jarvis.onSay((p) => {
+window.urfael.onSay((p) => {
   if (p.text) enqueueSay(p.text, p.turnId);
   else if (p.end && p.turnId === liveTurn && p.turnId !== mutedTurn) { streamEnded = true; maybeFinish(); }
 });
@@ -277,7 +278,7 @@ async function enqueueSay(text, turnId) {
       else audioBytes = await r.arrayBuffer();
     } else {
       // LOCAL (say / kokoro): main process synthesizes and returns mp3 bytes
-      const u8 = await window.jarvis.tts(spoken);                  // Uint8Array over IPC
+      const u8 = await window.urfael.tts(spoken);                  // Uint8Array over IPC
       audioBytes = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
     }
     if (audioBytes) audio = await ctx.decodeAudioData(audioBytes);
@@ -302,7 +303,7 @@ function finishSpeaking() {
   if (finished) return; finished = true;
   streamEnded = false;
   if (finishTimer) clearTimeout(finishTimer);
-  finishTimer = setTimeout(() => { if (convo) beginListening(); else { window.jarvis.wakeDone(); setState('idle'); scheduleCollapse(); } }, 250);
+  finishTimer = setTimeout(() => { if (convo) beginListening(); else { window.urfael.wakeDone(); setState('idle'); scheduleCollapse(); } }, 250);
 }
 function stopPlayback() {
   if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
@@ -342,7 +343,7 @@ async function handleUtterance() {
 // one ask path for voice, typed input, and dock chips — same finish/safety semantics everywhere
 function submitAsk(text) {
   finished = false; streamEnded = false; audioQ = []; pendingFetches = 0;
-  window.jarvis.ask(text)
+  window.urfael.ask(text)
     .then(() => { setTimeout(() => { if (!finished && !playing && !audioQ.length && pendingFetches === 0) finishSpeaking(); }, 60); })
     .catch(() => finishSpeaking());
 }
@@ -357,18 +358,18 @@ cmdline.addEventListener('keydown', (e) => {
   if (state !== 'capturing') setState('thinking');
   submitAsk(text);
 });
-window.jarvis.onWake((p) => {
+window.urfael.onWake((p) => {
   if (p.detected) enterConversation();
-  else if (p.ready) setState('idle', 'Say “Jarvis”…');
+  else if (p.ready) setState('idle', `Say “${wakeLabel()}”…`);
   else if (p.noKey) setState('idle', 'Tap to start (add a Picovoice key)');
   else if (p.error) setState('idle', 'Tap to start');
 });
 canvas.addEventListener('click', () => { ensureAudio(); if (convo) endConversation(); else enterConversation(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.jarvis.hide(); });
-window.jarvis.onShown(() => ensureAudio());
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.urfael.hide(); });
+window.urfael.onShown(() => ensureAudio());
 async function enterConversation() {
   if (convo) return;
-  convo = true; escalate('active'); window.jarvis.wakePause(); ensureAudio();
+  convo = true; escalate('active'); window.urfael.wakePause(); ensureAudio();
   try { micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
   catch { convo = false; return resetIdle('Mic blocked — enable it in System Settings'); }
   micSource = ctx.createMediaStreamSource(micStream);
@@ -379,17 +380,17 @@ function releaseMic() {
   if (micSource) { try { micSource.disconnect(); } catch {} micSource = null; }
   if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
 }
-function resetIdle(msg) { convo = false; stopPlayback(); releaseMic(); window.jarvis.wakeDone(); setState('idle', msg); scheduleCollapse(); }
+function resetIdle(msg) { convo = false; stopPlayback(); releaseMic(); window.urfael.wakeDone(); setState('idle', msg); scheduleCollapse(); }
 function endConversation() {
   convo = false; recording = false; stopPlayback();
   if (recorder && recorder.state !== 'inactive') { try { recorder.onstop = null; recorder.stop(); } catch {} }
-  releaseMic(); window.jarvis.wakeDone(); window.jarvis.conversationEnd();
-  setState('idle', 'Stopped — say “Jarvis”'); scheduleCollapse();
+  releaseMic(); window.urfael.wakeDone(); window.urfael.conversationEnd();
+  setState('idle', `Stopped — say “${wakeLabel()}”`); scheduleCollapse();
 }
 async function transcribe(blob) {
   if (cfg.sttProvider !== 'elevenlabs') {
     // LOCAL whisper.cpp: main process transcribes the recorded audio
-    try { return (await window.jarvis.stt(await blob.arrayBuffer())) || ''; }
+    try { return (await window.urfael.stt(await blob.arrayBuffer())) || ''; }
     catch (e) { caption.textContent = (e && e.message) ? e.message : 'Local STT unavailable'; return ''; }
   }
   if (!cfg.apiKey) { resetIdle('No ElevenLabs key'); return ''; }
@@ -407,17 +408,17 @@ function cleanForSpeech(t) {
           .replace(/[#>*_~|`\\]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-window.jarvis.onTheme((t) => orb.setTheme(t));
-window.jarvis.onGaze((g) => orb.setGaze(g));
-document.getElementById('close').addEventListener('click', (e) => { e.stopPropagation(); window.jarvis.shutdown(); });
+window.urfael.onTheme((t) => orb.setTheme(t));
+window.urfael.onGaze((g) => orb.setGaze(g));
+document.getElementById('close').addEventListener('click', (e) => { e.stopPropagation(); window.urfael.shutdown(); });
 
 // boot sequence then idle
 (async () => {
-  cfg = await window.jarvis.config();
-  orb.setTheme(cfg.theme || 'mk2');
+  cfg = await window.urfael.config();
+  orb.setTheme(cfg.theme || 'sigil');
   orb.start();
   const boot = document.getElementById('boot'), bl = document.getElementById('bootline');
-  const seq = ['INITIALIZING', 'LOADING MEMORY', 'SYSTEMS NOMINAL'];
+  const seq = ['WAKING', 'READING THE ARCHIVE', 'AT YOUR SERVICE'];
   let i = 0; const iv = setInterval(() => { i++; if (bl && seq[i]) bl.textContent = seq[i]; }, 480);
-  setTimeout(() => { clearInterval(iv); if (boot) boot.classList.add('gone'); setState('idle', 'Say “Jarvis”…'); refreshVitals(); }, 1500);
+  setTimeout(() => { clearInterval(iv); if (boot) boot.classList.add('gone'); setState('idle', `Say “${wakeLabel()}”…`); refreshVitals(); }, 1500);
 })();
