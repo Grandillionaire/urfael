@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('urfael', {
   setConfig: (k, v) => ipcRenderer.send('urfael:set-config', k, v),
   providerStatus: () => ipcRenderer.invoke('urfael:provider-status'),   // first-run onboarding
   saveProvider: (cfg) => ipcRenderer.invoke('urfael:save-provider', cfg),
+  learn: () => ipcRenderer.invoke('urfael:learn'),                      // the verify-before-trust ledger
+  audit: () => ipcRenderer.invoke('urfael:audit'),                      // the team-mode activity trail
   wakePause: () => ipcRenderer.send('urfael:wake-pause'),
   wakeDone: () => ipcRenderer.send('urfael:wake-done'),
   onShown: (cb) => ipcRenderer.on('urfael:shown', () => cb()),

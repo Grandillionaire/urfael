@@ -192,3 +192,13 @@ button { font-family: var(--serif); }
 .ob-go:disabled { opacity: 0.5; cursor: default; }
 .ob-note { min-height: 16px; margin: 12px 0 0; font-size: 12px; color: var(--dim); }
 .ob-note.err { color: var(--ember); }
+
+/* ---- Hearth: learning ledger + team audit ---- */
+.sub-h { font-size: 12px; font-variant: small-caps; letter-spacing: 2px; color: var(--gold); font-weight: 500; margin: 26px 0 10px; }
+.ledger-head { color: var(--dim); font-size: 12px; margin-bottom: 8px; }
+.ledger-row { display: grid; grid-template-columns: 72px 42px 1fr; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.ledger-row .lst { font-variant: small-caps; letter-spacing: 0.5px; color: var(--dim); }
+.ledger-row.trusted .lst { color: #8fae6e; }
+.ledger-row.retired { opacity: 0.55; }
+.ledger-row .lcf { font: 11px var(--mono); color: var(--label); }
+.ledger-row .lrf { color: var(--body); overflow-wrap: anywhere; }

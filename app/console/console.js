@@ -344,8 +344,40 @@ async function loadHearth() {
     d.querySelector('label').textContent = k.toUpperCase(); d.querySelector('span').textContent = val;
     el.appendChild(d);
   }
+  loadLearn(); loadAudit();
   clearInterval(hearthTimer);
   hearthTimer = setInterval(() => { if (view === 'hearth') loadHearth(); else clearInterval(hearthTimer); }, 5000);
+}
+// the verify-before-trust learning ledger: trusted / proposed / retired, with confidence.
+async function loadLearn() {
+  const el = $('#learn-list'); const d = await window.urfael.learn().catch(() => null);
+  const s = d && d.stats;
+  if (!s || !s.total) { el.innerHTML = '<span class="empty">nothing learned yet</span>'; return; }
+  const ord = { trusted: 0, proposed: 1, retired: 2 };
+  const items = (d.items || []).slice().sort((a, b) => (ord[a.status] - ord[b.status]) || (b.confidence - a.confidence)).slice(0, 25);
+  el.innerHTML = `<div class="ledger-head">${s.trusted} trusted · ${s.proposed} proposed · ${s.retired} retired · avg confidence ${s.avgConfidence}</div>`;
+  for (const i of items) {
+    const row = document.createElement('div'); row.className = 'ledger-row ' + i.status;
+    const conf = i.status === 'retired' ? '' : Number(i.confidence || 0).toFixed(2);
+    row.innerHTML = '<span class="lst"></span><span class="lcf"></span><span class="lrf"></span>';
+    row.querySelector('.lst').textContent = i.status; row.querySelector('.lcf').textContent = conf;
+    row.querySelector('.lrf').textContent = String(i.ref || '').slice(0, 100);
+    el.appendChild(row);
+  }
+}
+// the team-mode activity trail: who / when / channel / role / sandbox profile.
+async function loadAudit() {
+  const el = $('#audit-list'); const d = await window.urfael.audit().catch(() => null);
+  const a = d && d.activity;
+  if (!a || !a.length) { el.innerHTML = '<span class="empty">no remote (principal) activity yet</span>'; return; }
+  el.innerHTML = '';
+  for (const e of a.slice(0, 25)) {
+    const row = document.createElement('div'); row.className = 'ledger-row';
+    row.innerHTML = '<span class="lst"></span><span class="lcf"></span><span class="lrf"></span>';
+    row.querySelector('.lst').textContent = e.channel || '?'; row.querySelector('.lcf').textContent = (e.t || '').slice(11, 16);
+    row.querySelector('.lrf').textContent = (e.principal || '—') + '  ·  ' + (e.role || '') + ' / ' + (e.profile || '');
+    el.appendChild(row);
+  }
 }
 $('#distill').addEventListener('click', () => { window.urfael.conversationEnd(); $('#distill .label').textContent = 'Distilling…'; setTimeout(() => ($('#distill .label').textContent = 'Distill memory'), 2500); });
 

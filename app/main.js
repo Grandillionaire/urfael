@@ -142,6 +142,8 @@ ipcMain.on('urfael:set-config', (_e, key, val) => {
   if (key === 'URFAEL_THEME') forward('urfael:theme', String(val));
 });
 ipcMain.handle('urfael:vitals', () => daemonGet('/vitals'));
+ipcMain.handle('urfael:learn', () => daemonGet('/learn'));   // the learning ledger (Hearth view)
+ipcMain.handle('urfael:audit', () => daemonGet('/audit'));   // the team activity trail (Hearth view)
 ipcMain.on('urfael:conversation-end', () => daemonPost('/conversation-end'));
 
 // ---- first-run GUI onboarding (so a non-technical user never needs a terminal) ----
