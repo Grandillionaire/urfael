@@ -95,7 +95,7 @@ The brain is a local daemon reachable only through a `0600` unix socket — **it
 - **Fail-closed everything.** An unknown channel resolves to the most-restricted profile, not the least. A malformed request is rejected, not guessed.
 - **Sandboxed autonomy.** The `/goal` loop runs on the host, in a throwaway `--network none` Docker container (only the `claude` auth files are staged in — never your `bridge.env`/API keys), or on a remote box over SSH.
 
-**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (OpenClaw's ClawJacked token-leak RCE, 40k exposed gateways, the poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **7/7 attack classes resisted, 33/33 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md).
+**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (OpenClaw's ClawJacked token-leak RCE, 40k exposed gateways, the poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **7/7 attack classes resisted, 33/33 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md).
 
 > [!WARNING]
 > Full capability (`URFAEL_YOLO=1`) gives the agent an unrestricted shell that also reads untrusted email and web. Run that mode **only** in a VM, container, or throwaway account.

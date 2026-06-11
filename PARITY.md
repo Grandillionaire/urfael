@@ -2,6 +2,8 @@
 
 > The standing goal: everything they have, we have — smoother. This file is the tracked work-list,
 > built from deep teardowns of both projects (June 2026). Status: ✦ better · ✓ parity · ◐ partial · ✗ missing.
+>
+> **Strategy + sequenced roadmap:** [docs/IMPROVEMENT-PLAN.md](docs/IMPROVEMENT-PLAN.md) — how Urfael beats both *combined* via the trust-kernel thesis, not feature-union.
 > Urfael's structural advantage: the brain is the `claude` CLI, so Claude Code's whole tool surface
 > (files, shell, web, MCP, subagents, skills) is inherited, not reimplemented.
 
