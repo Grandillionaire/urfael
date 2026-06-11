@@ -241,9 +241,6 @@ tick();setInterval(tick,5000);
 
 // ---- request handling: auth gate -> tiny fixed API surface (no path is ever turned into a filesystem path) ----
 const server = http.createServer(async (req, res) => {
-  const ip = (req.socket && req.socket.remoteAddress) || 'local';
-  if (!rateOk(ip)) { res.writeHead(429, { 'Content-Type': 'text/plain' }); res.end('slow down'); return; }
-
   // anti-DNS-rebinding: a loopback-only admin surface must only answer to a loopback Host header
   const host = (req.headers.host || '').split(':')[0];
   if (host !== '127.0.0.1' && host !== 'localhost') { res.writeHead(400); res.end(); return; }
@@ -267,6 +264,12 @@ const server = http.createServer(async (req, res) => {
   let setCookie = false;
   if (!authed && qtok && tokenOk(qtok)) { authed = true; setCookie = true; }
   if (!authed) { unauthorized(res); return; }
+
+  // rate limit is AUTHENTICATED-only: all loopback requests share remoteAddress '127.0.0.1', so a pre-auth
+  // limit would let an unauthenticated co-resident process drain the shared bucket and lock the owner out.
+  // Only the token holder can spend it. (openai-api.js does the same; this was a regression of that fix.)
+  const ip = (req.socket && req.socket.remoteAddress) || 'local';
+  if (!rateOk(ip)) { res.writeHead(429, { 'Content-Type': 'text/plain' }); res.end('slow down'); return; }
 
   // the page (only ever the root path is served; there is NO file mapping from the URL -> traversal impossible)
   if (req.method === 'GET' && pathname === '/') {

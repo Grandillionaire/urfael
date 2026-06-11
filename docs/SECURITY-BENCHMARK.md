@@ -7,7 +7,7 @@
 > ```
 >
 > It boots the real daemon and dashboard and attacks them the way the wild did — then prints a pass/fail
-> table. As of the latest run: **7/7 real-world attack classes resisted · 27/27 checks passed.**
+> table. As of the latest run: **7/7 real-world attack classes resisted · 33/33 checks passed.**
 
 Self-hosted AI agents were not compromised hypothetically in 2026. They were compromised in production:
 
@@ -24,10 +24,10 @@ Urfael was designed against exactly these. The benchmark proves it, defense by d
 |---|---|---|---|---|
 | 1 | **Network exposure** | 20–42k OpenClaw gateways reachable from the internet | The brain listens on a **unix socket only** — zero TCP ports. The opt-in dashboard/API bind `127.0.0.1` only. | `lsof` shows 0 TCP listeners for the daemon; socket is `0600` |
 | 2 | **Auth-token leak → RCE** | ClawJacked leaked the gateway token to a malicious page | Tokens are **constant-time compared**, **never logged**, stored `0600`; cross-origin `Host` rejected (anti-rebinding); no token in any URL | wrong/empty/rebind requests → 401/400; token never appears in stdout |
-| 3 | **Prompt-injection exfiltration** | A poisoned email made the agent leak a private key | Remote turns run a **read-only profile** (Read/Grep/Glob — no shell, no write, **no network-egress tool**), wrapped in a nonce-framed untrusted envelope; channel resolution is **fail-closed** | 9 coercion attempts → `untrusted`; forged `From:` can't spoof the allowlist |
+| 3 | **Prompt-injection exfiltration** | A poisoned email made the agent leak a private key | Remote turns run a **read-only profile** (Read/Grep/Glob — no shell, no write, **no network-egress tool**), nonce-framed; the vault **denies the agent reading credential stores** (a hard boundary that beats even YOLO); the heartbeat (which reads untrusted email) has **no egress tool**; the cron sandbox is read/fetch-only. So an injected "read a secret and send it out" has nothing to read and nowhere to send | 9 coercion attempts → `untrusted`; forged `From:` blocked; `permissions.deny` on `~/.claude`/`~/.ssh`; heartbeat disallows WebFetch/Search/Bash |
 | 4 | **Poisoned skill / supply chain** | ~20% of ClawHub skills were malware | Skills are **previewed + statically scanned** before install (curl\|sh, `--dangerously-skip-permissions`, exfil URLs, hidden unicode), **never auto-installed when flagged**, **never executed**; install refuses SSRF redirects; migrated foreign skills are scanned too | the scanner + `installFromUrl` SSRF guard + `--force` can't bypass the malware gate |
 | 5 | **Unauthenticated DoS / crash-loop** | A malformed request that crashes a restarted service is a remote no-auth DoS (we caught one in our *own* review) | Malformed input → 401/400, **not a crash**; bodies capped; rate-limited; no filesystem path from the URL | malformed cookie → 401, process survives; traversal → 404 |
-| 6 | **Secret theft by a runaway agent** | An agent with a shell + your secrets is one injection from reading them | The Docker sandbox **stages only the claude auth files** (never `bridge.env` / API keys) and is **`--network none`** by default | the goal-loop never mounts `~/.claude`; only a temp auth dir |
+| 6 | **Secret theft by a runaway agent** | An agent with a shell + your secrets is one injection from reading them | The Docker sandbox **stages only the claude auth files** (never `bridge.env` / API keys) and is **`--network none`** by default; and across *every* spawned session the vault `permissions.deny` blocks reading the credential stores outright | the goal-loop never mounts `~/.claude`; the vault denies `Read(~/.claude/**)` etc. (beats the permission mode) |
 | 7 | **Insecure defaults** | OpenClaw shipped `security:full` + `ask:off` on the host | The unrestricted shell is **off by default** (opt-in + logged); default mode is not bypass; an unknown channel gets the **most-restricted** profile | YOLO off; unknown channel → `untrusted` |
 
 ## Why this is the differentiator

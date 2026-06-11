@@ -499,8 +499,22 @@ async function heartbeat() {
     'with exactly: HEARTBEAT_OK\n' +
     'Otherwise reply with ONE short spoken-style alert — 1 to 3 plain sentences, no markdown, no [SPOKEN] tags, ' +
     'leading with what needs attention and why.';
+  // The heartbeat reads UNTRUSTED content (email/calendar), so it runs as a sandboxed one-shot with NO egress
+  // tool — WebFetch/WebSearch/Bash are disallowed (Claude Code deny removes them entirely), and the vault
+  // settings.json denies reading the credential stores. So an injected "read a secret and send it out" has
+  // neither a secret to read nor a channel to send it. MCP connectors (calendar/email) stay available (no
+  // --strict-mcp-config) so it can still do its job. The reply still reaches only YOU (notifyOwner).
+  const args = ['-p', prompt, '--model', MODELS.sonnet, '--permission-mode', 'acceptEdits', '--output-format', 'json',
+    '--disallowedTools', 'WebFetch', '--disallowedTools', 'WebSearch', '--disallowedTools', 'Bash'];
+  let out = '';
   try {
-    const reply = ((await getSession(MODELS.sonnet).ask(prompt, { silent: true })) || '').trim();
+    const reply = await new Promise((resolve) => {
+      const p = spawn(CLAUDE_BIN, args, { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: ['ignore', 'pipe', 'ignore'] });
+      p.stdout.on('data', (d) => { out += d.toString(); if (out.length > 2000000) out = out.slice(-2000000); });
+      const t = setTimeout(() => { try { p.kill('SIGKILL'); } catch {} }, 120000);
+      p.on('exit', () => { clearTimeout(t); let r = ''; try { const j = JSON.parse(out); r = typeof j.result === 'string' ? j.result : ''; } catch {} resolve(r.trim()); });
+      p.on('error', () => { clearTimeout(t); resolve(''); });
+    });
     if (!reply || /^HEARTBEAT_OK\b/.test(reply) || /\bHEARTBEAT_OK\b/.test(reply.slice(0, 40))) {
       logEvent({ ev: 'heartbeat_ok' });
     } else {

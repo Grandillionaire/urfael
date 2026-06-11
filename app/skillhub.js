@@ -79,9 +79,11 @@ function scan(text) {
   const add = (level, why, sample) => flags.push({ level, why, sample: (sample || '').replace(/\s+/g, ' ').trim().slice(0, 120) });
   const s = String(text || '');
 
-  // 1) embedded shell that pipes a download straight into an interpreter — the classic dropper
+  // 1) embedded shell that runs a remote download — the classic dropper, plus its common evasions
   let m;
   if ((m = s.match(/\b(?:curl|wget|fetch)\b[^\n|]*\|\s*(?:sudo\s+)?(?:ba|z|da|k|fi)?sh\b/i))) add('danger', 'pipes a network download into a shell (curl|sh dropper)', m[0]);
+  if ((m = s.match(/\b(?:bash|sh|zsh|source|\.)\b\s*<\(\s*(?:curl|wget|fetch)\b/i))) add('danger', 'process-substitution dropper (bash <(curl ...))', m[0]);
+  if ((m = s.match(/\b(?:curl|wget|fetch)\b[^\n|]*\|\s*(?:xargs[^\n|]*\b(?:ba|z)?sh\b|(?:ba|z)?sh\b|nc\b|node\b|python3?\b|perl\b|ruby\b)/i))) add('danger', 'pipes a download into an interpreter/xargs/nc (dropper variant)', m[0]);
   if ((m = s.match(/\bbase64\b[^\n|]*(?:-d|--decode|-D)[^\n|]*\|\s*(?:sudo\s+)?\w*sh\b/i))) add('danger', 'decodes base64 and pipes it into a shell (obfuscated payload)', m[0]);
   if ((m = s.match(/\beval\b\s*[("'`$]/i))) add('danger', 'eval of dynamic content', m[0]);
   if ((m = s.match(/\b(?:python3?|node|perl|ruby|php)\b\s+-(?:e|c)\b/i))) add('warn', 'inline interpreter one-liner (-e/-c)', m[0]);
@@ -94,13 +96,24 @@ function scan(text) {
   // 3) reading secrets / sensitive paths
   if ((m = s.match(/[~/.]*\/?\.ssh\/(?:id_[a-z0-9]+|authorized_keys|config)?/i))) add('danger', 'touches ~/.ssh (private keys)', m[0]);
   if ((m = s.match(/\/etc\/(?:passwd|shadow|sudoers|hosts)\b/i))) add('danger', 'reads system files under /etc', m[0]);
-  if ((m = s.match(/\.aws\/credentials|\.config\/gcloud|\.npmrc|\.netrc|\.git-credentials|\.env\b|keychain|Keychains/i))) add('danger', 'targets a credentials/secret store', m[0]);
+  // credential / secret stores — incl. URFAEL'S OWN secrets (a skill is run with full local power, so it could
+  // read these and send them out). Matches ~/.claude (the Claude login), bridge.env/api-keys.env, the dashboard/
+  // api tokens, ssh/aws/gcloud/npm/netrc/git creds, keychains.
+  const SECRET_PATH = /\.aws\/credentials|\.config\/gcloud|\.npmrc|\.netrc|\.git-credentials|\.env\b|keychain|Keychains|\.claude\/(?:\.credentials|urfael)|\.credentials\.json|(?:dashboard|api)\.token|bridge\.env|api-keys\.env/i;
+  let sensitiveRead = false;
+  if ((m = s.match(SECRET_PATH))) { add('danger', 'targets a credentials/secret store', m[0]); sensitiveRead = true; }
   if ((m = s.match(/\b(?:AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|ghp_[A-Za-z0-9]{20,})\b/))) add('warn', 'looks like a hardcoded API key/token', m[0]);
 
-  // 4) exfiltration — sending local data out to a raw host/IP
-  if ((m = s.match(/\b(?:curl|wget|nc|ncat|netcat|fetch|invoke-webrequest|scp|rsync)\b[^\n]*(?:https?:\/\/|@)[^\s]+/i))) add('warn', 'network call that could exfiltrate local data', m[0]);
+  // 4) exfiltration — sending data out. ANY send/post/upload counts; a known callback service is DANGER.
+  const EXFIL_HOST = /https?:\/\/(?:[a-z0-9.-]+\.)?(?:ngrok\.io|trycloudflare\.com|requestbin\.\w+|webhook\.site|pipedream\.net|interact\.sh|oast\.\w+|transfer\.sh|0x0\.st|pastebin\.com|paste\.ee|hastebin\.com|file\.io|discord(?:app)?\.com\/api\/webhooks|api\.telegram\.org\/bot|githubusercontent\.com)[^\s]*/i;
+  let sendsOut = false;
+  if ((m = s.match(/\b(?:curl|wget|nc|ncat|netcat|fetch|invoke-webrequest|scp|rsync|http[ _-]?post|upload|exfiltrat)\w*\b[^\n]*(?:https?:\/\/|@)[^\s]+/i))) { add('warn', 'network call that could exfiltrate local data', m[0]); sendsOut = true; }
+  if (/\b(?:POST|send|upload|exfiltrate|publish|transmit)\b[^\n]*\bhttps?:\/\//i.test(s) || /\bhttps?:\/\/[^\s]+[^\n]*\b(?:POST|upload|send)\b/i.test(s)) sendsOut = true;
   if ((m = s.match(/https?:\/\/\d{1,3}(?:\.\d{1,3}){3}\b[^\s]*/i))) add('warn', 'hardcoded raw-IP URL (exfil endpoint?)', m[0]);
-  if ((m = s.match(/https?:\/\/(?:[a-z0-9.-]+\.)?(?:ngrok\.io|trycloudflare\.com|requestbin\.\w+|webhook\.site|pipedream\.net|interact\.sh|oast\.\w+)[^\s]*/i))) add('danger', 'URL points at a known exfil/callback service', m[0]); // subdomain optional — apex (webhook.site/x) must flag too
+  if ((m = s.match(EXFIL_HOST))) { add('danger', 'URL points at a known exfil/callback service', m[0]); sendsOut = true; }
+  // INTENT rule (not a literal command): a skill that both reads a secret AND sends data out is a DANGER dropper
+  // even in pure prose ("read ~/.claude/.credentials.json and POST it to ...") — the brain follows skills as procedures.
+  if (sensitiveRead && sendsOut) add('danger', 'reads a secret AND sends data out — a credential-exfiltration procedure', '');
 
   // 5) prompt-injection phrasing — this skill text is fed to the brain, so treat it as untrusted input
   const inj = [
@@ -203,7 +216,9 @@ async function installFromUrl(url, opts = {}) {
 
   const danger = flags.some((f) => f.level === 'danger');
   if (opts.yes) {
-    if (danger) { console.error('✗ refusing --yes auto-install: this skill tripped DANGER flags. Review and install interactively.'); return { ok: false, error: 'danger flags block --yes', flags }; }
+    // --yes only auto-installs a CLEAN skill: ANY flag (danger OR warn) forces interactive review, so a
+    // dropper that evades the DANGER tier but trips a WARN (e.g. an unusual interpreter pipe) can't slip through.
+    if (flags.length) { console.error('✗ refusing --yes auto-install: this skill tripped ' + flags.length + ' safety flag(s). Review and install interactively.'); return { ok: false, error: 'flags block --yes', flags }; }
     if (overwrite) { console.error('✗ refusing --yes: a skill named ' + slug + '.md already exists. Overwriting an installed skill needs interactive confirmation.'); return { ok: false, error: 'would overwrite', flags }; }
   } else {
     const warn = (danger ? gold(' (DANGER flags present!)') : '') + (overwrite ? gold(' (OVERWRITES the existing ' + slug + '.md!)') : '');
