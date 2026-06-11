@@ -192,6 +192,8 @@ a{color:var(--gold2)}
   </section>
   <section><h2>Reminders</h2><div id="reminders"><span class="empty">…</span></div></section>
   <section><h2>Jobs</h2><div id="jobs"><span class="empty">…</span></div></section>
+  <section><h2>Learning</h2><div id="learn"><span class="empty">…</span></div></section>
+  <section><h2>Team activity</h2><div id="audit"><span class="empty">…</span></div></section>
   <section><h2>Session search</h2>
     <input id="sq" placeholder="search every past conversation…" autocomplete="off">
     <div id="sessions" style="margin-top:10px"></div>
@@ -234,7 +236,19 @@ function send(){var t=$('#q').value.trim();if(!t)return;var b=$('#send');b.disab
   api('/api/ask',{method:'POST',body:JSON.stringify({text:t})}).then(function(r){$('#reply').textContent=(r&&r.text)||'(no reply)'}).catch(function(){$('#reply').textContent='(error)'}).then(function(){b.disabled=false})}
 $('#send').addEventListener('click',send);
 $('#q').addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key==='Enter')send()});
-function tick(){vit();usage();reminders();jobs()}
+function learn(){return api('/api/learn').then(function(d){
+  var s=d&&d.stats; if(!s||!s.total){$('#learn').innerHTML='<span class="empty">nothing learned yet</span>';return}
+  var head='<div class="muted" style="margin-bottom:8px">'+esc(s.trusted)+' trusted · '+esc(s.proposed)+' proposed · '+esc(s.retired)+' retired · avg confidence '+esc(s.avgConfidence)+'</div>';
+  var ord={trusted:0,proposed:1,retired:2};
+  var items=(d.items||[]).slice().sort(function(a,b){return (ord[a.status]-ord[b.status])||(b.confidence-a.confidence)}).slice(0,30);
+  $('#learn').innerHTML=head+items.map(function(i){var c=i.status==='trusted'?'#8fae6e':i.status==='retired'?'#888':'#d4a85a';
+    return '<div class="row"><span class="ch" style="color:'+c+'">'+esc(i.status)+'</span> <span class="t">'+(i.status==='retired'?'':esc(Number(i.confidence||0).toFixed(2)))+'</span> '+esc(String(i.ref||'').slice(0,90))+'</div>'}).join('');
+}).catch(function(){})}
+function audit(){return api('/api/audit').then(function(d){
+  var a=d&&d.activity; if(!a||!a.length){$('#audit').innerHTML='<span class="empty">no remote (principal) activity yet</span>';return}
+  $('#audit').innerHTML=a.slice(0,30).map(function(e){return '<div class="row"><span class="t">'+esc((e.t||'').replace('T',' ').slice(0,16))+'</span> <span class="ch">'+esc(e.channel||'?')+'</span> '+esc(e.principal||'—')+' <span class="muted">'+esc(e.role||'')+' · '+esc(e.profile||'')+'</span></div>'}).join('');
+}).catch(function(){})}
+function tick(){vit();usage();reminders();jobs();learn();audit()}
 tick();setInterval(tick,5000);
 </script></body></html>`;
 }
@@ -286,6 +300,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/usage') return sendJson(res, 200, (await daemonGet('/usage')) || {});
     if (req.method === 'GET' && pathname === '/api/reminders') return sendJson(res, 200, (await daemonGet('/reminders')) || []);
     if (req.method === 'GET' && pathname === '/api/jobs') return sendJson(res, 200, (await daemonGet('/jobs')) || []);
+    if (req.method === 'GET' && pathname === '/api/learn') return sendJson(res, 200, (await daemonGet('/learn')) || {});
+    if (req.method === 'GET' && pathname === '/api/audit') return sendJson(res, 200, (await daemonGet('/audit')) || {});
     if (req.method === 'GET' && pathname === '/api/sessions') return sendJson(res, 200, await searchSessions(u.searchParams.get('q') || ''));
     if (req.method === 'POST' && pathname === '/api/ask') {
       const body = await readBody(req); let parsed = {}; try { parsed = JSON.parse(body); } catch {}
