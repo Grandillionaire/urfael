@@ -17,6 +17,8 @@ const jobstore = require('./jobstore');
 const runner = require('./runner');
 const scheduler = require('./scheduler');
 const bridge = require('./bridge/bridge-core');
+const learn = require('./learn');               // the evidence ledger (verify-before-trust learning loop)
+const learnVerify = require('./learn-verify');  // the independent self-verifier (prompt + fail-closed parse)
 
 const VAULT = path.join(os.homedir(), process.env.URFAEL_VAULT_DIR || 'Urfael');
 const MEMORY_DIR = path.join(os.homedir(), process.env.URFAEL_MEMORY_DIR || 'Urfael-memory');
@@ -491,7 +493,7 @@ const REVIEW_ON = process.env.URFAEL_REVIEW === '1';                            
 const REVIEW_EVERY = Math.max(1, parseInt(process.env.URFAEL_REVIEW_EVERY, 10) || 1);   // review every Nth local turn
 const CURATOR_DAYS = Math.max(0, parseInt(process.env.URFAEL_CURATOR_DAYS, 10) || 0);   // 0 = curator off
 const CURATOR_FILE = path.join(JDIR, 'curator.json');                                   // persisted 'last curated' ts
-let reviewing = false, curating = false, reviewedTurns = 0;
+let reviewing = false, curating = false, reviewedTurns = 0, verifying = false;
 function hoursOk(d = new Date()) {
   const m = HB_HOURS.match(/^(\d{1,2})-(\d{1,2})$/);
   if (!m) return true;
@@ -549,7 +551,10 @@ function distill() {
     '[Automated end-of-conversation memory + learning pass — do NOT reply conversationally.]\n' +
     "Review this conversation and update Urfael's memory where warranted:\n" +
     `- Durable facts/decisions/projects/people/commitments -> merge concisely into ${MEMORY_DIR}/MEMORY.md (right section, no dupes).\n` +
-    `- If the user CORRECTED you or something went wrong -> append a lesson to ${MEMORY_DIR}/LESSONS.md (mistake -> rule -> trigger).\n` +
+    `- If the user CORRECTED you or something went wrong -> capture a lesson (mistake -> rule -> trigger). ` +
+    `Do NOT write LESSONS.md directly: collect ALL such lessons into a JSON array at ${MEMORY_DIR}/.learned.json ` +
+    `(each {"type":"lesson","ref":"<one concise line: mistake -> rule -> trigger>"}). Urfael verifies a lesson ` +
+    `before trusting it, so staging it there is how it enters memory. If there are no lessons, write [].\n` +
     `- If you noticed a recurring preference or way the user works -> add it to ${MEMORY_DIR}/WORKFLOW.md.\n` +
     `- USER MODEL: if you learned something about WHO the user is (role, projects, people, communication ` +
     `style, what they value in answers) -> merge it into ${MEMORY_DIR}/USER.md (keep under ~40 lines; ` +
@@ -572,9 +577,60 @@ function distill() {
     '--allowedTools', 'Write,Edit,Bash(git:*),Bash(cd:*),Bash(mkdir:*)', '--strict-mcp-config'],
     { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: 'ignore', detached: true });
   const clear = setTimeout(() => { distilling = false; }, 300000); // safety: never get stuck if exit is missed
-  p.on('exit', () => { clearTimeout(clear); distilling = false; });
+  p.on('exit', () => { clearTimeout(clear); distilling = false; verifyLearnings(); }); // verify staged lessons before trusting
   p.on('error', () => { clearTimeout(clear); distilling = false; });
   p.unref();
+}
+
+// ---- self-verifying learning loop: verify staged lessons BEFORE they enter trusted memory ---------------
+// distill/reviewTurn STAGE lessons to MEMORY_DIR/.learned.json rather than trusting them. This pass judges
+// each with an INDEPENDENT verifier (correct? general, not overfit? safe?) and records it in the evidence
+// ledger; only VERIFIED lessons are appended to LESSONS.md (read into every session), rejected ones go to a
+// quarantine file + the ledger (inspectable via `urfael learn`). The edge over accumulate-and-trust loops.
+const LEARNED_FILE = path.join(MEMORY_DIR, '.learned.json');
+const LESSONS_FILE = path.join(MEMORY_DIR, 'LESSONS.md');
+const QUARANTINE_FILE = path.join(MEMORY_DIR, 'LESSONS-quarantine.md');
+function verifyOne(item) {                               // spawn an independent verifier one-shot; fail-closed to a 0-confidence verdict
+  return new Promise((resolve) => {
+    const args = ['-p', learnVerify.buildPrompt(item), '--model', MODELS.sonnet, '--permission-mode', 'acceptEdits',
+      '--strict-mcp-config', '--output-format', 'json', '--disallowedTools', 'Write', '--disallowedTools', 'Edit',
+      '--disallowedTools', 'Bash', '--disallowedTools', 'WebFetch', '--disallowedTools', 'WebSearch'];
+    let out = '', p;
+    try { p = spawn(CLAUDE_BIN, args, { cwd: VAULT, env: scopedEnv(), stdio: ['ignore', 'pipe', 'ignore'] }); }
+    catch { return resolve(learnVerify.parse('')); }
+    p.stdout.on('data', (d) => { out += d.toString(); if (out.length > 1000000) out = out.slice(-1000000); });
+    const t = setTimeout(() => { try { p.kill('SIGKILL'); } catch {} }, 90000);
+    p.on('exit', () => { clearTimeout(t); let r = ''; try { const j = JSON.parse(out); r = typeof j.result === 'string' ? j.result : ''; } catch {} resolve(learnVerify.parse(r)); });
+    p.on('error', () => { clearTimeout(t); resolve(learnVerify.parse('')); });
+  });
+}
+async function verifyLearnings() {
+  if (verifying || distilling || reviewing || curating) return;          // shared memory repo: never concurrent
+  let staged;
+  try { staged = JSON.parse(fs.readFileSync(LEARNED_FILE, 'utf8')); } catch { return; } // nothing staged
+  try { fs.unlinkSync(LEARNED_FILE); } catch {}
+  if (!Array.isArray(staged) || !staged.length) return;
+  verifying = true;
+  try {
+    let items = learn.load(MEMORY_DIR);
+    const trusted = [], rejected = [];
+    for (const s of staged.slice(0, 12)) {                               // cap per pass
+      if (!s || typeof s.ref !== 'string' || !s.ref.trim()) continue;
+      const r = learn.upsert(items, { type: s.type === 'skill' || s.type === 'user' ? s.type : 'lesson', ref: s.ref.trim(), source: 'distill', now: Date.now() });
+      items = r.items;
+      if (!r.item || !r.isNew) continue;                                 // already known → don't re-verify
+      const verdict = await verifyOne(r.item);                           // INDEPENDENT judgement
+      items = learn.applyVerdict(items, r.item.id, verdict, Date.now());
+      const it = items.find((x) => x.id === r.item.id);
+      if (it && it.status === 'trusted') trusted.push(it); else rejected.push({ ref: r.item.ref, note: (verdict && verdict.note) || 'unverified' });
+    }
+    learn.save(MEMORY_DIR, items);
+    if (trusted.length) fs.appendFileSync(LESSONS_FILE, '\n' + trusted.map((it) => `- ${it.ref}`).join('\n') + '\n');
+    if (rejected.length) fs.appendFileSync(QUARANTINE_FILE, '\n' + rejected.map((r) => `- [rejected: ${r.note}] ${r.ref}`).join('\n') + '\n');
+    logEvent({ ev: 'learn_verify', staged: staged.length, trusted: trusted.length, rejected: rejected.length });
+    try { spawn('bash', ['-c', `cd "${MEMORY_DIR}" && git add -A && git commit -m "learn: ${trusted.length} verified, ${rejected.length} quarantined" && git push`], { stdio: 'ignore', detached: true }).unref(); } catch {}
+  } catch (e) { logEvent({ ev: 'learn_verify_error', err: String((e && e.message) || e) }); }
+  verifying = false;
 }
 
 // ---- per-turn background review (opt-in via URFAEL_REVIEW; the lighter, more-frequent cousin of distill).
@@ -592,7 +648,10 @@ function reviewTurn(user, urfael) {
     '[Automated per-turn memory + learning review — do NOT reply conversationally.]\n' +
     'Review this SINGLE exchange and update memory ONLY if something durable was actually learned:\n' +
     `- Durable facts/decisions/projects/people/commitments -> merge concisely into ${MEMORY_DIR}/MEMORY.md (right section, no dupes).\n` +
-    `- If the user CORRECTED you or something went wrong -> append a lesson to ${MEMORY_DIR}/LESSONS.md (mistake -> rule -> trigger).\n` +
+    `- If the user CORRECTED you or something went wrong -> capture a lesson (mistake -> rule -> trigger). ` +
+    `Do NOT write LESSONS.md directly: collect ALL such lessons into a JSON array at ${MEMORY_DIR}/.learned.json ` +
+    `(each {"type":"lesson","ref":"<one concise line: mistake -> rule -> trigger>"}). Urfael verifies a lesson ` +
+    `before trusting it, so staging it there is how it enters memory. If there are no lessons, write [].\n` +
     `- If you noticed a recurring preference or way the user works -> add it to ${MEMORY_DIR}/WORKFLOW.md.\n` +
     `- USER MODEL: if you learned something about WHO the user is (role, projects, people, communication ` +
     `style, what they value in answers) -> merge it into ${MEMORY_DIR}/USER.md (keep under ~40 lines; ` +
@@ -613,7 +672,7 @@ function reviewTurn(user, urfael) {
     { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: 'ignore', detached: true });
   logEvent({ ev: 'review', n: reviewedTurns });
   const clear = setTimeout(() => { reviewing = false; }, 300000); // safety: never get stuck if exit is missed
-  p.on('exit', () => { clearTimeout(clear); reviewing = false; });
+  p.on('exit', () => { clearTimeout(clear); reviewing = false; verifyLearnings(); }); // verify staged lessons before trusting
   p.on('error', () => { clearTimeout(clear); reviewing = false; });
   p.unref();
 }
@@ -633,6 +692,9 @@ function curate() {
   if (s && (s.current || s.queue.length)) return;                   // voice session busy — try next tick
   curating = true;
   try { fs.writeFileSync(CURATOR_FILE, JSON.stringify({ t: now })); } catch {} // stamp now so a crash mid-run still honors cadence
+  // evidence-based consolidation: retire ledger items that proved useless (surfaced, never helped, corrected)
+  // or stale+unused — so the curator prunes on EVIDENCE, not just age. Pure + fast; runs before the skill audit.
+  try { const led = learn.consolidate(learn.load(MEMORY_DIR), now); if (led.retired.length) { learn.save(MEMORY_DIR, led.items); logEvent({ ev: 'learn_consolidate', retired: led.retired.length }); } } catch {}
   const prompt =
     '[Automated skill-curation pass — the user is NOT speaking and will not see this turn. Do NOT reply conversationally.]\n' +
     `Audit the skill files under ${VAULT}/_urfael/skills/*.md and tidy them:\n` +
@@ -706,6 +768,11 @@ const server = http.createServer(async (req, res) => {
     // GET /usage — tokens/turns/ESTIMATED cost for today / last 7d / last 30d, from the bounded log tail.
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(usageSummary()));
+  } else if (req.url === '/learn') {
+    // GET /learn — the learning ledger: what Urfael has learned, verified, quarantined, retired (with confidence).
+    const items = learn.load(MEMORY_DIR);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ stats: learn.stats(items), items }));
   } else if (req.method === 'POST' && req.url === '/job') {
     // enqueue a detached background job (runs concurrently with voice — NOT in the serialized chain).
     const body = await readBody(req);
@@ -798,6 +865,8 @@ const server = http.createServer(async (req, res) => {
 function listen() {
   try { fs.unlinkSync(SOCK); } catch {}
   cleanupOrphanBrains(); jobstore.reconcile();
+  // keep the transient lesson-staging file out of the memory repo (it's a local distill→verify handoff only)
+  try { const gi = path.join(MEMORY_DIR, '.gitignore'); const cur = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : ''; if (!/(^|\n)\.learned\.json/.test(cur)) fs.appendFileSync(gi, (cur && !cur.endsWith('\n') ? '\n' : '') + '.learned.json\n'); } catch {}
   server.listen(SOCK, () => {
     try { fs.chmodSync(SOCK, 0o600); } catch {} // 0600: only the owner can POST to the brain
     logEvent({ ev: 'daemon_start', heartbeatMins: HB_MINS || 0, review: REVIEW_ON ? REVIEW_EVERY : 0, curatorDays: CURATOR_DAYS });

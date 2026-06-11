@@ -8,6 +8,7 @@
 //   urfael reminders                           list reminders
 //   urfael remind "text" --in 20 [--repeat daily|weekly|<mins>]   or  --at "2026-06-11T15:00"
 //   urfael sessions search <query>             full-text search of every past conversation
+//   urfael learn [trusted|proposed|retired]    the learning ledger — what it learned, verified, and pruned (with confidence)
 //   urfael cron [add "<prompt>" --daily-at HH:MM | --in N | --repeat daily] [list|cancel <id>|run <id>]
 //                                              scheduled AGENT jobs — runs the brain on a schedule, delivers the result
 //   urfael serve [--token]                     start the OpenAI-compatible local API (Open WebUI / any OpenAI client)
@@ -201,6 +202,20 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     const cj = await req('GET', '/cron');
     if (!cj || !cj.length) { console.log('no scheduled jobs'); return; }
     for (const j of cj) console.log(`${j.id}  ${gold((j.at || '').replace('T', ' ').slice(0, 16))}  ${(j.prompt || '').slice(0, 60)}${j.repeat ? dim('  (' + JSON.stringify(j.repeat) + ')') : ''}`);
+    return;
+  }
+  if (cmd === 'learn') {
+    const { stats, items } = await req('GET', '/learn');
+    if (!stats || !stats.total) { console.log(dim('the ledger is empty — nothing learned yet')); return; }
+    console.log(gold('Learning ledger') + dim(`  ·  ${stats.trusted} trusted · ${stats.proposed} proposed · ${stats.retired} retired · avg confidence ${stats.avgConfidence}`));
+    const order = { trusted: 0, proposed: 1, retired: 2 };
+    const want = rest[0]; // optional filter: trusted | proposed | retired
+    const rows = items.filter((i) => !want || i.status === want).sort((a, b) => (order[a.status] - order[b.status]) || (b.confidence - a.confidence));
+    for (const i of rows.slice(0, 40)) {
+      const tag = i.status === 'trusted' ? gold('trusted') : i.status === 'retired' ? dim('retired') : '\x1b[2m\x1b[33mproposed\x1b[0m';
+      const conf = i.status === 'retired' ? '    ' : (i.confidence).toFixed(2);
+      console.log(`  ${tag}  ${dim(conf)}  ${i.ref.slice(0, 78)}`);
+    }
     return;
   }
   if (cmd === 'jobs') { for (const j of await req('GET', '/jobs')) console.log(`${j.id}  ${j.kind}  ${gold(j.state)}  ${dim(j.createdAt || '')}`); return; }
