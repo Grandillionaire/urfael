@@ -62,8 +62,10 @@ Every win below is real, and every gap is admitted in the same grid — the hone
 | Local, on-device voice + presence | ✅ whisper + say, orb HUD | ⚠️ TTS/STT | ⚠️ cloud-leaning |
 | Flat-rate cost (no per-token meter) | ✅ your Claude subscription | ❌ per-token APIs | ❌ per-token APIs |
 | Desktop app · TUI · web dashboard | ✅ all three | ⚠️ TUI + desktop | ✅ apps + canvas |
+| Multi-user, audit-ready | ✅ sandboxed principals + `urfael audit` | ⚠️ DM-pairing | ⚠️ pairing |
+| Skill hub that can't ship malware | ✅ scanned + sha-pinned + never run | ⚠️ external standard | ❌ ~20% malware (in the wild) |
 | Chat channel breadth | ⚠️ 8, curated | ✅ many | ✅ 20+ |
-| Model flexibility | ⚠️ Claude-only, by design | ✅ 200+ models | ✅ many providers |
+| Model flexibility | ✅ any model via proxy, safety harness-enforced | ✅ 200+ native | ✅ many providers |
 | Battle-tested at scale | ⚠️ small, and we say so | ✅ large | ✅ very large |
 | OS coverage | ⚠️ macOS solid, Linux newer | ✅ broad | ✅ broad |
 
@@ -76,10 +78,12 @@ Every win below is real, and every gap is admitted in the same grid — the hone
 Benefit first, mechanism second. Everything is opt-in and guard-railed.
 
 - **Nothing to attack.** The brain speaks only over a `0600` unix socket — no TCP port, nothing the LAN or the internet can reach. ([details](#security))
-- **It heard you, locally.** Push-to-talk in the Console or a spoken wake word; whisper.cpp transcribes and macOS `say` (or local Kokoro) speaks — no cloud STT/TTS by default. The spoken remark streams sentence-by-sentence, and a slow answer gets an "On it, sir." instead of silence.
+- **It heard you, locally.** Click-to-talk in the Console or a spoken wake word; whisper.cpp transcribes and macOS `say` (or local Kokoro) speaks — no cloud STT/TTS by default. The spoken remark streams sentence-by-sentence, and a slow answer gets an "On it, sir." instead of silence.
 - **Flat rate, full stop.** It runs on your Claude Code subscription. Idle costs nothing beyond it; there is no per-token surprise. Token use and an estimated daily/7-day/30-day spend are visible in the app, the dashboard, and `urfael status`.
-- **Memory that compounds.** Each conversation auto-distills into durable memory, lessons from its mistakes, and a model of who you are — all re-read every session. Ask "what did I say about the Berlin trip?" and it **ranks its own history (BM25)** and cites the date.
-- **Skills that grow — installed paranoid.** It writes down procedures it figures out and reuses them; a curator prunes stale ones. Install one from a URL and it **previews the full content and runs a static safety scan first** (dangerous flags, exfil URLs, prompt-injection, hidden unicode), refuses to auto-install anything flagged, and never executes a skill.
+- **Memory that compounds.** Each conversation auto-distills into durable memory, lessons, and a model of who you are — re-read every session. Ask "what did I say about the Berlin trip?" and it **ranks its own history with a hybrid of BM25 + optional local semantic vectors**, so a paraphrase surfaces it too — and cites the date.
+- **It verifies what it learns.** A lesson isn't trusted until an **independent verifier** judges it correct, general (not overfit), and safe; it measures, quarantines what fails, and prunes on evidence. `urfael learn` shows the ledger. A learning loop that can't be poisoned by its own inferences.
+- **A team agent a CISO can approve.** Multiple people can use it, each a **sandboxed principal** through the same fail-closed kernel — a role can only narrow access, never escalate to full power. `urfael audit` hands an auditor the who/when/what trail. ([details](docs/TEAM-MODE.md))
+- **Skills that grow — installed paranoid.** It writes down procedures and reuses them; a curator prunes stale ones. Any skill — including from the **`urfael hub`** registry — is **scanned, sha-pinned, previewed, and never executed**. The app store with a security guarantee.
 - **Quietly proactive.** "Remind me in 20 minutes" / "every morning at 8" just works — and **scheduled agent jobs** (`urfael cron add "summarize my unread mail" --daily-at 08:00`) run the brain on a schedule and deliver the result. Reminders speak a fixed text; cron jobs *do work* and report back — fired as a notification, spoken aloud, pushed to your phone, every window closed. An opt-in heartbeat runs your `HEARTBEAT.md` checklist and stays silent unless something genuinely needs you.
 - **It attacks itself.** The security-critical paths ship with regression tests built from real adversarial findings (allowlist bypasses, SSRF, parser desync, DoS) so they can't quietly rot.
 - **It tells you what it doesn't know.** See [What's lightly tested](#whats-lightly-tested). That section exists on purpose.

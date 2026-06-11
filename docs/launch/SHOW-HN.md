@@ -42,15 +42,18 @@ about the tradeoffs *before* a commenter is, and never use a superlative you can
 >   gaps (two of which let an injected email exfiltrate secrets), and I fixed them before posting. The
 >   benchmark and the threat model — including the risks it does NOT cover — are in the repo.
 >
-> Honest tradeoffs, up front: it's **Claude-only by design** (that's what keeps it fast, flat-rate, and on
-> the right side of Anthropic's terms — and it's the thing some of you will hate). It has **8 chat channels,
-> not 20.** **macOS is solid; Linux is newer.** And it's a **personal-scale tool**, not a 100k-deployment
-> veteran — I say so in the README.
+> Honest tradeoffs, up front: it's **Claude-first** (any model works via a proxy, and the sandbox is enforced
+> by the harness so the safety holds whatever answers — but native 200+-model breadth is genuinely the
+> competitors' edge). It has **8 chat channels, not 20.** **macOS is solid; Linux is newer; Windows is
+> code-complete but unverified.** And it's a **personal-scale tool**, not a 100k-deployment veteran — I say
+> so in the README.
 >
-> It also does the assistant stuff well: local push-to-talk voice (whisper + your OS TTS, no cloud),
-> compounding memory with ranked recall, scheduled agent jobs, a desktop app + TUI + dashboard, and a
-> paranoid skill system. But the reason I'm posting is the security model, and I'd genuinely like this
-> crowd to try to break it.
+> It also does the assistant stuff well: local voice (whisper + your OS TTS, no cloud), compounding memory
+> with **hybrid lexical+semantic recall**, a **self-verifying learning loop** (a lesson isn't trusted until
+> an independent verifier judges it correct/general/safe), **team mode** (each user a sandboxed principal,
+> with an `urfael audit` trail — the multi-user agent a security review can actually approve), a **skill
+> registry where nothing installs unscanned/unpinned/executed**, scheduled agent jobs, a desktop app + TUI +
+> dashboard. But the reason I'm posting is the security model, and I'd genuinely like this crowd to break it.
 >
 > Repo: https://github.com/Grandillionaire/urfael — `npm run security` is the 60-second version.
 > What did I get wrong?
@@ -61,8 +64,9 @@ about the tradeoffs *before* a commenter is, and never use a superlative you can
   loopback surfaces and the residual risks. The claim is narrow and verifiable, not absolute.
 - *"It's just a wrapper around Claude Code."* → Yes, deliberately — that's the moat (flat-rate, ToS-clean,
   no reimplemented agent loop). The value is the security architecture + surfaces around it, not a new model.
-- *"Claude-only is a dealbreaker."* → Stated as the #1 tradeoff; other models work via a documented proxy
-  on your own keys. Not for everyone, and the README says who it's not for.
+- *"Claude-only is a dealbreaker."* → It's Claude-*first*: any model works via a documented proxy on your
+  own keys, and the sandbox is harness-enforced so the safety holds whatever answers. Native 200+ breadth is
+  genuinely the competitors' edge, and the README says so.
 - *"Is this even allowed on a subscription?"* → Covered in the README (runs on your own login, ordinary
   individual use, API keys for scale); Claude Code + the Agent SDK are built for exactly this.
 - *"Benchmark is marketing."* → It's `npm run security`, it runs on their machine, the source is readable,

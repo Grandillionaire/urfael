@@ -117,8 +117,10 @@
       <tr><td>Local, on-device voice</td><td class="y">✅</td><td class="w">⚠️</td><td class="w">⚠️</td></tr>
       <tr><td>Flat-rate cost (no per-token)</td><td class="y">✅ subscription</td><td class="n">❌ per-token</td><td class="n">❌ per-token</td></tr>
       <tr><td>OpenAI-compatible API</td><td class="y">✅</td><td class="y">✅</td><td class="w">⚠️</td></tr>
+      <tr><td>Multi-user, audit-ready</td><td class="y">✅ sandboxed principals + <span class="mono">urfael audit</span></td><td class="w">⚠️ DM-pairing</td><td class="w">⚠️ pairing</td></tr>
+      <tr><td>Skill hub that can't ship malware</td><td class="y">✅ scanned + sha-pinned + never run</td><td class="w">⚠️ external standard</td><td class="n">❌ ~20% malware</td></tr>
       <tr><td>Chat-channel breadth</td><td class="w">⚠️ 8, curated</td><td class="y">✅ many</td><td class="y">✅ 20+</td></tr>
-      <tr><td>Model flexibility</td><td class="w">⚠️ Claude-first; local-GPU via proxy</td><td class="y">✅ 200+</td><td class="y">✅ many</td></tr>
+      <tr><td>Model flexibility</td><td class="y">✅ any model via proxy, safety harness-enforced</td><td class="y">✅ 200+ native</td><td class="y">✅ many</td></tr>
       <tr><td>Battle-tested at scale</td><td class="w">⚠️ small, & we say so</td><td class="y">✅ large</td><td class="y">✅ very large</td></tr>
     </table>
     <p class="cap">We win where it counts for a machine that lives on your desk and acts for you: blast radius, cost predictability, and not overstating maturity.</p>
@@ -128,11 +130,12 @@
     <h2>What it is</h2>
     <div class="grid">
       <div class="feat"><b>One brain, every surface</b><span>A desktop Console, an ambient orb HUD, a full-screen TUI, a token-gated web dashboard, a CLI, and 8 owner-allowlisted chat channels — all thin clients of one local daemon.</span></div>
-      <div class="feat"><b>It heard you, locally</b><span>Push-to-talk or a wake word; whisper.cpp transcribes and your machine speaks — no cloud STT/TTS by default.</span></div>
-      <div class="feat"><b>Memory that compounds</b><span>Every conversation distills into durable memory and a model of you, re-read each session; recall ranks its own history with BM25.</span></div>
-      <div class="feat"><b>Quietly proactive</b><span>Reminders, scheduled agent jobs (run the brain on a cron and deliver the result), and an opt-in heartbeat that stays silent unless something needs you.</span></div>
-      <div class="feat"><b>Skills, installed paranoid</b><span>It learns reusable procedures — and any skill you install is previewed, safety-scanned, and never executed.</span></div>
-      <div class="feat"><b>Open it up</b><span>An OpenAI-compatible API so Open WebUI / LibreChat / the openai SDK can drive it — locked to loopback.</span></div>
+      <div class="feat"><b>It heard you, locally</b><span>Click-to-talk in the Console or a spoken wake word; whisper.cpp transcribes and your machine speaks — no cloud STT/TTS by default.</span></div>
+      <div class="feat"><b>Memory that compounds</b><span>Every conversation distills into durable memory and a model of you; recall ranks its own history with a hybrid of BM25 and optional local semantic vectors, so paraphrases surface too.</span></div>
+      <div class="feat"><b>It verifies what it learns</b><span>A lesson isn't trusted until an independent verifier judges it correct, general, and safe. It measures, quarantines, and prunes — a learning loop that can't be poisoned by its own inferences.</span></div>
+      <div class="feat"><b>A team agent a CISO can approve</b><span>Multiple people, each a sandboxed principal through the same fail-closed kernel — a role can only narrow access, never escalate. <span class="mono">urfael audit</span> hands an auditor the trail.</span></div>
+      <div class="feat"><b>Skills, installed paranoid</b><span>It learns reusable procedures, and any skill — including from the <span class="mono">urfael hub</span> registry — is scanned, sha-pinned, previewed, and never executed. The app store with a security guarantee.</span></div>
+      <div class="feat"><b>Open it up, any model</b><span>An OpenAI-compatible API (Open WebUI / LibreChat / the openai SDK), and any model via a proxy — with the sandbox enforced by the harness, so the guarantees hold whatever answers.</span></div>
     </div>
   </section>
 

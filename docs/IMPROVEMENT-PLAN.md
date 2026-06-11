@@ -91,7 +91,7 @@ Design rule for everything below: **a feature ships only when it routes through 
 
 **Acceptance.** A non-Anthropic model answers a turn while the remote/untrusted profile still blocks egress and secret reads; the benchmark still passes.
 
-## Workstream 6 — Launch
+## Workstream 6 — Launch ◐ *(assets staged + refreshed; needs you to record + post)*
 
 **Gap.** None of the above matters unseen. The wedge (the runnable benchmark, the verified-learning loop, the red-team postmortem) is the most shareable asset Urfael has, and nobody has seen it.
 
@@ -108,7 +108,7 @@ Design rule for everything below: **a feature ships only when it routes through 
 3. ~~Workstream 3 (onboarding/installer/Windows)~~ ◐ **partly shipped** — GUI first-run onboarding in the Console is DONE + headless-verified (no terminal needed). The electron-builder + GitHub Actions pipeline (mac dmg / linux AppImage / win nsis) is wired but signing needs your Apple/Windows certs (secrets documented in .github/workflows/build.yml). The Windows OS branches (toast + SAPI speech) are code-complete but UNVERIFIED on Windows hardware. **Next: Workstream 4 (safe skill hub).**
 4. ~~Workstream 4 (safe skill hub)~~ ✅ **shipped** — `urfael hub` browse/search/install-by-slug + publish; every install runs the scanner + an sha256 integrity pin + full preview, never executes a skill. Registry is a curated JSON index (URFAEL_HUB_INDEX). **Next: Workstream 6 (launch).**
 5. ~~Workstream 5 (verified multi-provider)~~ ✅ **shipped** — `urfael setup` provider presets (claude-code-router / LiteLLM / custom); the benchmark now PROVES the sandbox is harness-enforced (identical untrusted profile with a provider configured), so any model can answer and the guarantees hold; the threat model states the provider-privacy boundary honestly.
-6. **As soon as the demo exists:** Workstream 6 (launch) — does not block on the rest.
+6. ◐ **Workstream 6 (launch)** — all assets staged and REFRESHED to reflect the five shipped workstreams: landing (live at urfael.vercel.app), Show HN draft, the red-team blog, the demo shot list (docs/launch/). What remains is yours: record the 30s demo (open on `npm run security`) and post. I can't press record or submit.
 
 ## Explicit non-goals (what we refuse, and why)
 
