@@ -12,8 +12,9 @@
 //   urfael learn [trusted|proposed|retired]    the learning ledger — what it learned, verified, and pruned (with confidence)
 //   urfael team [add <channel> <id> [name] [role] | remove <channel> <id>]   manage the team roster (principals + roles)
 //   urfael audit [--json]                      team-mode activity trail (who/when/channel/sandbox) for an admin/auditor
-//   urfael cron [add "<prompt>" --daily-at HH:MM | --in N | --repeat daily] [list|cancel <id>|run <id>]
-//                                              scheduled AGENT jobs — runs the brain on a schedule, delivers the result
+//   urfael cron [add "<prompt>" --daily-at HH:MM | --in N | --repeat daily [--then "<prompt>"] [--script "<cmd>"]] [list|cancel <id>|run <id>]
+//                                              scheduled jobs — runs the brain (or, --script, a no-LLM shell cmd) on a schedule,
+//                                              delivers the result, and chains a --then follow-up on completion
 //   urfael serve [--token]                     start the OpenAI-compatible local API (Open WebUI / any OpenAI client)
 //   urfael hooks                               start the loopback webhook receiver (event triggers) — prints its URL
 //   urfael hook add "<name>" [--action ask|notify] [--deliver notify|silent|push]   register a webhook (prints the secret once)
@@ -241,13 +242,17 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     const sub = rest[0];
     if (sub === 'add') {
       const prompt = rest.slice(1).filter((a, i) => !a.startsWith('--') && !(rest[i] || '').startsWith('--')).join(' ');
-      const spec = { prompt };
+      const spec = {};
+      if (flag(rest, '--script')) { spec.kind = 'script'; spec.script = flag(rest, '--script'); } // no-LLM shell step (needs URFAEL_SCRIPT_CRON=1)
+      else spec.prompt = prompt;
       if (flag(rest, '--in') != null) spec.inMins = Number(flag(rest, '--in'));
       if (flag(rest, '--daily-at')) spec.repeat = { dailyAt: flag(rest, '--daily-at') };
       else if (flag(rest, '--repeat')) { const r = flag(rest, '--repeat'); spec.repeat = (r === 'daily' || r === 'weekly') ? r : { everyMins: Number(r) }; }
       if (flag(rest, '--deliver')) spec.deliver = flag(rest, '--deliver');
+      if (flag(rest, '--then')) spec.then = { prompt: flag(rest, '--then') };                       // chain: an agent follow-up on completion
+      else if (flag(rest, '--then-script')) spec.then = { kind: 'script', script: flag(rest, '--then-script') };
       const r = await req('POST', '/cron', spec);
-      console.log(r && r.error ? '✗ ' + r.error : `✓ cron ${r.id} — first run ${r.at}`);
+      console.log(r && r.error ? '✗ ' + r.error : `✓ ${r.kind || 'agent'} cron ${r.id} — first run ${r.at}${r.chained ? dim(' (chained)') : ''}`);
       return;
     }
     if (sub === 'cancel' && rest[1]) { console.log(JSON.stringify(await req('POST', `/cron/${rest[1]}/cancel`))); return; }

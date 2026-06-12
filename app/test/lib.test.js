@@ -321,6 +321,38 @@ test('mode: a GUEST is restricted in BOTH modes, and NO mode/role ever reaches "
       assert.notEqual(profileFor(role, mode).name, 'local', JSON.stringify([role, mode]));
 });
 
+// ---- CRON: no-agent script jobs + chaining ------------------------------------------------------------
+test('cron: agent job is unchanged + now tagged kind:"agent" (backward compatible)', () => {
+  const c = normalizeCron({ prompt: 'summarize inbox', inMins: 10 }, NOW);
+  assert.equal(c.kind, 'agent');
+  assert.equal(c.prompt, 'summarize inbox');
+  assert.equal(c.script, undefined);
+});
+test('cron: a no-LLM script job carries kind:"script" + script, no prompt', () => {
+  const c = normalizeCron({ kind: 'script', script: 'curl -s https://api/health', inMins: 5 }, NOW);
+  assert.equal(c.kind, 'script');
+  assert.equal(c.script, 'curl -s https://api/health');
+  assert.equal(c.prompt, undefined);
+  assert.equal(normalizeCron({ kind: 'script', inMins: 5 }, NOW), null);   // script kind with no script → fail-closed
+  assert.equal(normalizeCron({ kind: 'agent', inMins: 5 }, NOW), null);    // agent kind with no prompt → fail-closed
+});
+test('cron: a `then` chain is normalized recursively and depth-bounded', () => {
+  const c = normalizeCron({ prompt: 'fetch report', inMins: 5, then: { prompt: 'summarize it', then: { kind: 'script', script: 'echo done' } } }, NOW);
+  assert.equal(c.then.kind, 'agent');
+  assert.equal(c.then.prompt, 'summarize it');
+  assert.equal(c.then.then.kind, 'script');
+  assert.equal(c.then.then.script, 'echo done');
+  // a chain deeper than CHAIN_MAX is truncated, never infinite
+  let deep = { prompt: 'leaf' }; for (let i = 0; i < 20; i++) deep = { prompt: 'step' + i, then: deep };
+  const cc = normalizeCron({ ...deep, inMins: 5 }, NOW);
+  let n = 0; for (let j = cc; j; j = j.then) n++;
+  assert.ok(n <= 6, 'chain length bounded (<= CHAIN_MAX + root), got ' + n);
+});
+test('cron: a garbage `then` is dropped, the parent still schedules', () => {
+  const c = normalizeCron({ prompt: 'ok', inMins: 5, then: { nonsense: true } }, NOW);
+  assert.ok(c && !c.then, 'unusable then is omitted, parent survives');
+});
+
 // ---- WEBHOOK EVENT TRIGGERS ----------------------------------------------------------------------------
 test('hook: normalize defaults action=ask deliver=notify, clamps name, strips control chars', () => {
   assert.deepEqual(normalizeHook({ name: 'deploy done' }), { name: 'deploy done', action: 'ask', deliver: 'notify' });

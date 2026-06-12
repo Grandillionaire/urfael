@@ -60,7 +60,7 @@
 | | OpenClaw | Hermes | Urfael |
 |---|---|---|---|
 | Heartbeat (main-session checklist, silence contract) | ✦ invented it | ✗ | ✓ HEARTBEAT.md + HEARTBEAT_OK + active hours + busy-backoff |
-| Cron / NL scheduling | ✓ | ✓ rich (chaining, no-agent scripts) | ✓ reminders + **scheduled agent jobs** (`/cron`: run the brain on a schedule, read/fetch-only sandbox, deliver via notify/say/push, [silent]) |
+| Cron / NL scheduling | ✓ | ✓ rich (chaining, no-agent scripts) | ✦ reminders + **scheduled jobs** (`/cron`): run the brain (read/fetch-only sandbox) OR a **no-agent shell script** (`--script`, opt-in `URFAEL_SCRIPT_CRON`, no-LLM, owner-authored), **chain** a `--then` follow-up on completion (output threaded as `$URFAEL_PREV` / untrusted context, depth-bounded), deliver via notify/say/push/[silent] |
 | Event triggers (webhooks, email push) | ✓ | ✓ | ✦ **webhook event triggers** — a LOOPBACK-only receiver (the daemon never opens a port), each hook gated by its own 256-bit secret (sha256-hashed, constant-time), payload framed UNTRUSTED; the `ask` action runs the brain NO-EGRESS (Read/Grep/Glob), result to the owner only. Tunnel it yourself for external events. See docs/HOOKS.md |
 
 ## Agents & execution

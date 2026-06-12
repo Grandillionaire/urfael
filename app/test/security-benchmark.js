@@ -179,6 +179,9 @@ async function main() {
   check('the unrestricted shell (YOLO) is OFF by default', !yolo, 'opt-in only, and logged when enabled');
   check('the default permission mode is NOT bypass', (process.env.URFAEL_PERMISSION_MODE || 'acceptEdits') !== 'bypassPermissions', 'acceptEdits; risky tools gated');
   check('an unknown channel gets the MOST-restricted profile, not the least', lib.resolveProfile('something-new').name === 'untrusted', 'fail-closed default');
+  // no-LLM SCRIPT cron jobs run an owner-authored shell on a schedule — a real power, so OFF by default and
+  // refused at the /cron boundary unless the owner opted in (a poisoned LOCAL turn can't schedule a shell).
+  check('no-LLM script cron jobs are OFF by default (opt-in shell scheduling, gated at /cron)', /SCRIPT_CRON_ON = process\.env\.URFAEL_SCRIPT_CRON === '1'/.test(daemonSrc) && /specHasScript\(spec\) && !SCRIPT_CRON_ON/.test(daemonSrc) && process.env.URFAEL_SCRIPT_CRON !== '1', 'shell scheduling requires URFAEL_SCRIPT_CRON=1; chained script steps gated too');
 
   // ── 8. INBOUND WEBHOOK TRIGGER ────────────────────────────────────────────
   attackClass('Inbound event trigger — an external webhook must not become an escalation',
