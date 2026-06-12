@@ -117,6 +117,14 @@ urfael setup        # onboarding wizard: subscription (default), an API key, or 
 cd app && npm start # the Console opens
 ```
 
+Prefer a one-liner? There's a bootstrap (`get.sh`) that clones and runs `install.sh` for you:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Grandillionaire/urfael/main/get.sh | bash
+```
+
+On brand for a tool whose whole pitch is *don't pipe untrusted scripts to a shell*: the one-liner is a convenience, and `get.sh` is deliberately short so you can read it first (`curl -fsSL …/get.sh | less`). It installs nothing risky itself — it only fetches the source and hands off to `install.sh`. The clone-and-read path above is identical and is the recommended one.
+
 `install.sh` is read-it-first friendly: it **never** auto-installs heavy software or enables anything risky. It writes config templates (`chmod 600`), scaffolds `~/Urfael` (your vault) and a private local `~/Urfael-memory` git repo, links the `urfael` CLI, and writes the service files (launchd on macOS, `systemd --user` on Linux) **without loading them**. One Homebrew line covers the rest:
 
 ```bash

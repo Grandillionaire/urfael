@@ -21,7 +21,7 @@
 | | OpenClaw | Hermes | Urfael |
 |---|---|---|---|
 | First-run onboarding | installer | guided | ✦ GUI first-run card in the Console (subscription / API key / local) **and** `urfael setup` CLI wizard |
-| Packaged installer | ✓ | one-line curl | ◐ electron-builder + CI pipeline wired (dmg/AppImage/nsis); signing needs certs |
+| Packaged installer | ✓ | one-line curl | ✓ **one-line curl** (`get.sh` — clones + runs install.sh, read-it-first short) **and** electron-builder + CI pipeline (dmg/AppImage/nsis); GUI-installer signing still needs certs |
 | OS coverage | broad | broad | ◐ macOS solid · Linux supported · Windows code-complete (notify/voice branches), unverified |
 
 ## Channels
