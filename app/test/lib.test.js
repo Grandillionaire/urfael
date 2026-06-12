@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { classifyModel, segmentSentences, MODELS, resolveProfile, normalizeReminder, normalizeCron, nextOccurrence, normalizeHook, hashHookSecret, hookSecretOk } = require('../lib');
+const { classifyModel, segmentSentences, MODELS, resolveProfile, normalizeReminder, normalizeCron, nextOccurrence, normalizeHook, hashHookSecret, hookSecretOk, parseCron, nextCronTime } = require('../lib');
 
 test('routing: code/dev → Opus', () => {
   for (const q of ['debug this python function', 'refactor the auth module', 'push my code to the repo', 'architect a caching layer'])
@@ -319,6 +319,45 @@ test('mode: a GUEST is restricted in BOTH modes, and NO mode/role ever reaches "
   for (const role of ['owner', 'member', 'guest', 'admin', '', null, ['owner']])
     for (const mode of ['fortress', 'full', undefined, 'LOCAL'])
       assert.notEqual(profileFor(role, mode).name, 'local', JSON.stringify([role, mode]));
+});
+
+// ---- CRON-SYNTAX (5-field) ----------------------------------------------------------------------------
+test('cron-syntax: parseCron accepts valid exprs (*, lists, ranges, steps) and rejects malformed ones', () => {
+  for (const ok of ['* * * * *', '*/15 * * * *', '0 9 * * 1-5', '30 8,12,18 * * *', '0 0 1 1 *', '5-50/5 0 * * 0'])
+    assert.ok(parseCron(ok), ok);
+  for (const bad of ['* * * *', '60 * * * *', '* 24 * * *', '* * 0 * *', '* * * 13 *', '* * * * 7', 'a * * * *', '*/0 * * * *', '5-2 * * * *', '', 7, null])
+    assert.equal(parseCron(bad), null, JSON.stringify(bad));
+});
+test('cron-syntax: nextCronTime finds the next matching minute (strictly after), local time', () => {
+  const base = new Date(2026, 5, 12, 9, 17, 30).getTime();   // Fri 2026-06-12 09:17:30 local
+  const at = nextCronTime(parseCron('*/15 * * * *'), base);  // next quarter-hour
+  const d = new Date(at);
+  assert.equal(d.getMinutes(), 30); assert.equal(d.getSeconds(), 0); assert.ok(at > base);
+  // weekday 09:00 — from Fri 09:17 the next 9am weekday is Monday
+  const mon = new Date(nextCronTime(parseCron('0 9 * * 1-5'), base));
+  assert.equal(mon.getDay(), 1); assert.equal(mon.getHours(), 9); assert.equal(mon.getMinutes(), 0);
+});
+test('cron-syntax: dom/dow OR-semantics (both restricted → either matches)', () => {
+  // "0 0 13 * 5" = midnight on the 13th OR any Friday
+  const f = parseCron('0 0 13 * 5');
+  const fromThu = new Date(2026, 5, 11, 12, 0, 0).getTime(); // Thu Jun 11
+  const next = new Date(nextCronTime(f, fromThu));
+  // next is Fri Jun 12 (a Friday) at 00:00 — earlier than the 13th
+  assert.equal(next.getDate(), 12); assert.equal(next.getDay(), 5); assert.equal(next.getHours(), 0);
+});
+test('cron-syntax: normalizeCron seeds the first fire from a cron repeat + nextOccurrence rolls it forward', () => {
+  const NOWX = new Date(2026, 5, 12, 9, 17, 0).getTime();
+  const c = normalizeCron({ prompt: 'standup ping', repeat: { cron: '0 9 * * 1-5' } }, NOWX);
+  assert.deepEqual(c.repeat, { cron: '0 9 * * 1-5' });
+  assert.ok(c.at > NOWX);
+  const first = c.at; nextOccurrence(c, first);              // advance past the first fire
+  assert.ok(c.at > first, 'rolled forward to the next occurrence');
+  assert.equal(normalizeCron({ prompt: 'p', repeat: { cron: 'bogus expr' } }, NOWX), null); // bad cron → fail-closed
+});
+test('cron-syntax: reminders accept cron too (first fire seeded, no explicit at needed)', () => {
+  const NOWX = new Date(2026, 5, 12, 9, 17, 0).getTime();
+  const r = normalizeReminder({ text: 'drink water', repeat: { cron: '0 */2 * * *' } }, NOWX);
+  assert.ok(r && r.repeat.cron === '0 */2 * * *' && r.at > NOWX);
 });
 
 // ---- CRON: no-agent script jobs + chaining ------------------------------------------------------------

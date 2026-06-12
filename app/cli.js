@@ -12,7 +12,7 @@
 //   urfael learn [trusted|proposed|retired]    the learning ledger — what it learned, verified, and pruned (with confidence)
 //   urfael team [add <channel> <id> [name] [role] | remove <channel> <id>]   manage the team roster (principals + roles)
 //   urfael audit [--json]                      team-mode activity trail (who/when/channel/sandbox) for an admin/auditor
-//   urfael cron [add "<prompt>" --daily-at HH:MM | --in N | --repeat daily [--then "<prompt>"] [--script "<cmd>"]] [list|cancel <id>|run <id>]
+//   urfael cron [add "<prompt>" --cron "*/15 9-17 * * 1-5" | --daily-at HH:MM | --in N | --repeat daily [--then "<prompt>"] [--script "<cmd>"]] [list|cancel <id>|run <id>]
 //                                              scheduled jobs — runs the brain (or, --script, a no-LLM shell cmd) on a schedule,
 //                                              delivers the result, and chains a --then follow-up on completion
 //   urfael serve [--token]                     start the OpenAI-compatible local API (Open WebUI / any OpenAI client)
@@ -248,7 +248,8 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
       if (flag(rest, '--script')) { spec.kind = 'script'; spec.script = flag(rest, '--script'); } // no-LLM shell step (needs URFAEL_SCRIPT_CRON=1)
       else spec.prompt = prompt;
       if (flag(rest, '--in') != null) spec.inMins = Number(flag(rest, '--in'));
-      if (flag(rest, '--daily-at')) spec.repeat = { dailyAt: flag(rest, '--daily-at') };
+      if (flag(rest, '--cron')) spec.repeat = { cron: flag(rest, '--cron') };                          // full 5-field cron: "*/15 9-17 * * 1-5"
+      else if (flag(rest, '--daily-at')) spec.repeat = { dailyAt: flag(rest, '--daily-at') };
       else if (flag(rest, '--repeat')) { const r = flag(rest, '--repeat'); spec.repeat = (r === 'daily' || r === 'weekly') ? r : { everyMins: Number(r) }; }
       if (flag(rest, '--deliver')) spec.deliver = flag(rest, '--deliver');
       if (flag(rest, '--then')) spec.then = { prompt: flag(rest, '--then') };                       // chain: an agent follow-up on completion
@@ -363,8 +364,9 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     const spec = { text };
     if (flag(rest, '--in') != null) spec.inMins = Number(flag(rest, '--in'));
     if (flag(rest, '--at')) spec.at = flag(rest, '--at');
+    if (flag(rest, '--cron')) spec.repeat = { cron: flag(rest, '--cron') };                            // full 5-field cron
     const rep = flag(rest, '--repeat');
-    if (rep === 'daily' || rep === 'weekly') spec.repeat = rep; else if (rep) spec.repeat = { everyMins: Number(rep) };
+    if (!spec.repeat) { if (rep === 'daily' || rep === 'weekly') spec.repeat = rep; else if (rep) spec.repeat = { everyMins: Number(rep) }; }
     const r = await req('POST', '/remind', spec);
     console.log(r.error ? '✗ ' + r.error : `✓ reminder ${r.id} fires at ${r.at}`);
     return;
