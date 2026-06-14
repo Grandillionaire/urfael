@@ -7,34 +7,38 @@
 > Urfael's structural advantage: the brain is the `claude` CLI, so Claude Code's whole tool surface
 > (files, shell, web, MCP, subagents, skills) is inherited, not reimplemented.
 
-## Honesty calibration — adversarial code-audit (June 2026)
+## Honesty calibration — adversarial code-audit (re-run June 2026, post-improvement-campaign)
 
-A 21-agent audit re-verified every row against the actual source, with a skeptic pass that downgraded any
-claim the code didn't earn. Verdict: **Urfael matches or beats Hermes on essentially every capability**, with
-these honest caveats — read the `✦`/`✓` marks below through this lens:
+A 21-agent audit re-verified every row against the *current* source, with a skeptic pass that downgraded any
+claim the code didn't earn. **Code-verified tally: 12 better · 26 parity · 18 partial · 1 missing** (up from
+9/24/25/1 before the campaign — `partial` fell 25→18 and the one "missing" changed from a real gap to a
+deliberate non-goal). Verdict: **Urfael matches or beats Hermes on every *real* capability** — read the
+`✦`/`✓` marks through these caveats:
 
-- **Was genuinely missing, now fixed:** native email-push event triggers (see Event triggers row) and the
-  curator's usage-weighting (now reinforced on recurrence). No real Hermes capability is missing today.
-- **Opt-in / off by default** (present + tested, dormant until enabled): semantic-vector recall
-  (`URFAEL_EMBED_URL`), per-turn user-model dialectic (`URFAEL_USERMODEL`, and on remote turns only for the
-  *owner*), no-agent script cron (`URFAEL_SCRIPT_CRON`), predictive heartbeat (`URFAEL_PREDICT`), the webhook
-  receiver (`urfael hooks`). These are "secure-by-default off", not absent. (The skill curator is now **on by
-  default** at 7 days — `URFAEL_CURATOR_DAYS=0` disables it.)
-- **Deliberate non-goals** (a choice, not a loss): Claude-only vs 300+ providers / model routing / usage quotas;
-  no paid serverless exec backends.
-- **Verification-gated:** the Electron GUI ships unsigned; Windows is code-complete but unverified; several
-  event/cron/webhook paths are covered by source-level + targeted live checks rather than full behavioural suites.
-- **Honest "parity, not better":** the web dashboard, OpenAI-compatible server, pairing/allowlist, and curated
-  memory are *security-hardened* and solid, but "better than Hermes" there was an unverifiable comparative —
-  treat them as parity. Where Urfael is genuinely ahead, see the Security row + the universal relay + the
-  isolated never-push goal-loop + the migration importers + the heartbeat.
+- **Nothing real is missing.** The lone "missing" row is a *dedicated hosted user-modeling service/DB* (Honcho-
+  style) — a deliberate architecture choice (Urfael keeps the model local in an auto-injected USER.md), not an
+  absent capability. The earlier real gap (email-push triggers) is now shipped.
+- **Genuinely ahead (the 12 wins):** the security posture (no inbound port, fail-closed roster, role-scoped
+  sandboxes, SSRF-filtered relay, 58/58 benchmark), self-verifying learning (quality gate before trusted memory),
+  ranked persistent recall, the 7-day curator, the isolated never-push `/goal` loop, the migration importer, and
+  the paranoid never-execute skill install.
+- **Honest "parity, not better"** (the skeptic's repeat finding — "better" on an *unverified* Hermes baseline is
+  not earned): voice, first-run onboarding, session search, the usage budget, curated USER.md, background jobs,
+  cadence control. All real and complete; treat as parity.
+- **Opt-in / off by default** (present + tested, dormant until enabled): semantic-vector recall, the per-turn
+  user-model dialectic + predictive heartbeat, no-agent script cron + the script library, the webhook receiver +
+  universal relay, pairing self-enroll (wired in the Telegram bridge so far). Secure-by-default off, not absent.
+- **Deliberate non-goals** (a choice, not a loss): Claude-only vs 300+ providers / model routing; no paid
+  serverless exec backends (local + Docker + SSH exist; Modal/Daytona do not).
+- **Verification-gated:** the Electron GUI ships unsigned; Windows is code-complete but unproven (no hardware);
+  the skill-hub registry URL 404s until stocked; voice/STT/TTS depend on install + opt-in.
 
 ## Surfaces
 | Capability | OpenClaw | Hermes | Urfael |
 |---|---|---|---|
 | Desktop app (chat, streaming tool rows, sessions, settings) | menu-bar app | Electron+React | ✓ **Console** (chat, archive, reminders, jobs, hearth, settings) |
 | CLI | `openclaw …` | TUI-first, rich | ✦ `urfael` CLI **and** `urfael tui` full-screen ANSI cockpit (streamed transcript + tool rows, Esc-abort, terminal-safe) |
-| Voice (wake word, PTT, barge-in, local STT/TTS) | wake word, talk mode | CLI PTT, voice memos | ✦ orb (opt-in) + Console PTT + spoken remarks, all local |
+| Voice (wake word, PTT, barge-in, local STT/TTS) | wake word, talk mode | CLI PTT, voice memos | ✓ all local, all real — but **off by default / verification-gated**: PTT + spoken remarks in the Console; wake-word + barge-in + voice memos live in the opt-in orb HUD (`URFAEL_ORB=1`, wake-word also needs a Picovoice key); local STT/TTS are install-gated (whisper-cpp / espeak-ng). Parity, not a demonstrated edge |
 | Web dashboard | ✓ | ✓ | ✓ token-gated localhost dashboard (surfaces vitals, usage+budget, reminders, jobs, the learning ledger + team audit trail; **ask now STREAMS token-by-token** to the browser). Functionally parity; **security-hardened** — 127.0.0.1-only, constant-time token, no path serving (off-box access needs your own tunnel) |
 | Mobile nodes / canvas | iOS/Android, A2UI canvas | ✗ | ✗ — non-goal for now (phone via bridges) |
 | REST API | WS gateway | OpenAI-compatible REST | ✓ OpenAI-compatible `/v1/chat/completions`+`/v1/models` (127.0.0.1-only, token-gated) — drives Open WebUI/LibreChat/any OpenAI client |
@@ -42,7 +46,7 @@ these honest caveats — read the `✦`/`✓` marks below through this lens:
 ## Onboarding & packaging
 | | OpenClaw | Hermes | Urfael |
 |---|---|---|---|
-| First-run onboarding | installer | guided | ✦ GUI first-run card in the Console (subscription / API key / local) **and** `urfael setup` CLI wizard |
+| First-run onboarding | installer | guided | ✓ dual-surface (GUI first-run card in the Console + `urfael setup` CLI wizard, both wired, 0600-atomic). Real and complete; "better than a guided flow" is an unverifiable comparative → parity |
 | Packaged installer | ✓ | one-line curl | ✓ **one-line curl** (`get.sh` — clones + runs install.sh, read-it-first short) **and** electron-builder + CI pipeline (dmg/AppImage/nsis); GUI-installer signing still needs certs |
 | OS coverage | broad | broad | ◐ macOS solid · Linux supported · Windows code-complete (notify/voice branches), unverified |
 
@@ -58,7 +62,7 @@ these honest caveats — read the `✦`/`✓` marks below through this lens:
 | | OpenClaw | Hermes | Urfael |
 |---|---|---|---|
 | Curated memory file(s) | MEMORY.md + daily notes | MEMORY.md (2.2k cap) + USER.md | ✦ MEMORY/USER/LESSONS/WORKFLOW, no hard cap, git-versioned |
-| Session search | memory_search (vector+kw) | FTS5 SQLite | ✦ **hybrid recall at scale**: a persistent BM25 **inverted index** (the FTS5-equivalent, pure-JS, no native dep) — built once, kept warm, persisted, caught up INCREMENTALLY by a per-file byte watermark, covering the **whole archive** (not a tail window) with O(query-term) lookups; the BM25 shortlist is re-ranked by optional local semantic vectors via RRF (paraphrases with zero shared tokens surface); fail-soft to a bounded scan, no cloud, no DB to corrupt |
+| Session search | memory_search (vector+kw) | FTS5 SQLite | ✓ **ranked recall at scale**: a persistent BM25 **inverted index** (FTS5-equivalent, pure-JS, no native dep) — warm, persisted, incrementally caught up by a per-file byte watermark, covering the **whole archive** with O(query-term) lookups; BM25 shortlist re-ranked by optional local vectors via RRF; fail-soft, no cloud. Architecturally parity-grade with FTS5 (a genuine win only vs substring grep) |
 | Consolidation | "dreaming" pass | post-turn background review | ✓ end-of-conversation distill (cheaper; per-turn review planned as opt-in) |
 | User modeling | — | Honcho dialectic | ✓ structured **USER.md** + opt-in **per-turn theory-of-mind dialectic** (`URFAEL_USERMODEL`): infers the user's goals/intent/values and predicts likely next needs, refined IN PLACE each turn — framed-untrusted, write-scoped to USER.md, no separate service/DB. Distill still updates the durable model at conversation end |
 
@@ -99,7 +103,7 @@ these honest caveats — read the `✦`/`✓` marks below through this lens:
 |---|---|---|---|
 | Providers | many | 300+ via portals | Claude only — **by design** (flat-rate subscription, zero keys) |
 | Routing | fallback chains | manual + aux models | ✓ sticky Sonnet↔Opus auto-escalation **+ explicit per-turn override** (`/opus …` / `/sonnet …`, stripped before the brain) + env overrides |
-| Usage visibility | ✓ | /usage + quotas | ✦ tokens/turn telemetry + Hearth + CLI status, **plus an ENFORCED usage guardrail** (`URFAEL_BUDGET_TURNS`/`_TOKENS` over a rolling window; warn at 80%, hard-stop new turns at 100% in `URFAEL_BUDGET_HARD=1`) — honest budgets in turns+tokens, not fabricated dollars; dormant until set |
+| Usage visibility | ✓ | /usage + quotas | ✓ tokens/turn telemetry + Hearth + CLI status + an **enforced self-imposed budget** (`URFAEL_BUDGET_TURNS`/`_TOKENS` rolling window; warn 80%, hard-stop at 100% under `URFAEL_BUDGET_HARD=1`) in honest turns+tokens. Parity: it can't read the provider's real subscription quota, and enforcement is double-opt-in |
 
 ## Security (our moat — keep it)
 | | OpenClaw | Hermes | Urfael |
