@@ -10,6 +10,8 @@
 //   urfael remind "text" --in 20 [--repeat daily|weekly|<mins>]   or  --at "2026-06-11T15:00"
 //   urfael sessions search <query>             full-text search of every past conversation
 //   urfael why "<belief>"                       provenance: walk a stored belief back to the exact commit/date/pass that introduced it (a checkable git SHA)
+//   urfael as-of <date> [file]                  time machine: reconstruct a memory file (default USER.md) as it was on a past date
+//   urfael drift [file] [--since <date>]        belief changelog: how the model of you changed over time (added / revised / removed)
 //   urfael learn [trusted|proposed|retired]    the learning ledger — what it learned, verified, and pruned (with confidence)
 //   urfael team [add <channel> <id> [name] [role] | remove <channel> <id> | pair [channel] [--ttl <mins>]]   manage the roster; `pair` mints a single-use guest code
 //   urfael audit [--json | --verify]           team-mode activity trail; --verify walks the tamper-evident Ledger of Record (prove what your agent did)
@@ -138,6 +140,50 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     console.log(gold('Provenance for "' + phrase + '"') + dim('  ·  ' + lines.length + ' change(s), newest first'));
     for (const ln of lines.slice(0, 25)) { const [sha, date, subj] = ln.split(US); console.log('  ' + gold(sha) + dim('  ' + (date || '').slice(0, 16)) + '  ' + (subj || '')); }
     console.log(dim('  see exactly what changed:  git -C ' + MEMORY_DIR + ' show <sha>'));
+    return;
+  }
+
+  // as-of: a time machine over the git-versioned memory. Reconstruct what a memory file looked like as of a past
+  // date — "what did you believe about me last month". Structurally can't leak present knowledge (it's the file
+  // AT that commit). Pure git; date + file passed as ARGS (execFile), never a shell.
+  if (cmd === 'as-of' || cmd === 'asof') {
+    const args = rest.filter((a) => !a.startsWith('--'));
+    const when = args[0], file = args[1] || 'USER.md';
+    if (!when) { console.log('usage: urfael as-of <date> [file]   e.g.  urfael as-of "2026-05-01" MEMORY.md'); return; }
+    let sha = '';
+    try { sha = execFileSync('git', ['-C', MEMORY_DIR, 'rev-list', '-1', '--before=' + when, 'HEAD'], { maxBuffer: 1 << 20 }).toString().trim(); } catch { console.log(dim('no versioned memory repo at ' + MEMORY_DIR)); return; }
+    if (!sha) { console.log(dim('No memory recorded before ' + when + '.')); return; }
+    let content = '';
+    try { content = execFileSync('git', ['-C', MEMORY_DIR, 'show', sha + ':' + file], { maxBuffer: 1 << 22 }).toString(); }
+    catch { console.log(dim(file + ' did not exist as of ' + when + '.')); return; }
+    let date = ''; try { date = execFileSync('git', ['-C', MEMORY_DIR, 'show', '-s', '--format=%ci', sha]).toString().trim().slice(0, 16); } catch {}
+    console.log(gold(file + ' as of ' + when) + dim('  ·  commit ' + sha.slice(0, 8) + (date ? ' (' + date + ')' : '')));
+    process.stdout.write(content.endsWith('\n') ? content : content + '\n');
+    return;
+  }
+
+  // drift: turn the invisible in-place USER.md/MEMORY.md rewrite into an honest CHANGELOG — how beliefs were
+  // added / revised / removed over time. Pure git plumbing (log -p over the committed memory file).
+  if (cmd === 'drift') {
+    const args = rest.filter((a, i) => !a.startsWith('--') && !(rest[i - 1] || '').startsWith('--'));
+    const file = args[0] || 'USER.md';
+    const sinceA = flag(rest, '--since') ? ['--since=' + flag(rest, '--since')] : [];
+    let out = '';
+    try { out = execFileSync('git', ['-C', MEMORY_DIR, 'log', ...sinceA, '--format=%x01%h%x1f%ci%x1f%s', '-p', '--', file], { maxBuffer: 1 << 24 }).toString(); }
+    catch { console.log(dim('no versioned memory repo at ' + MEMORY_DIR)); return; }
+    const blocks = out.split('\x01').filter((b) => b.trim());
+    if (!blocks.length) { console.log(dim('no recorded changes to ' + file + (sinceA.length ? ' in that window' : ''))); return; }
+    console.log(gold('Belief drift — ' + file) + dim('  ·  ' + blocks.length + ' change(s), newest first'));
+    for (const b of blocks.slice(0, 25)) {
+      const nl = b.indexOf('\n'); const [sha, date, subj] = b.slice(0, nl).split('\x1f');
+      console.log('\n' + gold(sha) + dim('  ' + (date || '').slice(0, 16) + '  ' + (subj || '')));
+      for (const ln of b.slice(nl + 1).split('\n')) {
+        // diff content lines start with +/- ; skip the file headers (+++/---) and hunk/meta lines. NB a memory
+        // bullet itself starts with '-', so detect by the DIFF prefix, not the 2nd char.
+        if (ln.startsWith('+') && !ln.startsWith('+++')) { const c = ln.slice(1).trim(); if (c) console.log('  \x1b[32m+ ' + c.slice(0, 100) + '\x1b[0m'); }      // added belief
+        else if (ln.startsWith('-') && !ln.startsWith('---')) { const c = ln.slice(1).trim(); if (c) console.log('  \x1b[31m- ' + c.slice(0, 100) + '\x1b[0m'); }   // removed / revised belief
+      }
+    }
     return;
   }
 
