@@ -9,6 +9,7 @@
 //   urfael reminders                           list reminders
 //   urfael remind "text" --in 20 [--repeat daily|weekly|<mins>]   or  --at "2026-06-11T15:00"
 //   urfael sessions search <query>             full-text search of every past conversation
+//   urfael why "<belief>"                       provenance: walk a stored belief back to the exact commit/date/pass that introduced it (a checkable git SHA)
 //   urfael learn [trusted|proposed|retired]    the learning ledger — what it learned, verified, and pruned (with confidence)
 //   urfael team [add <channel> <id> [name] [role] | remove <channel> <id> | pair [channel] [--ttl <mins>]]   manage the roster; `pair` mints a single-use guest code
 //   urfael audit [--json | --verify]           team-mode activity trail; --verify walks the tamper-evident Ledger of Record (prove what your agent did)
@@ -120,6 +121,24 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
   if (!cmd || cmd === 'help' || cmd === '--help') { console.log(fs.readFileSync(__filename, 'utf8').split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n')); return; }
 
   if (cmd === 'sessions') { if (rest[0] === 'search' && rest[1]) searchSessions(rest.slice(1).join(' ')); else console.log('usage: urfael sessions search <query>'); return; }
+
+  // why: provenance. Memory is a git repo (distill/review/user-model passes commit it), so a git pickaxe
+  // (-S <phrase>) walks any belief back to the exact commit/date/pass that introduced it. No new storage, no
+  // LLM guessing — a checkable SHA. Pure CLI; phrase passed as a git ARG (execFile, never a shell), injection-safe.
+  if (cmd === 'why') {
+    const phrase = rest.filter((a) => !a.startsWith('--')).join(' ').trim();
+    if (!phrase) { console.log('usage: urfael why "<a belief or fact you want sourced>"'); return; }
+    const US = '\x1f';
+    let out = '';
+    try { out = execFileSync('git', ['-C', MEMORY_DIR, 'log', '-S', phrase, '--format=%h' + US + '%ci' + US + '%s', '--', 'MEMORY.md', 'USER.md', 'USER.json', 'WORKFLOW.md', 'LESSONS.md'], { maxBuffer: 1 << 22 }).toString(); }
+    catch { console.log(dim('no versioned memory repo at ' + MEMORY_DIR + ' yet (or git unavailable)')); return; }
+    const lines = out.trim().split('\n').filter(Boolean);
+    if (!lines.length) { console.log(dim('No recorded provenance for "') + phrase + dim('" — I may be inferring it live rather than from a stored belief.')); return; }
+    console.log(gold('Provenance for "' + phrase + '"') + dim('  ·  ' + lines.length + ' change(s), newest first'));
+    for (const ln of lines.slice(0, 25)) { const [sha, date, subj] = ln.split(US); console.log('  ' + gold(sha) + dim('  ' + (date || '').slice(0, 16)) + '  ' + (subj || '')); }
+    console.log(dim('  see exactly what changed:  git -C ' + MEMORY_DIR + ' show <sha>'));
+    return;
+  }
 
   // skills: a paranoid share/install hub for VAULT/_urfael/skills/. Pure CLI — no brain needed, runs
   // BEFORE ensureDaemon. Install never executes a skill; it only stores the markdown after you confirm.

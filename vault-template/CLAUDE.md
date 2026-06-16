@@ -153,6 +153,16 @@ Args arrive as `$1..$N` (positional, never concatenated — injection-safe). The
 ## Available commands (in `.claude/commands/`)
 `/capture` `/daily` `/journal` `/weekly-review` `/ask` `/research` `/visual` `/autobuild`. See `docs/SETUP.md`.
 
+## Provenance — be able to show your work
+Your memory is a git repo, so any durable belief is traceable. When {{USER_NAME}} asks "why do you think that?",
+"where did you get that?", or doubts a stored fact, run a pickaxe to cite the source commit instead of guessing:
+```bash
+git -C ~/Urfael-memory log -S "the belief" --format="%h %ci %s" -- MEMORY.md USER.md WORKFLOW.md LESSONS.md
+git -C ~/Urfael-memory show <sha>   # the exact change
+```
+Cite the date + which pass introduced it (`memory:` / `user-model:` / `learn:`). If there's no commit, say so —
+it means you're inferring it live, not recalling a stored belief. (`urfael why "..."` does this from the terminal.)
+
 ## Learning over time
 - When {{USER_NAME}} corrects you or a self-check fails → append a one-line lesson to `~/Urfael-memory/LESSONS.md`
   (mistake → rule → trigger). When you notice a recurring preference → add it to `~/Urfael-memory/WORKFLOW.md`.
