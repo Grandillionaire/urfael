@@ -58,6 +58,7 @@ async function main() {
   const lib = require(path.join(APP, 'lib.js'));
   const hub = require(path.join(APP, 'skillhub.js'));
   const imp = require(path.join(APP, 'import.js'));
+  const auditChain = require(path.join(APP, 'audit-chain.js'));
 
   // ── 1. NETWORK EXPOSURE ───────────────────────────────────────────────────
   attackClass('Network exposure — the agent listens where attackers can reach it',
@@ -113,6 +114,16 @@ async function main() {
     return r.principal && r.principal.role === 'guest' && !/owner|member/i.test(JSON.stringify(r))
       && !!lib.redeemPairCode([{ codeHash: pc.codeHash, exp: pc.exp, channel: 'telegram' }], 'telegram', '42', 'WRONGXXX', 2000).error;
   })(), 'role hard-coded guest in lib; wrong/expired code fail-closed');
+  // LEDGER OF RECORD: every significant event is hash-chained, so any edit/deletion/reorder of the history is
+  // mathematically detectable — "prove what your agent did", provenance neither OpenClaw nor Hermes can produce.
+  check('the activity Ledger of Record is tamper-evident (one flipped byte breaks the chain)', (() => {
+    let prevH = auditChain.GENESIS; const lines = [];
+    for (let i = 0; i < 3; i++) { const e = auditChain.makeEntry({ seq: i, t: 't' + i, kind: 'turn', payload: { i } }, prevH); lines.push(JSON.stringify(e)); prevH = e.h; }
+    if (!auditChain.verify(lines).ok) return false;                                  // a clean chain verifies
+    const bad = lines.slice(); const e = JSON.parse(bad[1]); e.payloadDigest = 'deadbeef' + e.payloadDigest.slice(8); bad[1] = JSON.stringify(e);
+    const v = auditChain.verify(bad);
+    return v.ok === false && v.brokenSeq === 1 && v.reason === 'hash_mismatch';       // and a single edited byte is caught
+  })(), 'sha256 prev-hash chain; verify pinpoints the first broken link');
   // VERIFIED MULTI-PROVIDER: safety is enforced by the HARNESS, not the model. A remote turn's no-egress
   // read-only profile is identical whether the brain is Claude or a 3rd-party/local model behind a proxy —
   // configuring a provider can't relax the sandbox, so the guarantees hold whatever model answers.

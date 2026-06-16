@@ -11,7 +11,7 @@
 //   urfael sessions search <query>             full-text search of every past conversation
 //   urfael learn [trusted|proposed|retired]    the learning ledger — what it learned, verified, and pruned (with confidence)
 //   urfael team [add <channel> <id> [name] [role] | remove <channel> <id> | pair [channel] [--ttl <mins>]]   manage the roster; `pair` mints a single-use guest code
-//   urfael audit [--json]                      team-mode activity trail (who/when/channel/sandbox) for an admin/auditor
+//   urfael audit [--json | --verify]           team-mode activity trail; --verify walks the tamper-evident Ledger of Record (prove what your agent did)
 //   urfael cron [add "<prompt>" --cron "*/15 9-17 * * 1-5" | --days "mon,wed,fri" --at 07:30 | --daily-at HH:MM | --in N | --repeat daily [--then "<prompt>"] [--script "<cmd>"]] [list|cancel <id>|run <id>]
 //                                              scheduled jobs — runs the brain (or, --script, a no-LLM shell cmd) on a schedule,
 //                                              delivers the result, and chains a --then follow-up on completion
@@ -358,6 +358,13 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     return;
   }
   if (cmd === 'audit') {
+    if (rest.includes('--verify')) {
+      // Ledger of Record: walk the tamper-evident hash chain and prove it's intact (or pinpoint the first break).
+      const v = await req('GET', '/audit/verify');
+      if (v && v.ok) console.log(gold('✓ Ledger of Record intact') + dim('  · ' + (v.count || 0) + ' entries, chain verified through seq ' + (v.through >= 0 ? v.through : '—')) + (v.head ? dim('\n  head ' + v.head) : ''));
+      else console.log('\x1b[31m✗ Ledger TAMPERED\x1b[0m' + dim('  · first broken link at seq ' + (v && v.brokenSeq) + ' (line ' + (v && v.brokenLine) + '): ' + (v && v.reason)));
+      return;
+    }
     // export the team-mode activity trail (who/when/which channel/which sandbox profile) for an admin/auditor.
     const a = await req('GET', '/audit');
     if (rest.includes('--json')) { console.log(JSON.stringify(a, null, 2)); return; }

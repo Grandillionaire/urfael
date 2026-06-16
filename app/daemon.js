@@ -53,11 +53,34 @@ const LOGFILE = path.join(JDIR, 'urfael.log');
 const BRAIN_PIDFILE = path.join(JDIR, 'brain.pids');
 
 let logWrites = 0;
+// ---- Ledger of Record: a tamper-evident hash chain over the significant events ----------------------------
+// Lives in the git-tracked memory repo (NOT urfael.log, which ROTATES — rotation would sever a chain). Appends
+// are best-effort + try/catch-wrapped inside logEvent, so a chain hiccup can NEVER break a turn. State is kept
+// warm in memory (seq + last hash), seeded from the chain's tail at boot; `urfael audit --verify` walks it.
+const auditChain = require('./audit-chain');
+const CHAINFILE = path.join(MEMORY_DIR, 'audit-chain.jsonl');
+const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'daemon_start']);
+let chainSeq = -1, chainLastHash = auditChain.GENESIS, chainSeeded = false;
+function seedChain() {
+  try { const lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); if (lines.length) { const last = JSON.parse(lines[lines.length - 1]); if (typeof last.seq === 'number' && typeof last.h === 'string') { chainSeq = last.seq; chainLastHash = last.h; } } } catch {}
+  chainSeeded = true;
+}
+function appendChain(o, t) {
+  try {
+    if (!chainSeeded) seedChain();
+    const entry = auditChain.makeEntry({ seq: chainSeq + 1, t, kind: o.ev, payload: o }, chainLastHash);
+    fs.mkdirSync(MEMORY_DIR, { recursive: true });
+    fs.appendFileSync(CHAINFILE, JSON.stringify(entry) + '\n');
+    chainSeq = entry.seq; chainLastHash = entry.h;
+  } catch {}
+}
 function logEvent(o) {
   try {
-    fs.appendFileSync(LOGFILE, JSON.stringify({ t: new Date().toISOString(), ...o }) + '\n');
+    const stamped = { t: new Date().toISOString(), ...o };
+    fs.appendFileSync(LOGFILE, JSON.stringify(stamped) + '\n');
     // rotation: telemetry must never grow unbounded — checked every 200 writes, one .1 generation kept
     if (++logWrites % 200 === 0 && fs.statSync(LOGFILE).size > 5 * 1024 * 1024) fs.renameSync(LOGFILE, LOGFILE + '.1');
+    if (o && CHAINED_EVENTS.has(o.ev)) appendChain(o, stamped.t);   // also commit it to the tamper-evident ledger
   } catch {}
 }
 function recordBrainPid(pid) { try { fs.appendFileSync(BRAIN_PIDFILE, pid + '\n'); } catch {} }
@@ -1172,6 +1195,13 @@ const server = http.createServer(async (req, res) => {
     } catch {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ roster, activity }));
+  } else if (req.url === '/audit/verify') {
+    // GET /audit/verify — walk the Ledger of Record and report whether the hash chain is intact, or the FIRST
+    // broken link (seq + line + reason). This is the "prove what your agent did" surface: tamper-evident.
+    let lines = [];
+    try { lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); } catch {}
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(auditChain.verify(lines)));
   } else if (req.method === 'POST' && req.url === '/job') {
     // enqueue a detached background job (runs concurrently with voice — NOT in the serialized chain).
     const body = await readBody(req);
