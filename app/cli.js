@@ -12,6 +12,7 @@
 //   urfael why "<belief>"                       provenance: walk a stored belief back to the exact commit/date/pass that introduced it (a checkable git SHA)
 //   urfael as-of <date> [file]                  time machine: reconstruct a memory file (default USER.md) as it was on a past date
 //   urfael drift [file] [--since <date>]        belief changelog: how the model of you changed over time (added / revised / removed)
+//   urfael forget ["<phrase>"]                  consented forgetting: remove matching beliefs + leave a git tombstone (provable deletion); no arg shows the tombstone record
 //   urfael learn [trusted|proposed|retired]    the learning ledger — what it learned, verified, and pruned (with confidence)
 //   urfael team [add <channel> <id> [name] [role] | remove <channel> <id> | pair [channel] [--ttl <mins>]]   manage the roster; `pair` mints a single-use guest code
 //   urfael audit [--json | --verify]           team-mode activity trail; --verify walks the tamper-evident Ledger of Record (prove what your agent did)
@@ -459,6 +460,23 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     console.log(gold('✓ sealed the record') + dim('  · key ' + s.fp + ' signed the ledger head through seq ' + s.seq));
     console.log(dim('  head ' + (s.chainHead || '').slice(0, 24) + '…   sig ' + (s.sig || '').slice(0, 24) + '…'));
     console.log(dim('  verify anytime:  ') + gold('urfael seal --verify') + dim('   ·   public key committed at ~/Urfael-memory/seal.pub'));
+    return;
+  }
+  if (cmd === 'forget') {
+    // consented forgetting with a provable tombstone. No arg → show the tombstone record (auditable deletions).
+    const phrase = rest.filter((a) => !a.startsWith('--')).join(' ').trim();
+    if (!phrase) {
+      let txt = ''; try { txt = fs.readFileSync(path.join(MEMORY_DIR, 'TOMBSTONES.md'), 'utf8'); } catch {}
+      if (!txt.trim()) { console.log(dim('nothing forgotten yet — forget something:  ') + gold('urfael forget "<phrase>"')); return; }
+      console.log(gold('Forgotten — the tombstone record') + dim('  ·  consented, git-committed deletions'));
+      console.log(txt.trim().split('\n').slice(-40).join('\n'));
+      return;
+    }
+    const r = await req('POST', '/forget', { phrase });
+    if (r && r.error) { console.error('✗ ' + r.error); process.exit(1); }
+    if (!r.count) { console.log(dim('nothing in memory matched "' + phrase + '"')); return; }
+    console.log(gold('✓ forgotten ' + r.count + ' line(s)') + dim('  · tombstoned + committed — the deletion itself is now provable'));
+    for (const x of (r.removed || []).slice(0, 20)) console.log('  \x1b[31m-\x1b[0m ' + dim('(' + x.file + ') ') + x.line.slice(0, 90));
     return;
   }
   if (cmd === 'learn') {

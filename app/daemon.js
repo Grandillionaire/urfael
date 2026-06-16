@@ -59,7 +59,7 @@ let logWrites = 0;
 // warm in memory (seq + last hash), seeded from the chain's tail at boot; `urfael audit --verify` walks it.
 const auditChain = require('./audit-chain');
 const CHAINFILE = path.join(MEMORY_DIR, 'audit-chain.jsonl');
-const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'daemon_start']);
+const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start']);
 let chainSeq = -1, chainLastHash = auditChain.GENESIS, chainSeeded = false;
 function seedChain() {
   try { const lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); if (lines.length) { const last = JSON.parse(lines[lines.length - 1]); if (typeof last.seq === 'number' && typeof last.h === 'string') { chainSeq = last.seq; chainLastHash = last.h; } } } catch {}
@@ -1050,6 +1050,33 @@ async function verifyLearnings() {
   verifying = false;
 }
 
+// ---- consented forgetting: remove matching belief lines + leave a git TOMBSTONE, so DELETION is provable -----
+// Owner-invoked (the command IS the consent). Deterministic line removal (no brain), serialized against the
+// memory passes (shared repo). The removed content is preserved in TOMBSTONES.md with date + reason, then the
+// whole change is committed — so "what was forgotten, and when" is itself auditable. Both competitors only accrue.
+const MEMORY_FILES = ['MEMORY.md', 'USER.md', 'WORKFLOW.md', 'LESSONS.md'];
+const TOMBSTONES = path.join(MEMORY_DIR, 'TOMBSTONES.md');
+function forgetPhrase(phrase) {
+  if (distilling || reviewing || curating || modelingUser || verifying) return { error: 'a memory pass is running; try again in a moment' };
+  const p = String(phrase || '').trim();
+  if (!p) return { error: 'need a phrase to forget' };
+  const removed = [], lc = p.toLowerCase();
+  for (const f of MEMORY_FILES) {
+    const fp = path.join(MEMORY_DIR, f);
+    let txt; try { txt = fs.readFileSync(fp, 'utf8'); } catch { continue; }
+    const kept = []; let hit = false;
+    for (const ln of txt.split('\n')) { if (ln.trim() && ln.toLowerCase().includes(lc)) { removed.push({ file: f, line: ln.trim() }); hit = true; } else kept.push(ln); }
+    if (hit) { try { fs.writeFileSync(fp, kept.join('\n')); } catch {} }
+  }
+  if (!removed.length) return { removed: [], count: 0 };
+  const t = new Date().toISOString();
+  const tomb = '\n## ' + t.slice(0, 16).replace('T', ' ') + ' — forgotten by owner request: "' + p.slice(0, 100).replace(/"/g, "'") + '"\n' + removed.map((r) => '- (' + r.file + ') ' + r.line).join('\n') + '\n';
+  try { fs.appendFileSync(TOMBSTONES, tomb); } catch {}
+  logEvent({ ev: 'forget', count: removed.length });   // also enters the tamper-evident Ledger of Record
+  try { spawn('bash', ['-c', `cd "${MEMORY_DIR}" && git add -A && git commit -m "forget: ${removed.length} line(s)" && git push`], { stdio: 'ignore', detached: true }).unref(); } catch {}
+  return { removed, count: removed.length };
+}
+
 // ---- per-turn background review (opt-in via URFAEL_REVIEW; the lighter, more-frequent cousin of distill).
 // After a LOCAL turn resolves normally, on the configured cadence, spawn a DETACHED sandboxed one-shot that
 // reviews JUST that one exchange and updates memory/USER.md/skills only if something durable was learned —
@@ -1254,6 +1281,11 @@ const server = http.createServer(async (req, res) => {
     try { lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); } catch {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(auditChain.verify(lines)));
+  } else if (req.method === 'POST' && req.url === '/forget') {
+    // consented forgetting: remove matching belief lines, leave a git tombstone, commit — provable deletion.
+    const body = await readBody(req); let spec = {}; try { spec = JSON.parse(body); } catch {}
+    const r = forgetPhrase(spec.phrase);
+    res.writeHead(r.error ? 400 : 200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(r));
   } else if (req.method === 'POST' && req.url === '/seal') {
     // mint a Sovereign Seal: the owner key signs the current ledger head, notarizing the record up to this point.
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(mintSeal()));
