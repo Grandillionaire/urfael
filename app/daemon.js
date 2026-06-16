@@ -83,6 +83,58 @@ function logEvent(o) {
     if (o && CHAINED_EVENTS.has(o.ev)) appendChain(o, stamped.t);   // also commit it to the tamper-evident ledger
   } catch {}
 }
+
+// ---- Sovereign Seal: an owner ed25519 key signs the ledger head, so the record carries a crypto identity ----
+// Private key 0600 in JDIR (credential-deny protects it from the brain); public key + the seals are committed in
+// the memory repo (the published identity). A seal proves the owner key attested to the ledger head at a moment.
+const seal = require('./seal');
+const SEAL_KEY = path.join(JDIR, 'seal.key');
+const SEAL_PUB = path.join(MEMORY_DIR, 'seal.pub');
+const SEALS_FILE = path.join(MEMORY_DIR, 'seals.jsonl');
+let sealKeys = null;
+function ensureSealKey() {
+  if (sealKeys) return sealKeys;
+  try {
+    const privatePem = fs.readFileSync(SEAL_KEY, 'utf8');
+    const publicPem = crypto.createPublicKey(privatePem).export({ type: 'spki', format: 'pem' });
+    try { fs.chmodSync(SEAL_KEY, 0o600); } catch {}
+    try { fs.mkdirSync(MEMORY_DIR, { recursive: true }); if (!fs.existsSync(SEAL_PUB)) fs.writeFileSync(SEAL_PUB, publicPem); } catch {}
+    sealKeys = { privatePem, publicPem, fp: seal.fingerprint(publicPem) };
+    return sealKeys;
+  } catch {}
+  const kp = seal.generateKeypair();
+  try { fs.mkdirSync(JDIR, { recursive: true }); fs.writeFileSync(SEAL_KEY, kp.privatePem, { mode: 0o600 }); fs.chmodSync(SEAL_KEY, 0o600); } catch {}
+  try { fs.mkdirSync(MEMORY_DIR, { recursive: true }); fs.writeFileSync(SEAL_PUB, kp.publicPem); } catch {}
+  logEvent({ ev: 'seal_keygen', fp: seal.fingerprint(kp.publicPem) });
+  sealKeys = { privatePem: kp.privatePem, publicPem: kp.publicPem, fp: seal.fingerprint(kp.publicPem) };
+  return sealKeys;
+}
+function mintSeal() {
+  if (!chainSeeded) seedChain();
+  const k = ensureSealKey();
+  const att = { chainHead: chainLastHash, seq: chainSeq, t: new Date().toISOString(), fp: k.fp };
+  att.sig = seal.sign(k.privatePem, seal.sealMessage(att));
+  try { fs.appendFileSync(SEALS_FILE, JSON.stringify(att) + '\n'); } catch {}
+  logEvent({ ev: 'seal_mint', seq: att.seq, fp: k.fp });
+  return att;
+}
+function verifyLatestSeal() {
+  let last = null;
+  try { const lines = fs.readFileSync(SEALS_FILE, 'utf8').split('\n').filter(Boolean); if (lines.length) last = JSON.parse(lines[lines.length - 1]); } catch {}
+  if (!last) return { ok: false, reason: 'no_seal' };
+  let pub = ''; try { pub = fs.readFileSync(SEAL_PUB, 'utf8'); } catch {}
+  const sigOk = seal.verify(pub, seal.sealMessage(last), last.sig) && seal.fingerprint(pub) === last.fp;
+  // is the sealed head still the ledger's head at that seq? RE-VERIFY the chain prefix [0..seq] and confirm it
+  // recomputes to the sealed head — so ANY edit/reorder at or below the seal (even one that leaves the stored h
+  // stale) flips this to false. The seal proves the owner saw head H; this proves history wasn't rewritten under it.
+  let headStillInChain = null;
+  try {
+    const lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean);
+    const v = auditChain.verify(lines.slice(0, last.seq + 1));
+    headStillInChain = !!(v.ok && v.head === last.chainHead);
+  } catch {}
+  return { ok: !!sigOk, reason: sigOk ? 'valid' : 'bad_signature', seq: last.seq, t: last.t, fp: last.fp, headStillInChain };
+}
 function recordBrainPid(pid) { try { fs.appendFileSync(BRAIN_PIDFILE, pid + '\n'); } catch {} }
 function cleanupOrphanBrains() {
   try { for (const pid of fs.readFileSync(BRAIN_PIDFILE, 'utf8').split('\n').map((s) => parseInt(s, 10)).filter(Boolean)) { try { process.kill(pid, 'SIGKILL'); } catch {} } } catch {}
@@ -1202,6 +1254,11 @@ const server = http.createServer(async (req, res) => {
     try { lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); } catch {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(auditChain.verify(lines)));
+  } else if (req.method === 'POST' && req.url === '/seal') {
+    // mint a Sovereign Seal: the owner key signs the current ledger head, notarizing the record up to this point.
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(mintSeal()));
+  } else if (req.url === '/seal/verify') {
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(verifyLatestSeal()));
   } else if (req.method === 'POST' && req.url === '/job') {
     // enqueue a detached background job (runs concurrently with voice — NOT in the serialized chain).
     const body = await readBody(req);

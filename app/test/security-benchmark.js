@@ -59,6 +59,7 @@ async function main() {
   const hub = require(path.join(APP, 'skillhub.js'));
   const imp = require(path.join(APP, 'import.js'));
   const auditChain = require(path.join(APP, 'audit-chain.js'));
+  const sealMod = require(path.join(APP, 'seal.js'));
 
   // ── 1. NETWORK EXPOSURE ───────────────────────────────────────────────────
   attackClass('Network exposure — the agent listens where attackers can reach it',
@@ -124,6 +125,17 @@ async function main() {
     const v = auditChain.verify(bad);
     return v.ok === false && v.brokenSeq === 1 && v.reason === 'hash_mismatch';       // and a single edited byte is caught
   })(), 'sha256 prev-hash chain; verify pinpoints the first broken link');
+  // SOVEREIGN SEAL: the owner ed25519 key signs the ledger head, so only that key can attest to the record — no
+  // other key can forge a seal, and the private key is stored 0600 (in the credential-denied ~/.claude tree).
+  check('Sovereign Seal: only the owner key verifies a seal; a forged signer is rejected', (() => {
+    const kp = sealMod.generateKeypair();
+    const msg = sealMod.sealMessage({ chainHead: 'a'.repeat(64), seq: 7, t: 'T', fp: sealMod.fingerprint(kp.publicPem) });
+    const sig = sealMod.sign(kp.privatePem, msg);
+    const forged = sealMod.generateKeypair();
+    const dsrc = fs.readFileSync(path.join(APP, 'daemon.js'), 'utf8');
+    return sealMod.verify(kp.publicPem, msg, sig) === true && sealMod.verify(forged.publicPem, msg, sig) === false && sealMod.verify(kp.publicPem, msg + 'x', sig) === false
+      && /fs\.writeFileSync\(SEAL_KEY, [^)]*\{ mode: 0o600 \}/.test(dsrc);
+  })(), 'ed25519 attestation; private key 0600 + credential-denied from the brain');
   // VERIFIED MULTI-PROVIDER: safety is enforced by the HARNESS, not the model. A remote turn's no-egress
   // read-only profile is identical whether the brain is Claude or a 3rd-party/local model behind a proxy —
   // configuring a provider can't relax the sandbox, so the guarantees hold whatever model answers.

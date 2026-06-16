@@ -110,6 +110,8 @@ deliberate non-goal). Verdict: **Urfael matches or beats Hermes on every *real* 
 |---|---|---|---|
 | Track record | CVE-2026-25253, 20-40k exposed gateways, poisoned registry | clean but lightly audited | ✦ no network port (unix socket 0600), fail-closed profiles, nonce envelopes, read-only remote default |
 | **Ledger of Record** (prove what your agent did) | ✗ (YOLO, no per-action record) | ✗ (plain rewritable telemetry) | ✦ **NET-NEW**: every turn / remote turn / job / cron / hook / learn-verdict is appended to a **tamper-evident sha256 hash chain** (`h = sha256(prevH + canonicalJSON(entry))`) in the git-tracked memory repo. `urfael audit --verify` walks it and pinpoints the FIRST broken link — any edit, deletion, or reorder is mathematically detectable. Provenance neither competitor structurally has |
+| **Sovereign Seal** (a signed record) | ✗ | ✗ | ✦ **NET-NEW**: an owner **ed25519** keypair (private 0600 + credential-denied; public committed) signs the ledger head — `urfael seal` mints a signed attestation, `urfael seal --verify` proves only the owner's key could have, AND re-verifies that history wasn't rewritten *below* the seal. Honest scope: it proves authorship + integrity of the record at a moment, not that any claim is true |
+| **`urfael why`** (where a belief came from) | ✗ | ✗ (beliefs trusted blind) | ✦ **NET-NEW**: a git pickaxe walks any stored belief back to the exact commit / date / pass that introduced it — a checkable SHA, or an honest "inferred live, not stored" |
 
 ## UX bar (from the 2026 HIG/NN-G research — applies to every surface)
 - pin-to-bottom streaming with jump-to-latest; never fight the reader's scroll ✓

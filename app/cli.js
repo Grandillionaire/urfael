@@ -13,6 +13,7 @@
 //   urfael learn [trusted|proposed|retired]    the learning ledger — what it learned, verified, and pruned (with confidence)
 //   urfael team [add <channel> <id> [name] [role] | remove <channel> <id> | pair [channel] [--ttl <mins>]]   manage the roster; `pair` mints a single-use guest code
 //   urfael audit [--json | --verify]           team-mode activity trail; --verify walks the tamper-evident Ledger of Record (prove what your agent did)
+//   urfael seal [--verify]                      Sovereign Seal: an owner ed25519 key signs the ledger head (--verify checks the signature)
 //   urfael cron [add "<prompt>" --cron "*/15 9-17 * * 1-5" | --days "mon,wed,fri" --at 07:30 | --daily-at HH:MM | --in N | --repeat daily [--then "<prompt>"] [--script "<cmd>"]] [list|cancel <id>|run <id>]
 //                                              scheduled jobs — runs the brain (or, --script, a no-LLM shell cmd) on a schedule,
 //                                              delivers the result, and chains a --then follow-up on completion
@@ -392,6 +393,26 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     for (const e of a.activity.slice(0, 50)) {
       console.log(`  ${dim((e.t || '').replace('T', ' ').slice(0, 16))}  ${gold((e.channel || '?').padEnd(8))} ${(e.principal || '—').slice(0, 14).padEnd(14)} ${dim(e.profile || '')}  ${dim('in ' + (e.in || 0) + '/out ' + (e.out || 0))}`);
     }
+    return;
+  }
+  if (cmd === 'seal') {
+    // Sovereign Seal: an owner ed25519 key signs the Ledger of Record's head, giving the tamper-evident record a
+    // cryptographic identity. A seal proves the OWNER attested to the record at a moment — not that any claim is true.
+    if (rest.includes('--verify')) {
+      const v = await req('GET', '/seal/verify');
+      if (!v || v.reason === 'no_seal') { console.log(dim('no seal yet — mint one:  ') + gold('urfael seal')); return; }
+      if (v.ok) {
+        console.log(gold('✓ seal valid') + dim('  · key ' + v.fp + ' signed the ledger through seq ' + v.seq + ' at ' + (v.t || '').replace('T', ' ').slice(0, 16)));
+        if (v.headStillInChain === true) console.log(dim('  the sealed head still matches the current ledger'));
+        else if (v.headStillInChain === false) console.log('  \x1b[31m⚠ the sealed head NO LONGER matches the ledger — history changed at/below the seal\x1b[0m');
+      } else console.log('\x1b[31m✗ seal does NOT verify\x1b[0m' + dim('  (' + (v.reason || 'bad signature') + ')'));
+      return;
+    }
+    const s = await req('POST', '/seal');
+    if (!s || !s.sig) { console.error('✗ could not mint a seal'); process.exit(1); }
+    console.log(gold('✓ sealed the record') + dim('  · key ' + s.fp + ' signed the ledger head through seq ' + s.seq));
+    console.log(dim('  head ' + (s.chainHead || '').slice(0, 24) + '…   sig ' + (s.sig || '').slice(0, 24) + '…'));
+    console.log(dim('  verify anytime:  ') + gold('urfael seal --verify') + dim('   ·   public key committed at ~/Urfael-memory/seal.pub'));
     return;
   }
   if (cmd === 'learn') {
