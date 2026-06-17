@@ -39,6 +39,10 @@ const learnVerify = require('./learn-verify');  // the independent self-verifier
 
 const VAULT = path.join(os.homedir(), process.env.URFAEL_VAULT_DIR || 'Urfael');
 const MEMORY_DIR = path.join(os.homedir(), process.env.URFAEL_MEMORY_DIR || 'Urfael-memory');
+// The memory repo is a SIBLING of the vault, so it's outside the brain's project root (cwd=VAULT). Claude Code
+// sandboxes tool access to the project dir, so without this the brain can't READ its own memory (it'd have to ask
+// permission — "memory behind a permission wall") and the distill/review passes can't WRITE it. --add-dir fixes both.
+const MEMDIR_ADD = ['--add-dir', MEMORY_DIR];
 const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude']
   .find((p) => { try { fs.accessSync(p); return true; } catch { return false; } }) || 'claude';
 
@@ -186,6 +190,7 @@ class Session {
     this.proc = spawn(CLAUDE_BIN, [
       '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
       '--model', this.model, '--verbose', '--include-partial-messages', '--permission-mode', PERM_MODE,
+      ...MEMDIR_ADD,   // the brain can READ its own memory (it lives outside the vault/project root)
     ], { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: ['pipe', 'pipe', 'ignore'] });
     const p = this.proc; // bind handlers to THIS proc identity so a stale exit can't clobber a freshly-spawned one
     recordBrainPid(p.pid);
@@ -987,7 +992,7 @@ function distill() {
     '<<<TRANSCRIPT>>>\n' + convo + '\n<<<END TRANSCRIPT>>>';
   // distill reads an UNTRUSTED transcript → never bypass. Scope it to memory-file writes + git only.
   const p = spawn(CLAUDE_BIN, ['-p', prompt, '--model', MODELS.sonnet, '--permission-mode', 'acceptEdits',
-    '--allowedTools', 'Write,Edit,Bash(git:*),Bash(cd:*),Bash(mkdir:*)', '--strict-mcp-config'],
+    '--allowedTools', 'Write,Edit,Bash(git:*),Bash(cd:*),Bash(mkdir:*)', '--strict-mcp-config', ...MEMDIR_ADD],
     { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: 'ignore', detached: true });
   const clear = setTimeout(() => { distilling = false; }, 300000); // safety: never get stuck if exit is missed
   p.on('exit', () => { clearTimeout(clear); distilling = false; verifyLearnings(); }); // verify staged lessons before trusting
@@ -1112,7 +1117,7 @@ function reviewTurn(user, urfael) {
     '<<<TRANSCRIPT>>>\n' + convo + '\n<<<END TRANSCRIPT>>>';
   // reads an UNTRUSTED exchange -> never bypass. Scope to memory-file writes + git only, like distill.
   const p = spawn(CLAUDE_BIN, ['-p', prompt, '--model', MODELS.sonnet, '--permission-mode', 'acceptEdits',
-    '--allowedTools', 'Read,Grep,Glob,Write,Edit,Bash(git:*),Bash(cd:*),Bash(mkdir:*)', '--strict-mcp-config'],
+    '--allowedTools', 'Read,Grep,Glob,Write,Edit,Bash(git:*),Bash(cd:*),Bash(mkdir:*)', '--strict-mcp-config', ...MEMDIR_ADD],
     { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: 'ignore', detached: true });
   logEvent({ ev: 'review', n: reviewedTurns });
   const clear = setTimeout(() => { reviewing = false; }, 300000); // safety: never get stuck if exit is missed
@@ -1151,7 +1156,7 @@ function modelUser(user, urfael) {
     '<<<TRANSCRIPT>>>\n' + convo + '\n<<<END TRANSCRIPT>>>';
   // reads an UNTRUSTED exchange → never bypass; scoped to USER.md writes + git only (a strict subset of reviewTurn).
   const p = spawn(CLAUDE_BIN, ['-p', prompt, '--model', MODELS.sonnet, '--permission-mode', 'acceptEdits',
-    '--allowedTools', 'Read,Grep,Glob,Write,Edit,Bash(git:*),Bash(cd:*)', '--strict-mcp-config'],
+    '--allowedTools', 'Read,Grep,Glob,Write,Edit,Bash(git:*),Bash(cd:*)', '--strict-mcp-config', ...MEMDIR_ADD],
     { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: 'ignore', detached: true });
   logEvent({ ev: 'usermodel', n: modeledTurns });
   const clear = setTimeout(() => { modelingUser = false; }, 300000);
@@ -1190,7 +1195,7 @@ function curate() {
     '(The skill files live in the vault; the memory repo above tracks them.)';
   // no untrusted transcript here, but stay sandboxed: skill-file writes + git only, never bypass.
   const p = spawn(CLAUDE_BIN, ['-p', prompt, '--model', MODELS.sonnet, '--permission-mode', 'acceptEdits',
-    '--allowedTools', 'Read,Grep,Glob,Write,Edit,Bash(git:*),Bash(cd:*),Bash(mkdir:*)', '--strict-mcp-config'],
+    '--allowedTools', 'Read,Grep,Glob,Write,Edit,Bash(git:*),Bash(cd:*),Bash(mkdir:*)', '--strict-mcp-config', ...MEMDIR_ADD],
     { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: 'ignore', detached: true });
   logEvent({ ev: 'curator', days: CURATOR_DAYS });
   const clear = setTimeout(() => { curating = false; }, 600000); // safety: never get stuck if exit is missed
