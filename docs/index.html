@@ -3,161 +3,357 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Urfael — the personal AI agent that doesn't get owned</title>
-<meta name="description" content="A personal, voice-capable AI assistant you run on your own machine — security-first, on the flat-rate Claude subscription you already have. No inbound port. Resists the attacks that compromised other self-hosted agents — verify it in one command." />
-<meta property="og:title" content="Urfael — the personal AI agent that doesn't get owned" />
-<meta property="og:description" content="Security-first personal AI on your Claude subscription. 7/7 real-world attack classes resisted — run the benchmark yourself." />
-<meta property="og:image" content="media/console.png" />
+<title>Urfael — Liquid Intelligence. At your service.</title>
+<meta name="description" content="A personal, voice-capable AI you run on your own machine, on the flat-rate Claude subscription you already pay for. No inbound port to attack. No per-token meter. It resists the attacks that owned other self-hosted agents — 9/9 attack classes, 74/74 checks — and it can prove what it did." />
+<link rel="canonical" href="https://urfael.com/" />
+<link rel="icon" type="image/svg+xml" href="media/urfael-logo.svg" />
+<meta name="theme-color" content="#0d0c0a" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Urfael" />
+<meta property="og:url" content="https://urfael.com/" />
+<meta property="og:title" content="Urfael — Liquid Intelligence. At your service." />
+<meta property="og:description" content="Security-first personal AI on your Claude subscription. 9/9 real-world attack classes resisted, 74/74 checks — run the benchmark yourself. No inbound port. It can prove what it did." />
+<meta property="og:image" content="https://urfael.com/media/console.png" />
+<meta property="og:image:width" content="1320" />
+<meta property="og:image:height" content="865" />
+<meta property="og:image:alt" content="The Urfael Console, a gold-on-dark desktop app" />
 <meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Urfael — Liquid Intelligence. At your service." />
+<meta name="twitter:description" content="Security-first personal AI on your Claude subscription. 9/9 attack classes resisted, 74/74 checks — run the benchmark yourself." />
+<meta name="twitter:image" content="https://urfael.com/media/console.png" />
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org","@type":"SoftwareApplication","name":"Urfael",
+  "applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux","url":"https://urfael.com/",
+  "downloadUrl":"https://github.com/Grandillionaire/urfael","license":"https://opensource.org/licenses/MIT",
+  "description":"A personal, voice-capable AI you run on your own machine. Security-first, on the flat-rate Claude subscription you already pay for. No inbound port; it resists the attacks that compromised other self-hosted agents (9/9 attack classes, 74/74 checks).",
+  "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}
+}
+</script>
 <style>
-  :root{--gold:#d4a85a;--gold-soft:#ecd3a0;--ember:#ff8a42;--bg:#0d0c0a;--bg2:#161109;--line:rgba(212,168,90,.20);--body:#e8e0cf;--dim:#a99b78;--serif:"Iowan Old Style","Palatino","Book Antiqua",Georgia,serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+  :root{--gold:#d4a85a;--gold-soft:#ecd3a0;--ember:#ff8a42;--bg:#0d0c0a;--bg2:#161109;--bg3:#1d160c;--line:rgba(212,168,90,.20);--body:#e8e0cf;--dim:#a99b78;--green:#7fdca0;--serif:"Iowan Old Style","Palatino","Book Antiqua",Georgia,serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
-  body{margin:0;background:var(--bg);color:var(--body);font:17px/1.6 var(--serif);-webkit-font-smoothing:antialiased}
+  body{margin:0;background:var(--bg);color:var(--body);font:17px/1.62 var(--serif);-webkit-font-smoothing:antialiased;overflow-x:hidden}
   a{color:var(--gold-soft);text-decoration:none}a:hover{color:var(--gold)}
-  .wrap{max-width:920px;margin:0 auto;padding:0 22px}
+  .wrap{max-width:940px;margin:0 auto;padding:0 22px}
   .center{text-align:center}
-  h1,h2{font-weight:500;letter-spacing:.5px}
-  h2{font-size:26px;font-variant:small-caps;letter-spacing:2px;color:var(--gold);margin:64px 0 18px;border-top:1px solid var(--line);padding-top:40px}
-  code,.mono{font-family:var(--mono);font-size:.92em;color:var(--gold-soft)}
-  pre{background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow:auto;font:13.5px/1.55 var(--mono);color:var(--gold-soft)}
-  .btn{display:inline-block;border:1px solid var(--line);border-radius:8px;padding:11px 20px;color:var(--gold-soft);background:rgba(212,168,90,.08);font-variant:small-caps;letter-spacing:1px;margin:6px}
+  h1,h2,h3{font-weight:500;letter-spacing:.5px}
+  h2{font-size:27px;font-variant:small-caps;letter-spacing:2px;color:var(--gold);margin:0 0 14px}
+  section{padding:62px 0;border-top:1px solid var(--line)}
+  section .lede{font-size:18px;color:var(--body)}
+  code,.mono{font-family:var(--mono);font-size:.9em;color:var(--gold-soft)}
+  pre{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:14px 16px;overflow:auto;font:13.5px/1.6 var(--mono);color:var(--gold-soft)}
+  .btn{display:inline-block;border:1px solid var(--line);border-radius:9px;padding:11px 20px;color:var(--gold-soft);background:rgba(212,168,90,.08);font-variant:small-caps;letter-spacing:1px;margin:6px;transition:.2s}
   .btn:hover{background:rgba(212,168,90,.18);color:#fff}
-  .btn.primary{background:rgba(212,168,90,.16);border-color:rgba(212,168,90,.45)}
+  .btn.primary{background:linear-gradient(180deg,rgba(255,138,66,.18),rgba(212,168,90,.10));border-color:rgba(212,168,90,.45)}
+  /* nav */
+  nav{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;gap:18px;padding:10px 22px;
+      background:rgba(13,12,10,.72);backdrop-filter:blur(11px);-webkit-backdrop-filter:blur(11px);border-bottom:1px solid var(--line)}
+  nav .nmark{font-size:20px;color:var(--gold);text-shadow:0 0 12px rgba(212,168,90,.5)}
+  nav .nlinks{display:flex;gap:15px;flex:1;flex-wrap:wrap;font:12px var(--mono);letter-spacing:.4px}
+  nav .nlinks a{color:var(--dim)}nav .nlinks a:hover{color:var(--gold-soft)}
+  nav .nseal{font:12px var(--mono);color:var(--green);border:1px solid rgba(127,220,160,.3);border-radius:14px;padding:3px 10px;white-space:nowrap}
+  @media(max-width:760px){nav .nlinks{display:none}}
   /* hero */
-  header{position:relative;overflow:hidden;padding:88px 0 12px;background:radial-gradient(circle at 50% 0%,rgba(212,168,90,.09),transparent 60%)}
+  header{position:relative;overflow:hidden;padding:104px 0 28px;background:radial-gradient(circle at 50% 0%,rgba(212,168,90,.10),transparent 60%)}
   #rain{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:.92;
-    -webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,.95) 0%,rgba(0,0,0,.7) 46%,transparent 80%);
-            mask-image:linear-gradient(to bottom,rgba(0,0,0,.95) 0%,rgba(0,0,0,.7) 46%,transparent 80%)}
-  .hero-veil{position:absolute;inset:0;z-index:1;pointer-events:none;
-    background:radial-gradient(ellipse 62% 56% at 50% 40%,rgba(13,12,10,.94) 0%,rgba(13,12,10,.66) 42%,transparent 76%)}
+    -webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,.95) 0%,rgba(0,0,0,.7) 46%,transparent 82%);
+            mask-image:linear-gradient(to bottom,rgba(0,0,0,.95) 0%,rgba(0,0,0,.7) 46%,transparent 82%)}
+  .hero-veil{position:absolute;inset:0;z-index:1;pointer-events:none;background:radial-gradient(ellipse 62% 56% at 50% 40%,rgba(13,12,10,.94) 0%,rgba(13,12,10,.64) 42%,transparent 78%)}
   header .wrap{position:relative;z-index:2}
-  header .rune{height:74px;opacity:.92;filter:drop-shadow(0 0 14px rgba(212,168,90,.4))}
-  header h1{font-size:13px;letter-spacing:11px;color:var(--gold);margin:14px 0 4px;font-variant:small-caps}
-  header .words{height:22px;margin:4px 0 18px;opacity:.85;filter:drop-shadow(0 0 6px rgba(212,168,90,.4))}
-  .tagline{font-size:23px;line-height:1.45;max-width:680px;margin:0 auto 14px}
-  .sub{color:var(--dim);max-width:640px;margin:0 auto 22px;font-size:16px}
-  .badges{margin:6px 0 26px}
+  header .rune{height:78px;opacity:.94;filter:drop-shadow(0 0 16px rgba(212,168,90,.42))}
+  .brandmark{font-size:13px;letter-spacing:11px;color:var(--gold);margin:14px 0 4px;font-variant:small-caps}
+  header .words{height:22px;margin:4px 0 16px;opacity:.85;filter:drop-shadow(0 0 6px rgba(212,168,90,.4))}
+  .tagline{font-size:30px;line-height:1.16;max-width:680px;margin:0 auto 14px;font-variant:small-caps;letter-spacing:1px}
+  .sub{color:var(--dim);max-width:660px;margin:0 auto 22px;font-size:16.5px;font-variant:normal;letter-spacing:0}
+  .badges{margin:8px 0 22px}
   .badge{display:inline-block;font:11px var(--mono);letter-spacing:.5px;color:var(--gold-soft);border:1px solid var(--line);border-radius:20px;padding:4px 11px;margin:3px;background:rgba(212,168,90,.05)}
-  .badge b{color:#7fdca0}
   .shot{display:block;max-width:100%;border:1px solid var(--line);border-radius:12px;margin:30px auto 0;box-shadow:0 0 50px rgba(212,168,90,.08)}
-  .cap{color:var(--dim);font-size:13px;text-align:center;margin-top:8px}
-  /* the wedge */
-  .wedge{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:26px 26px 8px;margin-top:26px}
-  .wedge .lead{font-size:18px}
+  .cap{color:var(--dim);font-size:12.5px;text-align:center;margin-top:9px;font-family:var(--mono);letter-spacing:.3px}
+  /* wedge strip */
+  .strip{background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);text-align:center;padding:18px 22px;color:var(--gold-soft);font-size:16px}
+  .strip b{color:var(--gold)}
+  /* tables + pills */
   table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
   th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
   th{color:var(--gold);font-variant:small-caps;letter-spacing:1px;font-weight:500}
-  td.y{color:#7fdca0}td.w{color:var(--ember)}td.n{color:#c96}
-  .pill{font:12px var(--mono);color:#7fdca0;border:1px solid rgba(127,220,160,.3);border-radius:14px;padding:2px 9px;white-space:nowrap}
+  td.y{color:var(--green)}td.w{color:var(--ember)}td.n{color:#c96}
+  .pill{font:12px var(--mono);color:var(--green);border:1px solid rgba(127,220,160,.3);border-radius:14px;padding:2px 9px;white-space:nowrap}
   ul{padding-left:20px}li{margin:7px 0}
-  .lede b{color:var(--gold-soft)}
-  footer{color:var(--dim);font-size:13px;text-align:center;padding:50px 0 60px;border-top:1px solid var(--line);margin-top:60px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  @media(max-width:680px){.grid{grid-template-columns:1fr}.tagline{font-size:20px}h2{font-size:22px}}
-  .feat{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:rgba(212,168,90,.03)}
-  .feat b{color:var(--gold-soft);display:block;margin-bottom:3px;font-variant:small-caps;letter-spacing:.5px}
-  .feat span{font-size:14.5px;color:var(--dim)}
+  .feat,.card{border:1px solid var(--line);border-radius:11px;padding:15px 17px;background:rgba(212,168,90,.03)}
+  .feat b,.card b{color:var(--gold-soft);display:block;margin-bottom:4px;font-variant:small-caps;letter-spacing:.5px;font-size:15px}
+  .feat span,.card span{font-size:14.5px;color:var(--dim)}
+  /* security tick-through */
+  .bench{display:grid;grid-template-columns:1.1fr .9fr;gap:26px;align-items:start}
+  @media(max-width:760px){.bench{grid-template-columns:1fr}.grid{grid-template-columns:1fr}}
+  .term{border:1px solid var(--line);border-radius:11px;background:#0a0907;overflow:hidden}
+  .term-bar{display:flex;align-items:center;gap:7px;padding:9px 12px;border-bottom:1px solid var(--line);font:11px var(--mono);color:var(--dim)}
+  .term-bar i{width:10px;height:10px;border-radius:50%}.term-bar i:nth-child(1){background:#e0625e}.term-bar i:nth-child(2){background:#d9a441}.term-bar i:nth-child(3){background:#74c47a}
+  .term-bar span{margin-left:7px}
+  .term-body{padding:15px 16px;min-height:160px}
+  .bench-list{list-style:none;padding:0;margin:0;font:12.5px/1.95 var(--mono)}
+  .bench-list li{color:var(--dim);transition:color .25s}.bench-list li.pass{color:var(--green)}
+  .bench-list .tk{display:inline-block;width:1.3em;color:var(--ember)}
+  .bench-tally{opacity:0;transform:translateY(4px);transition:.45s;margin-top:13px;font:16px var(--mono);color:var(--dim)}
+  .bench-tally.show{opacity:1;transform:none}.bench-tally b{color:var(--green)}
+  /* oracle TUI */
+  .t-out{font:13.5px/1.62 var(--mono);color:var(--gold-soft)}.t-out b{color:#fff}.t-out code{color:var(--gold)}
+  .t-spin{font:13.5px var(--mono);color:var(--ember)}.t-foot{margin-top:13px;color:var(--dim);font:11px var(--mono)}
+  /* personas */
+  .p-stage{display:grid;grid-template-columns:auto 1fr;gap:22px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:22px;background:var(--bg2)}
+  @media(max-width:560px){.p-stage{grid-template-columns:1fr;text-align:center}}
+  .p-glyph{font-size:72px;color:var(--gold);text-shadow:0 0 24px rgba(212,168,90,.4);display:inline-block}
+  .p-name{font-size:21px;color:var(--gold-soft);font-variant:small-caps;letter-spacing:1px}
+  .p-ess{color:var(--dim);font-style:italic;margin-top:4px}
+  .p-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+  .p-chip{font:12px var(--mono);color:var(--gold-soft);background:rgba(212,168,90,.05);border:1px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;transition:.2s}
+  .p-chip[aria-selected="true"]{background:rgba(255,138,66,.16);border-color:rgba(212,168,90,.5);color:#fff}
+  /* council + recall svg */
+  .stage{border:1px solid var(--line);border-radius:12px;background:var(--bg2);padding:8px}
+  .c-core,.r-core{fill:var(--gold)}.c-line{stroke:var(--line);stroke-width:1.4;fill:none}.c-worker{fill:var(--gold-soft)}.c-lbl{fill:var(--dim);font:10px var(--mono)}.c-bloom{fill:none;stroke:var(--ember);stroke-width:1.3}
+  .r-node{fill:var(--gold-soft)}.r-edge{stroke:var(--line);stroke-width:.8}
+  /* THE WHEEL — real provider logos, gold-masked, around the Uruz core */
+  .legend{display:flex;gap:20px;flex-wrap:wrap;font:11px var(--mono);color:var(--dim);justify-content:center;margin:6px 0 26px}
+  .legend .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
+  .dot.native{background:var(--green)}.dot.proxy{background:var(--gold)}.dot.light{background:var(--ember)}
+  .wheel{position:relative;width:min(460px,86vw);aspect-ratio:1;margin:0 auto}
+  .wheel-core{position:absolute;inset:0;display:grid;place-items:center;z-index:3;text-align:center}
+  .wheel-core .ru{font-size:78px;color:var(--gold);filter:drop-shadow(0 0 22px rgba(212,168,90,.5))}
+  .wheel-core small{display:block;font:10px var(--mono);color:var(--dim);letter-spacing:1px;margin-top:-6px}
+  .ring{position:absolute;inset:0}
+  .ring.r1{animation:spin 96s linear infinite}.ring.r2{inset:21%;animation:spin 120s linear infinite reverse}
+  .orbit{position:absolute;top:50%;left:50%;width:54px;height:54px;margin:-27px;
+    transform:rotate(var(--ang)) translateY(calc(-1*var(--rad))) rotate(calc(-1*var(--ang)))}
+  .orbit .lg{width:54px;height:54px;border-radius:50%;border:1px solid var(--line);background:var(--bg3);display:grid;place-items:center;animation:spinrev 96s linear infinite}
+  .ring.r2 .orbit .lg{animation:spinrev 120s linear infinite reverse;width:46px;height:46px}
+  .ring.r2 .orbit{width:46px;height:46px;margin:-23px}
+  .lg .mk{width:26px;height:26px;object-fit:contain;opacity:.92;transition:transform .2s,filter .2s}
+  .lg .tx{font:9.5px var(--mono);color:var(--gold-soft);letter-spacing:.3px;text-align:center;line-height:1.1}
+  .lg:hover .mk{filter:brightness(1.35);transform:scale(1.08)}.lg:hover{border-color:rgba(212,168,90,.5)}
+  .lg.native{border-color:rgba(127,220,160,.5);box-shadow:0 0 14px rgba(127,220,160,.18)}
+  @keyframes spin{to{transform:rotate(360deg)}}@keyframes spinrev{to{transform:rotate(-360deg)}}
+  .wheel-grid{display:none}
+  .wheel-grid.on{display:grid}
+  /* security ring of badges + integration row */
+  .secbadges,.introw{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:22px}
+  .secbadges b{font:11px var(--mono);color:var(--gold-soft);border:1px solid var(--line);border-radius:14px;padding:4px 10px;font-weight:400;letter-spacing:.3px}
+  .introw .lg{position:static;width:auto;display:inline-flex;gap:7px;align-items:center;padding:6px 11px;border:1px solid var(--line);border-radius:16px;background:var(--bg3)}
+  .introw .lg .mk{width:17px;height:17px}.introw .lg .nm{font:11px var(--mono);color:var(--gold-soft)}
+  .introw .lg.light .mk{background:var(--ember)}.introw .lg.light .nm{color:var(--ember)}
+  .gnote{color:var(--dim);font-size:14px;max-width:760px;margin:20px auto 0;text-align:center}
+  .gnote b{color:var(--gold-soft)}
+  /* faq */
+  details{border:1px solid var(--line);border-radius:10px;margin:9px 0;background:rgba(212,168,90,.03)}
+  summary{cursor:pointer;padding:13px 16px;color:var(--gold-soft);font-variant:small-caps;letter-spacing:.6px;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"+ ";color:var(--ember)}details[open] summary::before{content:"– "}
+  details .ans{padding:0 16px 15px;color:var(--dim);font-size:15px}
+  details[open] summary{color:var(--gold)}
+  footer{color:var(--dim);font-size:13px;text-align:center;padding:46px 0 60px;border-top:1px solid var(--line)}
+  @media(max-width:680px){.tagline{font-size:24px}h2{font-size:23px}}
 </style>
 </head>
 <body>
-<header class="center">
+
+<nav aria-label="primary">
+  <a class="nmark" href="#top" aria-label="Urfael">ᚢ</a>
+  <div class="nlinks">
+    <a href="#proof">Proof</a><a href="#council">Council</a><a href="#cockpit">Cockpit</a>
+    <a href="#personas">Personas</a><a href="#trust">Trust</a><a href="#wheel">Connects</a>
+    <a href="#honesty">Honesty</a><a href="#install">Install</a>
+  </div>
+  <span class="nseal" id="navSeal">ᚢ 9/9</span>
+</nav>
+
+<header class="center" id="top">
   <canvas id="rain" aria-hidden="true"></canvas>
   <div class="hero-veil" aria-hidden="true"></div>
   <div class="wrap">
-    <img class="rune" src="media/urfael-logo.svg" alt="Urfael — the Uruz rune" />
-    <h1>U R F A E L</h1>
+    <img class="rune" src="media/urfael-logo.svg" alt="Urfael, the Uruz rune" />
+    <div class="brandmark">ᚢ ᚱ ᚠ ᚨ ᛖ ᛚ</div>
     <img class="words" src="media/urfael-runes.svg" alt="URFAEL in Elder Futhark runes" />
-    <div class="tagline">The personal AI agent that <b style="color:var(--gold-soft)">doesn't get owned.</b></div>
-    <div class="sub">Voice-capable, runs on your own machine, on the flat-rate Claude subscription you already have. No inbound port to attack. No per-token meter. And it tells you plainly what it doesn't know.</div>
-    <div class="badges">
-      <span class="badge">macOS · Linux</span>
-      <span class="badge">no API key to start</span>
-      <span class="badge">inbound port: <b>none</b></span>
-      <span class="badge">security benchmark: <b>7/7 attack classes</b></span>
-      <span class="badge">MIT</span>
+    <h1 class="tagline">Liquid Intelligence.<br/><b style="color:var(--gold-soft)">At your service.</b></h1>
+    <p class="sub">A personal, voice-capable AI you run on your own machine, on the flat-rate Claude subscription you already pay for. No inbound port to attack. No per-token meter. And it can prove what it did.</p>
+    <div class="badges" id="heroBadges"></div>
+    <div class="cta">
+      <a class="btn primary" href="#proof">Read the benchmark</a>
+      <a class="btn" href="#install">Install</a>
+      <a class="btn" href="https://github.com/Grandillionaire/urfael">★ GitHub</a>
     </div>
-    <a class="btn primary" href="https://github.com/Grandillionaire/urfael">★ GitHub</a>
-    <a class="btn" href="#security">The security benchmark</a>
-    <a class="btn" href="#install">Install</a>
-    <img class="shot" src="media/console.png" alt="The Urfael Console — gold-on-dark desktop app" />
-    <div class="cap">The Console — chat with live tool activity, push-to-talk, archive, reminders, jobs, settings. Keyboard-first.</div>
+    <img class="shot" src="media/console.png" width="1320" height="865" alt="The Urfael Console, a gold-on-dark desktop app" />
+    <div class="cap">The Console — chat with live tool activity, push-to-talk, archive, reminders, jobs. Keyboard-first.</div>
   </div>
 </header>
 
+<div class="strip">On the Claude subscription you already pay for. No inbound port. No per-token meter. And <b>it can prove what it did.</b></div>
+
 <div class="wrap">
 
-  <section id="security">
-    <h2>It resists the attacks that owned the others</h2>
-    <p class="lede">Self-hosted AI agents got compromised <b>in production</b> in 2026 — OpenClaw shipped a one-click RCE (<span class="mono">CVE-2026-25253</span>), had 20–42k gateways found exposed, and a skill registry that carried ~20% malware. Urfael was built blast-radius-first against exactly these. The difference isn't an adjective — it's a command:</p>
-    <pre>npm run security</pre>
-    <p>It boots the real daemon and dashboard and attacks them the way the wild did, then prints a pass/fail table. Latest run: <b style="color:#7fdca0">7/7 real-world attack classes resisted · 37/37 checks.</b></p>
-    <div class="wedge">
-      <table>
-        <tr><th>Attack class</th><th>In the wild</th><th>Urfael</th></tr>
-        <tr><td>Network exposure</td><td>20–42k gateways exposed</td><td class="y"><span class="pill">no TCP port</span></td></tr>
-        <tr><td>Auth-token leak → RCE</td><td>ClawJacked CVE-2026-25253</td><td class="y"><span class="pill">constant-time, never logged</span></td></tr>
-        <tr><td>Prompt-injection exfil</td><td>poisoned email leaked a key</td><td class="y"><span class="pill">read-only, no egress, secrets denied</span></td></tr>
-        <tr><td>Poisoned skill / supply chain</td><td>~20% of a registry was malware</td><td class="y"><span class="pill">scanned, previewed, never executed</span></td></tr>
-        <tr><td>Unauthenticated DoS</td><td>a malformed request crash-loops</td><td class="y"><span class="pill">401, not a crash</span></td></tr>
-        <tr><td>Secret theft by a runaway agent</td><td>shell + your secrets</td><td class="y"><span class="pill">sandbox mounts no secrets</span></td></tr>
-        <tr><td>Insecure defaults</td><td>power on, guardrails off</td><td class="y"><span class="pill">fail-closed</span></td></tr>
-      </table>
-    </div>
-    <p class="cap">It was red-teamed by its own adversarial agents, which found — and we fixed — four real gaps before this shipped. The full scorecard: <a href="SECURITY-BENCHMARK.md">Security Benchmark</a> · <a href="THREAT-MODEL.md">Threat Model</a> (including the risks we <i>don't</i> cover).</p>
+  <section id="villain">
+    <h2>The agents got owned. In production.</h2>
+    <p class="lede">Self-hosted AI agents were not compromised hypothetically in 2026. OpenClaw's <span class="mono">ClawJacked</span> flaw (<span class="mono">CVE-2026-25253</span>, a one-click RCE) leaked a gateway token over a WebSocket and drove the agent. Censys and Bitsight found <b style="color:var(--ember)">20,000 to 42,000</b> gateways exposed to the open internet; China's CNCERT issued a national warning. Around <b style="color:var(--ember)">20 percent</b> of the skill registry was malicious — stealers, SSH-key and token exfiltration, typosquats. A single poisoned email exfiltrated a private key from a linked inbox. Urfael was built blast-radius-first against exactly these, and the difference is not an adjective. It is a command.</p>
   </section>
 
-  <section>
-    <h2>How it compares — honestly</h2>
-    <p>Every win is real and every gap is admitted in the same table. That honesty is the brand.</p>
+  <section id="proof">
+    <h2>The proof is a command</h2>
+    <p class="lede"><code>npm run security</code> boots the real daemon and dashboard, attacks them the way the wild did, and prints a pass-or-fail table. You run it yourself.</p>
+    <div class="bench">
+      <div class="term anim" data-anim="security" aria-hidden="true">
+        <div class="term-bar"><i></i><i></i><i></i><span>npm run security</span></div>
+        <div class="term-body"><ul class="bench-list"></ul><div class="bench-tally"></div></div>
+      </div>
+      <div>
+        <table>
+          <tr><th>Attack class</th><th>Urfael</th></tr>
+          <tr><td>Network exposure</td><td class="y"><span class="pill">no TCP port</span></td></tr>
+          <tr><td>Auth-token leak → RCE</td><td class="y"><span class="pill">constant-time, never logged</span></td></tr>
+          <tr><td>Prompt-injection exfil</td><td class="y"><span class="pill">read-only, no egress</span></td></tr>
+          <tr><td>Poisoned skill / supply chain</td><td class="y"><span class="pill">scanned, never executed</span></td></tr>
+          <tr><td>Unauthenticated DoS</td><td class="y"><span class="pill">401, not a crash</span></td></tr>
+          <tr><td>Secret theft by a runaway agent</td><td class="y"><span class="pill">no secrets mounted</span></td></tr>
+          <tr><td>Insecure defaults</td><td class="y"><span class="pill">fail-closed</span></td></tr>
+          <tr><td>Inbound trigger → escalation</td><td class="y"><span class="pill">loopback, per-hook secret</span></td></tr>
+          <tr><td>Correctness &amp; craft regressions</td><td class="y"><span class="pill">guarded, can't drift</span></td></tr>
+        </table>
+      </div>
+    </div>
+    <p class="cap">faithful re-creation of real urfael output · read the test at app/test/security-benchmark.js</p>
+    <p style="margin-top:10px">It was red-teamed by its own adversarial agents, which found real gaps (fixed before this shipped). The full scorecard: <a href="SECURITY-BENCHMARK.md">Security Benchmark</a> · <a href="THREAT-MODEL.md">Threat Model</a> — including the risks we <i>don't</i> cover.</p>
+  </section>
+
+  <section id="council">
+    <h2>Watch it think, in a Council</h2>
+    <p class="lede">Hard questions get a Council. Urfael decomposes the problem, dispatches read-only sandboxed workers to gather what each needs, then synthesizes one answer. You watch it happen instead of trusting a black box.</p>
+    <div class="stage anim" data-anim="council" aria-hidden="true">
+      <svg viewBox="0 0 600 220" width="100%" height="220" role="img" aria-label="A council: an orchestrator dispatching to four workers and synthesizing">
+        <circle class="c-core" cx="300" cy="110" r="13"/>
+        <text class="c-lbl" x="300" y="142" text-anchor="middle">ᚢ orchestrator</text>
+        <g id="cWorkers"></g>
+        <circle class="c-bloom" cx="300" cy="110" r="0" opacity="0"/>
+      </svg>
+    </div>
+    <p class="cap">Council workers are read-only and sandboxed — read and report, no write, no shell, no network · faithful re-creation of real urfael output</p>
+  </section>
+
+  <section id="cockpit">
+    <h2>A cockpit, not a chat box</h2>
+    <p class="lede">A flicker-free terminal cockpit with a runic oracle that shows its thinking — changing Elder Futhark glyphs and honest thinking-words — then streams a real Markdown answer and seals it to the ledger. Voice in, voice out, when you want it.</p>
+    <div class="term anim" data-anim="oracle" aria-hidden="true">
+      <div class="term-bar"><i></i><i></i><i></i><span>urfael tui</span></div>
+      <div class="term-body">
+        <div class="t-spin"></div>
+        <div class="t-out"></div>
+        <div class="t-foot"></div>
+      </div>
+    </div>
+    <p class="cap">faithful re-creation of real urfael output</p>
+  </section>
+
+  <section id="personas">
+    <h2>It answers in the voice you ask for</h2>
+    <p class="lede">Six built-in stances, switchable by just asking. Same capability — a different approach to dialogue and advice. Want a different brain too? Say <code>switch to opus</code>.</p>
+    <div class="p-stage anim" data-anim="personas">
+      <div class="p-glyph">ᚢ</div>
+      <div><div class="p-name">Urfael</div><div class="p-ess">the dry old-intelligence butler — the anchor</div></div>
+    </div>
+    <div class="p-chips" role="tablist"></div>
+    <p class="cap">all five personas plus the Urfael anchor are real in app/personas.js · faithful re-creation of real urfael output</p>
+  </section>
+
+  <section id="trust">
+    <h2>It can prove what it did. And it can forget.</h2>
+    <div class="grid">
+      <div class="card"><b>Ledger of Record</b><span>Every action lands in a hash-chained ledger. Tampering is detectable, not deniable.</span></div>
+      <div class="card"><b>Sovereign Seal</b><span>An ed25519 signature over the chain head proves the record's authorship and integrity at a moment in time. It proves the record is authentic, not that every claim inside is true.</span></div>
+      <div class="card"><b><code>urfael why</code></b><span>Pickaxe the provenance of any belief it learned, back to the exact commit it came from.</span></div>
+      <div class="card"><b><code>urfael forget</code></b><span>A tombstone for provable, consented deletion. You can make it forget.</span></div>
+    </div>
+    <div class="stage anim" data-anim="recall" aria-hidden="true" style="margin-top:16px">
+      <svg viewBox="0 0 600 150" width="100%" height="150" role="img" aria-label="Ranked recall blooming from local notes">
+        <g id="rEdges"></g><g id="rNodes"></g>
+        <circle class="r-core" cx="300" cy="75" r="9"/>
+      </svg>
+    </div>
+    <p class="cap">ranked recall runs BM25 plus optional local vectors — your notes never leave the machine · faithful re-creation of real urfael output</p>
+  </section>
+
+  <section id="wheel">
+    <h2>Liquid intelligence, through one secured vessel</h2>
+    <p class="lede center">Claude is native through your subscription — the single path billed to you. Every other model flows in through a documented Anthropic-compatible proxy, the sandbox harness still enforcing the boundaries.</p>
+    <div class="legend">
+      <span><i class="dot native"></i> native (one path)</span>
+      <span><i class="dot proxy"></i> via documented proxy</span>
+      <span><i class="dot light"></i> lightly tested</span>
+    </div>
+    <div class="wheel anim" data-anim="wheel" aria-hidden="true">
+      <div class="wheel-core"><div class="ru">ᚢ</div><small>the vessel</small></div>
+      <div class="ring r1" id="ring1"></div>
+      <div class="ring r2" id="ring2"></div>
+    </div>
+    <div class="wheel-grid" id="wheelGrid" aria-hidden="true"></div>
+    <p class="gnote"><b>Models.</b> Claude native; OpenAI, Gemini, Llama, Mistral, DeepSeek, Groq, Ollama, LM&nbsp;Studio, NVIDIA&nbsp;NIM, OpenRouter, Perplexity, Bedrock, Vertex and Azure via a documented Anthropic-compatible proxy (claude-code-router / LiteLLM). Claude on Bedrock or Vertex is still Claude, just billed to AWS or GCP.</p>
+    <div class="introw" id="introw"></div>
+    <p class="gnote"><b>Integrations.</b> An OpenAI-compatible local API (Open&nbsp;WebUI / LibreChat / the openai SDK), chat channels, a universal webhook relay for Zapier / n8n / any in-and-out webhook, and email-push triggers. Matrix, Signal and WhatsApp bridges are code-complete and reviewed, lightly tested.</p>
+    <div class="secbadges">
+      <b>unix-socket only</b><b>0600</b><b>fail-closed profiles</b><b>credential-deny</b><b>untrusted-envelope framing</b><b>constant-time tokens</b><b>SSRF guards</b><b>ed25519 seal</b><b>hash-chain ledger</b>
+    </div>
+    <p class="cap">the security moat is the fixed inner ring — it never moves</p>
+  </section>
+
+  <section id="compare">
+    <h2>The honest comparison</h2>
+    <p>Every win is real, and every gap is admitted in the same table.</p>
     <table>
       <tr><th>Capability</th><th>Urfael</th><th>Hermes</th><th>OpenClaw</th></tr>
       <tr><td>No inbound network port</td><td class="y">✅ none</td><td class="w">⚠️ varies</td><td class="w">⚠️ gateway/DMs</td></tr>
       <tr><td>Ships an attack benchmark</td><td class="y">✅ <span class="mono">npm run security</span></td><td class="n">❌</td><td class="n">❌</td></tr>
-      <tr><td>Local, on-device voice</td><td class="y">✅</td><td class="w">⚠️</td><td class="w">⚠️</td></tr>
-      <tr><td>Flat-rate cost (no per-token)</td><td class="y">✅ subscription</td><td class="n">❌ per-token</td><td class="n">❌ per-token</td></tr>
-      <tr><td>OpenAI-compatible API</td><td class="y">✅</td><td class="y">✅</td><td class="w">⚠️</td></tr>
-      <tr><td>Multi-user, audit-ready</td><td class="y">✅ sandboxed principals + <span class="mono">urfael audit</span></td><td class="w">⚠️ DM-pairing</td><td class="w">⚠️ pairing</td></tr>
-      <tr><td>Skill hub that can't ship malware</td><td class="y">✅ scanned + sha-pinned + never run</td><td class="w">⚠️ external standard</td><td class="n">❌ ~20% malware</td></tr>
+      <tr><td>Flat-rate cost (no per-token)</td><td class="y">✅ subscription</td><td class="n">❌</td><td class="n">❌</td></tr>
+      <tr><td>Can prove what it did (ledger + seal)</td><td class="y">✅</td><td class="n">❌</td><td class="n">❌</td></tr>
+      <tr><td>Live, watchable multi-agent Council</td><td class="y">✅</td><td class="w">⚠️ opaque</td><td class="w">⚠️ opaque</td></tr>
+      <tr><td>Skill hub that can't ship malware</td><td class="y">✅ scanned + sha-pinned + never run</td><td class="w">⚠️</td><td class="n">❌ ~20% malware</td></tr>
       <tr><td>Chat-channel breadth</td><td class="w">⚠️ 8, curated</td><td class="y">✅ many</td><td class="y">✅ 20+</td></tr>
-      <tr><td>Model flexibility</td><td class="y">✅ any model via proxy, safety harness-enforced</td><td class="y">✅ 200+ native</td><td class="y">✅ many</td></tr>
-      <tr><td>Battle-tested at scale</td><td class="w">⚠️ small, & we say so</td><td class="y">✅ large</td><td class="y">✅ very large</td></tr>
+      <tr><td>Battle-tested at scale</td><td class="w">⚠️ small, &amp; we say so</td><td class="y">✅ large</td><td class="y">✅ very large</td></tr>
     </table>
-    <p class="cap">We win where it counts for a machine that lives on your desk and acts for you: blast radius, cost predictability, and not overstating maturity.</p>
+    <p class="cap">We win where it counts for a machine that lives on your desk and acts for you: blast radius, cost, provability, and not overstating maturity.</p>
   </section>
 
-  <section>
-    <h2>What it is</h2>
-    <div class="grid">
-      <div class="feat"><b>One brain, every surface</b><span>A desktop Console, an ambient orb HUD, a full-screen TUI, a token-gated web dashboard, a CLI, and 8 owner-allowlisted chat channels — all thin clients of one local daemon.</span></div>
-      <div class="feat"><b>It heard you, locally</b><span>Click-to-talk in the Console or a spoken wake word; whisper.cpp transcribes and your machine speaks — no cloud STT/TTS by default.</span></div>
-      <div class="feat"><b>Memory that compounds</b><span>Every conversation distills into durable memory and a model of you; recall ranks its own history with a hybrid of BM25 and optional local semantic vectors, so paraphrases surface too.</span></div>
-      <div class="feat"><b>It verifies what it learns</b><span>A lesson isn't trusted until an independent verifier judges it correct, general, and safe. It measures, quarantines, and prunes — a learning loop that can't be poisoned by its own inferences.</span></div>
-      <div class="feat"><b>A team agent a CISO can approve</b><span>Multiple people, each a sandboxed principal through the same fail-closed kernel — a role can only narrow access, never escalate. <span class="mono">urfael audit</span> hands an auditor the trail.</span></div>
-      <div class="feat"><b>Skills, installed paranoid</b><span>It learns reusable procedures, and any skill — including from the <span class="mono">urfael hub</span> registry — is scanned, sha-pinned, previewed, and never executed. The app store with a security guarantee.</span></div>
-      <div class="feat"><b>Open it up, any model</b><span>An OpenAI-compatible API (Open WebUI / LibreChat / the openai SDK), and any model via a proxy — with the sandbox enforced by the harness, so the guarantees hold whatever answers.</span></div>
-    </div>
+  <section id="honesty">
+    <h2>What's lightly tested</h2>
+    <p class="lede">Honesty is a feature here, so this section exists on purpose.</p>
+    <ul>
+      <li><b>Every feature is verified end-to-end</b> by an in-repo harness (<span class="mono">npm run e2e</span>) against a live daemon, plus <b>283 unit tests</b>, several of them frozen adversarial security regressions.</li>
+      <li><b>The Matrix, Signal and WhatsApp bridges</b> are code-complete and reviewed, their parsing and allowlist logic unit-tested, but not yet battle-hardened against live accounts. Treat them that way.</li>
+      <li><b>Linux runs the full stack</b> but is newer than macOS and has less mileage; <b>real-world scale is small</b>, because this is a personal tool and we say so; the GUI is unsigned.</li>
+      <li>If you want twenty channels and every model under the sun, OpenClaw and Hermes are excellent at breadth. If you want the smallest possible blast radius, a flat bill, local voice, and a tool that is straight with you about its limits — stay.</li>
+    </ul>
   </section>
 
   <section id="install">
-    <h2>Install</h2>
-    <p class="lede"><b>You need:</b> a <a href="https://claude.com/claude-code">Claude Code</a> subscription, signed in. macOS is primary; Linux is newer. No API key.</p>
+    <h2>Three lines</h2>
     <pre>git clone https://github.com/Grandillionaire/urfael.git &amp;&amp; cd urfael
-./install.sh        # checks deps, scaffolds your vault — no keys
+./install.sh        # checks deps, scaffolds your vault, no keys
 cd app &amp;&amp; npm start # the Console opens</pre>
-    <p><b style="color:var(--gold-soft)">Or run it 100% on your own GPU</b> — a local model (Ollama / NVIDIA NIM) + local voice means nothing leaves the machine. <a href="LOCAL-GPU.md">Guide</a>.</p>
-    <p>It runs entirely on <i>your own</i> <span class="mono">claude</span> login — no credentials bundled or pooled, for ordinary individual use. Full guide: <a href="SETUP.md">docs/SETUP.md</a>.</p>
-    <p class="center" style="margin-top:24px"><a class="btn primary" href="https://github.com/Grandillionaire/urfael">★ Star it on GitHub</a></p>
+    <p><b>You need:</b> a <a href="https://claude.com/claude-code">Claude Code</a> subscription (Pro or Max), signed in. macOS on Apple Silicon or Intel is the best-tested target; Linux is supported but newer. No API key.</p>
+    <p><b style="color:var(--gold-soft)">Or run it 100% on your own GPU.</b> A local model (Ollama / NVIDIA NIM) plus local voice means nothing leaves the machine. <a href="LOCAL-GPU.md">Guide</a>. Full setup is in <a href="SETUP.md">docs/SETUP.md</a>.</p>
+    <p class="center" style="margin-top:22px"><a class="btn primary" href="https://github.com/Grandillionaire/urfael">★ Star it on GitHub</a></p>
   </section>
 
-  <section>
-    <h2>What's lightly tested</h2>
-    <p class="lede">This section exists on purpose. Honesty is a feature.</p>
-    <ul>
-      <li><b>Every feature is verified end-to-end</b> by an in-repo harness (<span class="mono">npm run e2e</span>) plus 75 unit tests, several adversarial security regressions.</li>
-      <li><b>Not yet exercised against real accounts:</b> the live relay of the Matrix, Signal, and WhatsApp bridges (their logic <i>is</i> unit-tested). Code-complete and reviewed, not battle-hardened.</li>
-      <li><b>Linux is newer than macOS</b>, and <b>real-world scale is small</b> — this is a personal tool, honestly stated. That's the one thing only time and users add.</li>
-    </ul>
+  <section id="faq">
+    <h2>Every question, answered</h2>
+    <details><summary>Is this just a wrapper around Claude?</summary><div class="ans">The brain is the Claude you already pay for, reached through the <code>claude</code> CLI you are already signed into. Urfael is everything around that brain a wrapper is not: a tamper-evident ledger of every action, an ed25519 seal over it, a read-only sandbox for untrusted messages, a credential-deny boundary, eight hardened chat bridges, voice in and out, ranked recall over your own notes, a multi-agent Council, and a security benchmark you can run in one command. The model is rented. The sovereignty, the memory, and the safety are yours, on your machine, under MIT.</div></details>
+    <details><summary>What does it cost to run?</summary><div class="ans">Your existing Claude subscription, flat-rate. There is no per-token meter, no Urfael account, no server you rent from us. Point it at a local model on your own GPU instead and it costs you electricity. We do not see your traffic; there is nothing to see.</div></details>
+    <details><summary>Is it actually secure, or is that just a word?</summary><div class="ans">It is a command: <code>npm run security</code>. It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists <b>9 of 9</b> real-world attack classes across <b>74 of 74</b> checks. You do not take our word for it. You run it.</div></details>
+    <details><summary>A prompt injection got other agents to leak secrets. Why not this one?</summary><div class="ans">Because the containment is structural, not a clever prompt. Remote and untrusted turns run a read-only profile: read and search your notes, no shell, no write, and critically no network-egress tool. The vault also denies the agent reading your credential stores outright, a hard boundary that holds even in Full mode. So an injected "read a secret and send it somewhere" has nothing to read and nowhere to send.</div></details>
+    <details><summary>So is there any mode where an injection could leak something?</summary><div class="ans">Yes, and we will not hide it. The default Fortress posture has no egress, so untrusted content cannot exfiltrate at all. If you deliberately enable Full mode the agent can fetch the web, which means a successful injection could exfiltrate notes you have given it — though never your credentials, because the credential-deny boundary still holds. Run Full mode only in a VM, a container, or a throwaway account. The benchmark, the docs, and this answer all say the same thing on purpose.</div></details>
+    <details><summary>Why is there no inbound port? Doesn't that limit it?</summary><div class="ans">It is the whole point. The brain listens on a <code>0600</code> unix socket only, never a TCP port. The topology is one-way: Urfael reaches out (to your Claude login, to chat APIs it polls); nothing reaches in. There is no gateway to expose, no token to leak over a socket, no DM endpoint to spray. The 20,000-plus exposed gateways that got owned in 2026 were owned because they were reachable. This one is not.</div></details>
+    <details><summary>Can I use a model other than Claude?</summary><div class="ans">Yes. Claude is native through your subscription, the one path billed to you with no per-token meter. Every other provider (OpenAI, Gemini, Llama, Mistral, DeepSeek, Groq, Ollama, LM Studio, NVIDIA NIM, OpenRouter, Bedrock, Vertex, Azure) runs through a documented Anthropic-compatible proxy such as claude-code-router or LiteLLM, with the same sandbox harness enforcing the boundaries. You can also switch models mid-conversation by just saying so: <code>switch to opus</code>.</div></details>
+    <details><summary>Can it run fully offline, with nothing leaving my machine?</summary><div class="ans">Yes. Point it at a local model (Ollama or NVIDIA NIM) and use the local voice model, and nothing leaves the machine. See the Local-GPU guide. You trade some capability for total air-gap; that is your call to make, not ours.</div></details>
+    <details><summary>Can it prove what it actually did?</summary><div class="ans">That is the trust suite, and it is real. Every action lands in a hash-chained Ledger of Record, so tampering is detectable. An ed25519 Sovereign Seal signs the chain head, so you can prove the record's authorship and integrity at a moment in time (it proves the record is authentic, not that every claim inside is true — we are precise about that). <code>urfael why</code> pickaxes the provenance of any lesson it learned. And <code>urfael forget</code> writes a tombstone for provable, consented deletion.</div></details>
+    <details><summary>How mature is this, honestly?</summary><div class="ans">macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the full stack but has far less mileage. The Matrix, Signal and WhatsApp bridges are code-complete and reviewed, with their parsing and allowlist logic unit-tested, but not yet battle-hardened against live accounts. Real-world scale is small, because this is a personal tool and we say so. There are 283 unit tests, an end-to-end harness against a live daemon, and adversarial security regressions frozen from real findings. What only time and users add is the one thing we cannot fake.</div></details>
+    <details><summary>What is the Council?</summary><div class="ans">A multi-agent orchestration you can watch. Urfael decomposes a hard question, dispatches read-only sandboxed workers to gather what each needs, then synthesizes one answer. The workers cannot write, cannot run a shell, and cannot reach the network; they read and report. You see the whole thing happen rather than trusting a black box.</div></details>
+    <details><summary>Is this affiliated with Anthropic?</summary><div class="ans">No. Urfael is an independent, open-source project under the MIT license. It runs on your Claude subscription but is not built, endorsed, or operated by Anthropic. The Urfael name and the Uruz mark are an original character drawn from the public-domain Elder Futhark.</div></details>
   </section>
 
 </div>
@@ -166,55 +362,147 @@ cd app &amp;&amp; npm start # the Console opens</pre>
   <div class="wrap">
     Urfael is an original character; the mark is the Uruz rune (ᚢ) of the public-domain Elder Futhark.<br/>
     An independent open-source project (MIT), not affiliated with, endorsed by, or sponsored by Anthropic.<br/>
-    "Claude" and "Claude Code" are trademarks of Anthropic.
+    "Claude" and "Claude Code" are trademarks of Anthropic. Provider names and marks belong to their respective owners and indicate compatibility only.
   </div>
 </footer>
+
 <script>
-// Rune rain — the Matrix-rain effect, rebuilt with the Elder Futhark runes Urfael is built from.
-// Gold-on-dark; glyphs biased toward U-R-F-A-E-L so the cascade quietly spells the name. Behind the hero,
-// under a center vignette + bottom fade so the headline stays crisp. 30fps-capped, pauses off-screen,
-// honors prefers-reduced-motion.
+/* ---- ground truth: every number on this page reads from here, so it cannot drift from `npm run security` ---- */
+const URFAEL = { classes:9, checks:74, unitTests:283 };
+const RM = matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+document.getElementById('navSeal').textContent = 'ᚢ '+URFAEL.classes+'/'+URFAEL.classes;
+document.getElementById('heroBadges').innerHTML =
+  ['no inbound port', URFAEL.classes+'/'+URFAEL.classes+' attack classes', URFAEL.checks+'/'+URFAEL.checks+' checks',
+   URFAEL.unitTests+' tests', 'MIT', 'flat-rate'].map(t=>'<span class="badge">'+t+'</span>').join('');
+
+/* ---- one dispatcher: nothing animates until in view; everything has a reduced-motion static end-state ---- */
+const ANIMS = {};
+const io = new IntersectionObserver(es=>{ for(const e of es){ if(!e.isIntersecting) continue; const n=e.target;
+  if(n._done) continue; n._done=true; (ANIMS[n.dataset.anim]||(()=>{}))(n); io.unobserve(n); } },{rootMargin:'0px 0px -10% 0px',threshold:.2});
+addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.anim').forEach(n=>io.observe(n)));
+
+/* 1) security tick-through — the nine real benchmark classes */
+const BENCH=['Network exposure — unix socket only, 0 TCP ports','Auth-token leak → RCE — constant-time, never logged',
+ 'Prompt-injection exfil — read-only, no egress tool','Poisoned skill / supply chain — scanned, never executed',
+ 'Unauthenticated DoS — malformed → 401, no crash','Secret theft by runaway agent — no secrets mounted, creds denied',
+ 'Insecure defaults — shell off, unknown → most-restricted','Inbound trigger — 127.0.0.1, per-hook secret',
+ 'Correctness & craft regressions — guarded, can’t drift'];
+ANIMS.security=root=>{ const list=root.querySelector('.bench-list'), tally=root.querySelector('.bench-tally');
+  list.innerHTML=BENCH.map(t=>'<li><span class="tk">·</span> '+t+'</li>').join(''); const lis=[...list.children];
+  const tallyHTML='<b>'+URFAEL.classes+'/'+URFAEL.classes+'</b> attack classes &middot; <b>'+URFAEL.checks+'/'+URFAEL.checks+'</b> checks';
+  if(RM){ lis.forEach(li=>{li.classList.add('pass');li.querySelector('.tk').textContent='✓';}); tally.innerHTML=tallyHTML; tally.classList.add('show'); return; }
+  let i=0;(function step(){ if(i>=lis.length){ tally.innerHTML=tallyHTML; setTimeout(()=>tally.classList.add('show'),120); return; }
+    const li=lis[i++]; li.classList.add('pass'); li.querySelector('.tk').textContent='✓'; setTimeout(step,150); })(); };
+
+/* 2) council round-table */
+ANIMS.council=root=>{ const svg=root.querySelector('svg'), g=root.querySelector('#cWorkers'), bloom=root.querySelector('.c-bloom');
+  const W=[{x:90,y:55,t:'recall'},{x:90,y:165,t:'web'},{x:510,y:55,t:'read'},{x:510,y:165,t:'reason'}];
+  let html='';
+  W.forEach(w=>{ html+='<line class="c-line" x1="300" y1="110" x2="'+w.x+'" y2="'+w.y+'"/>'
+    +'<circle class="c-worker" cx="'+w.x+'" cy="'+w.y+'" r="9"/>'
+    +'<text class="c-lbl" x="'+w.x+'" y="'+(w.y+24)+'" text-anchor="middle">'+w.t+'</text>'; });
+  g.innerHTML=html;
+  const lines=[...g.querySelectorAll('.c-line')], workers=[...g.querySelectorAll('.c-worker')];
+  if(RM){ workers.forEach(w=>w.style.fill='var(--green)'); bloom.setAttribute('r','46'); bloom.style.opacity=.85; return; }
+  lines.forEach((l,i)=>{ const L=l.getTotalLength(); l.style.strokeDasharray=L; l.style.strokeDashoffset=L;
+    l.animate([{strokeDashoffset:L},{strokeDashoffset:0}],{duration:520,delay:130*i,fill:'forwards',easing:'cubic-bezier(.4,0,.2,1)'}); });
+  workers.forEach((w,i)=> setTimeout(()=>w.animate([{fill:'#ecd3a0'},{fill:'#7fdca0'}],{duration:400,fill:'forwards'}),900+200*i));
+  setTimeout(()=>{ bloom.animate([{r:0,opacity:0},{r:46,opacity:.85}],{duration:760,fill:'forwards'}); },1900); };
+
+/* 3) oracle TUI stream */
+const GLY='ᚢᚱᚠᛖᛁᛇᛞᛚᚷᚾ'.split(''), VERBS=['recalling','weighing','reasoning','sealing'];
+ANIMS.oracle=root=>{ const out=root.querySelector('.t-out'), spin=root.querySelector('.t-spin'), foot=root.querySelector('.t-foot');
+  const md='**'+URFAEL.classes+'/'+URFAEL.classes+'** attack classes resisted, **'+URFAEL.checks+'/'+URFAEL.checks+'** checks.\nThe daemon listens on a `0600` unix socket — no TCP port. Run it yourself: `npm run security`.';
+  const render=s=>s.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`(.+?)`/g,'<code>$1</code>').replace(/\n/g,'<br/>');
+  if(RM){ out.innerHTML=render(md); spin.textContent=''; foot.textContent='✓ sealed · ledger seq+1'; return; }
+  let g=0,v=0; const sp=setInterval(()=>{ spin.textContent=GLY[g++%GLY.length]+'  '+VERBS[v++%VERBS.length]+'…'; },120);
+  setTimeout(()=>{ clearInterval(sp); spin.textContent='';
+    let i=0;(function tick(){ if(i>md.length){ foot.textContent='✓ sealed · ledger seq+1'; return; }
+      out.innerHTML=render(md.slice(0,i)); i+=2; setTimeout(tick,18); })(); },1200); };
+
+/* 4) persona morph */
+const PERSONAS=[{g:'ᚢ',n:'Urfael',e:'the dry old-intelligence butler — the anchor'},
+ {g:'ᚨ',n:'The Architect',e:'systems mind — names the one load-bearing decision, then commits'},
+ {g:'ᛖ',n:'The Sage',e:'patient mentor — teaches the why, hands you the next step'},
+ {g:'ᛏ',n:'The Operator',e:'ship it — one path, the first action, no preamble'},
+ {g:'ᚹ',n:'The Muse',e:'creative partner — widens the option space, then converges'},
+ {g:'ᛁ',n:'The Analyst',e:'loyal skeptic — interrogates the premise, names the cheaper alternative'}];
+ANIMS.personas=root=>{ const glyph=root.querySelector('.p-glyph'), name=root.querySelector('.p-name'), ess=root.querySelector('.p-ess');
+  const chips=document.querySelector('.p-chips');
+  chips.innerHTML=PERSONAS.map((p,i)=>'<button class="p-chip" role="tab" aria-selected="'+(i===0)+'" data-i="'+i+'"><span>'+p.g+'</span> '+p.n+'</button>').join('');
+  let auto=true;
+  const sel=i=>{ [...chips.children].forEach((c,j)=>c.setAttribute('aria-selected',j===i));
+    const set=()=>{glyph.textContent=PERSONAS[i].g;name.textContent=PERSONAS[i].n;ess.textContent=PERSONAS[i].e;};
+    if(RM){set();return;} glyph.animate([{opacity:1,transform:'rotate(0)'},{opacity:0,transform:'rotate(-16deg)'},{opacity:1,transform:'rotate(0)'}],{duration:420}); setTimeout(set,210); };
+  chips.addEventListener('click',e=>{const b=e.target.closest('.p-chip'); if(b){auto=false; sel(+b.dataset.i);}});
+  let i=0; sel(0); if(!RM){ const iv=setInterval(()=>{ if(!auto){clearInterval(iv);return;} i=(i+1)%PERSONAS.length; sel(i); },2600); } };
+
+/* 5) recall bloom */
+ANIMS.recall=root=>{ const ng=root.querySelector('#rNodes'), eg=root.querySelector('#rEdges');
+  const pts=Array.from({length:11},(_,i)=>({x:60+i*48,y:i%2?40:110}));
+  ng.innerHTML=pts.map(p=>'<circle class="r-node" cx="'+p.x+'" cy="'+p.y+'" r="4" opacity="0"/>').join('');
+  eg.innerHTML=pts.map(p=>'<line class="r-edge" x1="300" y1="75" x2="'+p.x+'" y2="'+p.y+'" opacity="0"/>').join('');
+  const nodes=[...ng.children], edges=[...eg.children];
+  if(RM){ nodes.forEach(n=>n.setAttribute('opacity','1')); edges.forEach(e=>e.setAttribute('opacity','.5')); return; }
+  nodes.forEach((n,i)=> n.animate([{opacity:0},{opacity:1}],{duration:500,delay:80*i,fill:'forwards'}));
+  edges.forEach((e,i)=> e.animate([{opacity:0},{opacity:.45}],{duration:500,delay:80*i,fill:'forwards'})); };
+
+/* 6) THE WHEEL — real, web-fetched provider logos (gold-masked), orbiting the Uruz core */
+const MODELS=[ {f:'anthropic',n:'Claude',native:true},{f:'openrouter',n:'OpenRouter'},{f:'ollama',n:'Ollama'},
+ {f:'googlegemini',n:'Gemini'},{f:'mistralai',n:'Mistral'},{f:'deepseek',n:'DeepSeek'},{f:'meta',n:'Llama'},
+ {f:'nvidia',n:'NIM'},{f:'perplexity',n:'Perplexity'},{f:'huggingface',n:'HF'},{f:'googlecloud',n:'Vertex'} ];
+const MODELS_TXT=[{t:'OpenAI'},{t:'Groq'},{t:'LM Studio'}];
+const INTEG=[ {f:'telegram',n:'Telegram'},{f:'discord',n:'Discord'},{f:'mattermost',n:'Mattermost'},
+ {f:'whatsapp',n:'WhatsApp',light:true},{f:'signal',n:'Signal',light:true},{f:'matrix',n:'Matrix',light:true},
+ {f:'zapier',n:'Zapier'},{f:'n8n',n:'n8n'} ];
+ANIMS.wheel=root=>{
+  const grid=document.getElementById('wheelGrid'), r1=document.getElementById('ring1'), r2=document.getElementById('ring2');
+  // ring 1: the model logos; ring 2: the text-only providers
+  const place=(ring,items,rad,cls)=>{ const N=items.length; ring.innerHTML=items.map((m,i)=>{
+    const ang=(i*360/N)+'deg';
+    return '<span class="orbit" style="--ang:'+ang+';--rad:'+rad+'"><span class="lg '+(m.native?'native':'')+(cls||'')+'" title="'+(m.n||m.t)+'">'
+      +(m.f?'<img class="mk" src="media/logos/'+m.f+'.svg" alt="" loading="lazy"/>':'<span class="tx">'+m.t+'</span>')+'</span></span>'; }).join(''); };
+  const rad=()=>{ const w=root.clientWidth||380; return Math.round(w*0.42)+'px'; };
+  place(r1,MODELS,rad());
+  place(r2,MODELS_TXT,'calc('+rad()+' - '+Math.round((root.clientWidth||380)*0.21)+'px)');
+  document.getElementById('introw').innerHTML=INTEG.map(f=>'<span class="lg '+(f.light?'light':'')+'" title="'+f.n+'"><img class="mk" src="media/logos/'+f.f+'.svg" alt="" loading="lazy"/><span class="nm">'+f.n+(f.light?'*':'')+'</span></span>').join('')
+    + '<span class="lg"><span class="nm">OpenAI-API · Open WebUI · Slack · Teams</span></span>';
+  // reduced-motion / small screen: a static labelled grid instead of an orbit
+  if(RM || innerWidth<=720){ root.style.display='none'; grid.classList.add('on');
+    grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px;max-width:560px;margin:0 auto;text-align:center';
+    grid.innerHTML='<div class="lg native" style="position:static" title="Claude"><img class="mk" src="media/logos/anthropic.svg" alt="" loading="lazy"/></div>'
+      + MODELS.slice(1).map(m=>'<div class="lg" style="position:static"><i class="mk" style="--src:url(media/logos/'+m.f+'.svg)"></i></div>').join('')
+      + MODELS_TXT.map(m=>'<div class="lg" style="position:static"><span class="tx">'+m.t+'</span></div>').join(''); }
+};
+</script>
+<script>
+/* Rune rain — the Matrix-rain effect rebuilt with the Elder Futhark runes Urfael is built from. Gold-on-dark,
+   biased toward U-R-F-A-E-L so the cascade quietly spells the name. 30fps-capped, pauses off-screen, honors RM. */
 (function () {
-  var c = document.getElementById('rain'); if (!c || !c.getContext) return;
-  var ctx = c.getContext('2d'); var header = document.querySelector('header');
-  var RUNES = 'ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛞᛟ'.split('');
-  var BRAND = 'ᚢᚱᚠᚨᛖᛚ'.split('');                 // Uruz-Raido-Fehu-Ansuz-Ehwaz-Laguz = URFAEL
-  var MONO = '"SF Mono",ui-monospace,Menlo,monospace';
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var W, H, dpr, fs, cols, drops, speeds, raf = 0, paused = false, last = 0;
-  function pick() { return Math.random() < 0.20 ? BRAND[(Math.random() * BRAND.length) | 0] : RUNES[(Math.random() * RUNES.length) | 0]; }
-  function resize() {
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    W = header.clientWidth; H = header.clientHeight;
-    c.width = W * dpr; c.height = H * dpr; c.style.width = W + 'px'; c.style.height = H + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    fs = Math.max(15, Math.round(W / 72)); cols = Math.ceil(W / fs);
-    drops = []; speeds = [];
-    for (var i = 0; i < cols; i++) { drops[i] = Math.random() * (H / fs) - 4; speeds[i] = 0.22 + Math.random() * 0.45; } // seed across the field → full density immediately
-  }
-  function frame() {
-    ctx.fillStyle = 'rgba(13,12,10,0.085)'; ctx.fillRect(0, 0, W, H);  // fade the field → longer trailing tails
-    ctx.font = fs + 'px ' + MONO; ctx.textAlign = 'center';
-    for (var i = 0; i < cols; i++) {
-      var x = i * fs + fs / 2, y = drops[i] * fs;
-      if (y > 0 && y < H + fs) {
-        ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(178,128,58,0.5)'; ctx.fillText(pick(), x, y - fs); // dim trailing glyph
-        ctx.shadowColor = 'rgba(212,168,90,0.9)'; ctx.shadowBlur = 10; ctx.fillStyle = '#f4e3b8';     // bright head + glow
-        ctx.fillText(pick(), x, y); ctx.shadowBlur = 0;
-      }
-      drops[i] += speeds[i];
-      if (y > H && Math.random() > 0.972) { drops[i] = Math.random() * -20; speeds[i] = 0.22 + Math.random() * 0.45; }
-    }
-  }
-  function staticField() {                                            // reduced-motion: a calm sparse scatter, no animation
-    ctx.clearRect(0, 0, W, H); ctx.font = fs + 'px ' + MONO; ctx.textAlign = 'center';
-    for (var i = 0; i < cols; i++) { var n = (Math.random() * 5) | 0; for (var k = 0; k < n; k++) { ctx.fillStyle = 'rgba(178,128,58,' + (0.10 + Math.random() * 0.22) + ')'; ctx.fillText(pick(), i * fs + fs / 2, Math.random() * H); } }
-  }
-  function loop(t) { if (paused) { raf = 0; return; } raf = requestAnimationFrame(loop); if (t - last < 33) return; last = t; frame(); }
-  function ensure() { if (!raf && !paused && !reduce) raf = requestAnimationFrame(loop); }
-  function start() { resize(); if (reduce) staticField(); else { raf = 0; ensure(); } }
-  var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(start, 160); });
-  if ('IntersectionObserver' in window) new IntersectionObserver(function (es) { es.forEach(function (e) { paused = !e.isIntersecting; if (!paused) ensure(); }); }).observe(header);
+  var c=document.getElementById('rain'); if(!c||!c.getContext) return;
+  var ctx=c.getContext('2d'), header=document.querySelector('header');
+  var RUNES='ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛞᛟ'.split(''), BRAND='ᚢᚱᚠᚨᛖᛚ'.split('');
+  var MONO='"SF Mono",ui-monospace,Menlo,monospace';
+  var reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
+  var W,H,dpr,fs,cols,drops,speeds,raf=0,paused=false,last=0;
+  function pick(){ return Math.random()<0.20?BRAND[(Math.random()*BRAND.length)|0]:RUNES[(Math.random()*RUNES.length)|0]; }
+  function resize(){ dpr=Math.min(devicePixelRatio||1,2); W=header.clientWidth; H=header.clientHeight;
+    c.width=W*dpr; c.height=H*dpr; c.style.width=W+'px'; c.style.height=H+'px'; ctx.setTransform(dpr,0,0,dpr,0,0);
+    fs=Math.max(15,Math.round(W/72)); cols=Math.ceil(W/fs); drops=[]; speeds=[];
+    for(var i=0;i<cols;i++){ drops[i]=Math.random()*(H/fs)-4; speeds[i]=0.22+Math.random()*0.45; } }
+  function frame(){ ctx.fillStyle='rgba(13,12,10,0.085)'; ctx.fillRect(0,0,W,H); ctx.font=fs+'px '+MONO; ctx.textAlign='center';
+    for(var i=0;i<cols;i++){ var x=i*fs+fs/2,y=drops[i]*fs;
+      if(y>0&&y<H+fs){ ctx.shadowBlur=0; ctx.fillStyle='rgba(178,128,58,0.5)'; ctx.fillText(pick(),x,y-fs);
+        ctx.shadowColor='rgba(212,168,90,0.9)'; ctx.shadowBlur=10; ctx.fillStyle='#f4e3b8'; ctx.fillText(pick(),x,y); ctx.shadowBlur=0; }
+      drops[i]+=speeds[i]; if(y>H&&Math.random()>0.972){ drops[i]=Math.random()*-20; speeds[i]=0.22+Math.random()*0.45; } } }
+  function staticField(){ ctx.clearRect(0,0,W,H); ctx.font=fs+'px '+MONO; ctx.textAlign='center';
+    for(var i=0;i<cols;i++){ var n=(Math.random()*5)|0; for(var k=0;k<n;k++){ ctx.fillStyle='rgba(178,128,58,'+(0.10+Math.random()*0.22)+')'; ctx.fillText(pick(),i*fs+fs/2,Math.random()*H); } } }
+  function loop(t){ if(paused){raf=0;return;} raf=requestAnimationFrame(loop); if(t-last<33)return; last=t; frame(); }
+  function ensure(){ if(!raf&&!paused&&!reduce) raf=requestAnimationFrame(loop); }
+  function start(){ resize(); if(reduce) staticField(); else { raf=0; ensure(); } }
+  var rt; addEventListener('resize',function(){ clearTimeout(rt); rt=setTimeout(start,160); });
+  if('IntersectionObserver'in window) new IntersectionObserver(function(es){ es.forEach(function(e){ paused=!e.isIntersecting; if(!paused) ensure(); }); }).observe(header);
   start();
 })();
 </script>
