@@ -2,45 +2,9 @@
 'use strict';
 // urfael — talk to the brain from any terminal. A thin client of the daemon's unix socket
 // (same brain, same memory, same warm sessions as the orb). No deps, no API key.
-//   urfael setup                               onboarding wizard — pick subscription / API key / local model
-//   urfael "what's on my calendar today?"      ask (streams the answer live)
-//   urfael status                              the Hearth — a framed vitals card: model, 7-day token trend, facts known, ledger seal, uptime
-//   urfael doctor                              health read — deps, brain, memory (readable AND writable), provider, persona, ledger, seal; every red line carries its own one-command fix
-//   urfael jobs | job <id> | cancel <id>       background jobs
-//   urfael reminders                           list reminders
-//   urfael remind "text" --in 20 [--repeat daily|weekly|<mins>]   or  --at "2026-06-11T15:00"
-//   urfael sessions search <query>             full-text search of every past conversation
-//   urfael why "<belief>"                       provenance: walk a stored belief back to the exact commit/date/pass that introduced it (a checkable git SHA)
-//   urfael as-of <date> [file]                  time machine: reconstruct a memory file (default USER.md) as it was on a past date
-//   urfael drift [file] [--since <date>]        belief changelog: how the model of you changed over time (added / revised / removed)
-//   urfael forget ["<phrase>"]                  consented forgetting: remove matching beliefs + leave a git tombstone (provable deletion); no arg shows the tombstone record
-//   urfael learn [trusted|proposed|retired]    the learning ledger — what it learned, verified, and pruned (with confidence)
-//   urfael team [add <channel> <id> [name] [role] | remove <channel> <id> | pair [channel] [--ttl <mins>]]   manage the roster; `pair` mints a single-use guest code
-//   urfael audit [--json | --verify]           team-mode activity trail; --verify walks the tamper-evident Ledger of Record (prove what your agent did)
-//   urfael seal [--verify]                      Sovereign Seal: an owner ed25519 key signs the ledger head (--verify checks the signature)
-//   urfael cron [add "<prompt>" --cron "*/15 9-17 * * 1-5" | --days "mon,wed,fri" --at 07:30 | --daily-at HH:MM | --in N | --repeat daily [--then "<prompt>"] [--script "<cmd>"]] [list|cancel <id>|run <id>]
-//                                              scheduled jobs — runs the brain (or, --script, a no-LLM shell cmd) on a schedule,
-//                                              delivers the result, and chains a --then follow-up on completion
-//   urfael serve [--token]                     start the OpenAI-compatible local API (Open WebUI / any OpenAI client)
-//   urfael hooks                               start the loopback webhook receiver (event triggers) — prints its URL
-//   urfael hook add "<name>" [--action ask|notify|relay] [--reply-url <url> --reply-auth <hdr>] [--deliver notify|silent|push]
-//                                              register a webhook (prints the secret once). relay = two-way chat channel: any platform
-//                                              with an in/out webhook (Teams/Mattermost/Zapier/n8n/…) → the reply posts to --reply-url
-//   urfael hook [list | rm <id>]               list / remove webhook event triggers
-//   urfael script add <name> "<shell>" | run <name> [args…] | list | rm <name>   reusable owner scripts (the trustworthy execute_code; needs URFAEL_SCRIPT_CRON=1)
-//   urfael import [--from openclaw|hermes] [--apply]   migrate memory + skills from another assistant (dry-run by default)
-//   urfael skills list                         your installed skills (name + description)
-//   urfael skills export <name>                print a skill to stdout to share it
-//   urfael skills scan <file>                  static safety-scan a skill .md before trusting it
-//   urfael skills install <https-url> [--yes]  fetch a skill .md, scan it, show it, install on confirm (never executes it)
-//   urfael hub [search <term>]                 browse the safe skill registry (set URFAEL_HUB_INDEX to your index.json)
-//   urfael hub install <slug> [--yes]          install a registry skill — scanned + sha256-checked + previewed, never executed
-//   urfael hub publish <file>                  print the registry index entry (slug + sha256) for a local skill to submit
-//   urfael tui                                 full-screen terminal cockpit (streams turns, scrollback, status bar)
-//   urfael dashboard                           open the token-gated localhost web console (prints the URL)
-//   urfael stop                                abort the current in-flight turn (also: Ctrl+C while asking)
-//   urfael health | shutdown
-//   urfael logo                                print the Urfael terminal logo
+// The command surface (names, summaries, usage, examples) lives in ./registry.js — the single
+// source of truth that feeds bare/grouped/per-command help AND did-you-mean. Nothing scrapes
+// this file for help any more, so docs can't drift from the dispatch branches below.
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
@@ -54,15 +18,22 @@ const DASHBOARD = path.join(__dirname, 'dashboard.js');
 const APISERVER = path.join(__dirname, 'openai-api.js');
 const TOKENF = path.join(os.homedir(), '.claude', 'urfael', 'dashboard.token');
 const APITOKENF = path.join(os.homedir(), '.claude', 'urfael', 'api.token');
-const gold = (s) => `\x1b[33m${s}\x1b[0m`;
-const dim = (s) => `\x1b[2m${s}\x1b[0m`;
-const ok = (s) => `\x1b[32m${s}\x1b[0m`;
-const warn = (s) => `\x1b[38;5;208m${s}\x1b[0m`;
-const bad = (s) => `\x1b[31m${s}\x1b[0m`;
+// Colour only on a real terminal, and honour NO_COLOR — so `urfael help > FILE` / `| less` are clean plain text.
+const COLOR = process.stdout.isTTY && !process.env.NO_COLOR;
+const gold = (s) => COLOR ? `\x1b[33m${s}\x1b[0m` : `${s}`;
+const dim = (s) => COLOR ? `\x1b[2m${s}\x1b[0m` : `${s}`;
+const ok = (s) => COLOR ? `\x1b[32m${s}\x1b[0m` : `${s}`;
+const warn = (s) => COLOR ? `\x1b[38;5;208m${s}\x1b[0m` : `${s}`;
+const bad = (s) => COLOR ? `\x1b[31m${s}\x1b[0m` : `${s}`;
 // strip ANSI to measure true printed width, so box borders line up regardless of colour codes
 const visLen = (s) => s.replace(/\x1b\[[0-9;]*m/g, '').replace(/[̀-ͯ]/g, '').length;
-// every command keyword — powers `urfael <typo>` did-you-mean (lib.suggestCommand). Kept beside the handlers below.
-const COMMANDS = ['logo', 'help', 'doctor', 'status', 'setup', 'sessions', 'why', 'as-of', 'drift', 'forget', 'learn', 'skills', 'hub', 'import', 'serve', 'dashboard', 'hooks', 'hook', 'script', 'team', 'audit', 'seal', 'cron', 'tui', 'health', 'shutdown', 'stop', 'jobs', 'job', 'cancel', 'reminders', 'remind', 'unremind'];
+// The command surface is described once in ./registry.js. did-you-mean's keyword set is DERIVED
+// from it — every canonical name + every real alias + `unremind` (its own branch, no registry
+// entry) — so the hand-list can't fall out of sync with the dispatch branches below.
+const reg = require('./registry');
+reg.editDistance = require('./lib').editDistance;                       // lets `help <bad>` suggest a near command
+const COMMANDS = [...reg.COMMANDS.map((c) => c.name), ...Object.keys(reg.ALIASES), 'unremind'];
+const helpUI = { banner, frame, gold, dim, visLen };                   // the helpers registry's renderers draw with
 // The terminal logo — gold ANSI-shadow URFAEL + the Uruz rune (ᚢ) + tagline. Colour only on a TTY (plain when piped).
 function banner() {
   const logo = [
@@ -74,16 +45,15 @@ function banner() {
     '    ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝',
   ].join('\n');
   const tag = 'an old intelligence, in service to one.';
-  if (!process.stdout.isTTY) return '\n' + logo + '\n    ᚢᚱᚠᚨᛖᛚ   ' + tag + '\n';   // U·R·F·A·E·L in Elder Futhark
+  if (!COLOR) return '\n' + logo + '\n    ᚢᚱᚠᚨᛖᛚ   ' + tag + '\n';   // U·R·F·A·E·L in Elder Futhark
   return '\n\x1b[38;5;179m' + logo + '\x1b[0m\n    \x1b[38;5;214mᚢᚱᚠᚨᛖᛚ\x1b[0m   \x1b[2m' + tag + '\x1b[0m\n';
 }
 
 // A gold rounded box around pre-coloured content lines, title set into the top rule. Each line is padded
 // to a common inner width measured WITHOUT ANSI codes, so the borders always align. Plain when piped.
-function frame(title, lines) {
-  const tty = process.stdout.isTTY;
-  const G = tty ? '\x1b[38;5;179m' : '', A = tty ? '\x1b[38;5;214m' : '', R = tty ? '\x1b[0m' : '';
-  const inner = Math.max(visLen(title) + 4, ...lines.map((l) => visLen(l) + 2), 46);
+function frame(title, lines, forceInner) {
+  const G = COLOR ? '\x1b[38;5;179m' : '', A = COLOR ? '\x1b[38;5;214m' : '', R = COLOR ? '\x1b[0m' : '';
+  const inner = Math.max(visLen(title) + 4, ...lines.map((l) => visLen(l) + 2), 46, forceInner || 0);
   const out = [G + '╭─ ' + A + title + R + ' ' + G + '─'.repeat(Math.max(1, inner - visLen(title) - 3)) + '╮' + R];
   for (const l of lines) {
     if (l === '') { out.push(G + '│' + R + ' '.repeat(inner) + G + '│' + R); continue; }
@@ -161,7 +131,11 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
 (async () => {
   const [cmd, ...rest] = process.argv.slice(2);
   if (cmd === 'logo') { console.log(banner()); return; }
-  if (!cmd || cmd === 'help' || cmd === '--help') { if (!cmd) console.log(banner()); console.log(fs.readFileSync(__filename, 'utf8').split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n')); return; }
+  if (!cmd) { console.log(reg.renderBare(helpUI)); return; }                          // bare urfael → the "start here" card
+  if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
+    console.log(rest[0] ? reg.renderOne(rest[0], helpUI) : reg.renderFull(helpUI));   // `help <cmd>` drills in; `help` is the grouped reference
+    return;
+  }
 
   if (cmd === 'sessions') { if (rest[0] === 'search' && rest[1]) searchSessions(rest.slice(1).join(' ')); else console.log('usage: urfael sessions search <query>'); return; }
 
