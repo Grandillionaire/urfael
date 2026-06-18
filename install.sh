@@ -18,7 +18,9 @@ say(){  printf '%s\n' "$1"; }
 ok(){   printf "    ${GR}✓${R}  %s\n" "$1"; }                 # done / present
 warn(){ printf "    ${AM}●${R}  %s\n" "$1"; }                # optional / heads-up
 bad(){  printf "    ${RD}✗${R}  %s\n" "$1"; }                # missing / problem
-sect(){ printf "\n  ${GB}▌${R} ${GB}%s${R}  ${D}%s${R}\n" "$1" "${2:-}"; }   # a step group, like a menu section
+# step groups, each marked with the NEXT Elder Futhark rune of the name — so the install spells ᚢᚱᚠᚨᛖᛚ (URFAEL) top→bottom
+_RUNES=(ᚢ ᚱ ᚠ ᚨ ᛖ ᛚ); _RI=0
+sect(){ local rune="${_RUNES[$((_RI % 6))]}"; _RI=$((_RI + 1)); printf "\n  ${AM}%s${R}  ${GB}%s${R}  ${D}%s${R}\n" "$rune" "$1" "${2:-}"; }
 banner(){
   printf "\n${G}"
   cat <<'LOGO'
@@ -29,7 +31,7 @@ banner(){
     ╚██████╔╝██║  ██║██║     ██║  ██║███████╗███████╗
      ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝
 LOGO
-  printf "${R}    ${AM}ᚢ${R}  ${D}an old intelligence, in service to one.${R}\n"
+  printf "${R}    ${AM}ᚢᚱᚠᚨᛖᛚ${R}   ${D}an old intelligence, in service to one.${R}\n"
 }
 
 # Which platform are we on? Darwin = macOS, Linux = Linux. Everything else is unsupported.
@@ -151,7 +153,7 @@ if [ "$OS" = "Darwin" ]; then
 
   cat <<NEXT
 
-${GB}▌ FIRST STEPS${R}   ${D}you choose what runs — nothing was started for you${R}
+  ${AM}ᛚ${R}  ${GB}FIRST STEPS${R}   ${D}you choose what runs — nothing was started for you${R}
 1. Voice works out of the box — FREE & local (macOS \`say\` + whisper.cpp), no API key needed.
    Optional: edit "$JDIR/tts.env" for a higher-quality local voice (Kokoro) or to add an ElevenLabs key.
 2. Open ~/Urfael as a vault in Obsidian → enable community plugins → install "Local REST API",
@@ -223,7 +225,7 @@ else
 
   cat <<NEXT
 
-${GB}▌ FIRST STEPS${R}   ${D}you choose what runs — nothing was started for you${R}
+  ${AM}ᛚ${R}  ${GB}FIRST STEPS${R}   ${D}you choose what runs — nothing was started for you${R}
 1. Voice works out of the box — FREE & local (espeak-ng/spd-say + whisper.cpp), no API key needed.
    Optional: edit "$JDIR/tts.env" for a higher-quality local voice (Kokoro) or to add an ElevenLabs key.
 2. Open ~/Urfael as a vault in Obsidian → enable community plugins → install "Local REST API",

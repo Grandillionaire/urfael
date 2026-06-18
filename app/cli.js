@@ -66,8 +66,8 @@ function banner() {
     '    ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝',
   ].join('\n');
   const tag = 'an old intelligence, in service to one.';
-  if (!process.stdout.isTTY) return '\n' + logo + '\n    ᚢ  ' + tag + '\n';
-  return '\n\x1b[38;5;179m' + logo + '\x1b[0m\n    \x1b[38;5;214mᚢ\x1b[0m  \x1b[2m' + tag + '\x1b[0m\n';
+  if (!process.stdout.isTTY) return '\n' + logo + '\n    ᚢᚱᚠᚨᛖᛚ   ' + tag + '\n';   // U·R·F·A·E·L in Elder Futhark
+  return '\n\x1b[38;5;179m' + logo + '\x1b[0m\n    \x1b[38;5;214mᚢᚱᚠᚨᛖᛚ\x1b[0m   \x1b[2m' + tag + '\x1b[0m\n';
 }
 
 function req(method, p, body) {
