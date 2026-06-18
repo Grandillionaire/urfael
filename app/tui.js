@@ -3,20 +3,26 @@
 // keypress parsing, talking to the daemon's unix socket exactly like cli.js ask() (POST /ask, NDJSON
 // thinking.delta / thinking.tool / done streamed live). The [SPOKEN] tag is stripped on screen.
 //   Enter send · Esc abort the in-flight turn · Ctrl+C / q on an empty line quit · Ctrl+L clear · Up recall
-// Discipline: ALWAYS restore the terminal (raw off, cursor shown, leave the alt buffer) on EVERY exit
-// path through one cleanup() wired to exit/SIGINT/SIGTERM/uncaughtException; re-render on SIGWINCH.
+//   ^T cycle theme (gold/ember/mono/custom) · ^Y cycle the thinking animation
+// Look + smoothness live in three pure modules: tui-theme (palette/config), tui-anim (the worker
+// animation), tui-render (the flicker-free differential renderer). Discipline unchanged: ALWAYS restore
+// the terminal (raw off, cursor shown, leave the alt buffer) on EVERY exit path via one cleanup() wired
+// to exit/SIGINT/SIGTERM/uncaughtException; re-render on SIGWINCH; the worker timer is cleared first.
 const http = require('http');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
+const theme = require('./tui-theme');
+const anim = require('./tui-anim');
+const rend = require('./tui-render');
 
 const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
 
-const GOLD = '\x1b[33m', DIM = '\x1b[2m', RST = '\x1b[0m', BOLD = '\x1b[1m';
+const RST = '\x1b[0m';
 const ALT_ON = '\x1b[?1049h', ALT_OFF = '\x1b[?1049l';
 const CUR_HIDE = '\x1b[?25l', CUR_SHOW = '\x1b[?25h';
 const stripSpoken = (t) => (t || '').replace(/\[\/?SPOKEN\]/gi, '');
-// drop ANSI/control bytes that would corrupt the layout, but keep tab→space; width = visible cols
+// drop ANSI/control bytes that would corrupt the layout, but keep tab→space
 const sanitize = (s) => String(s == null ? '' : s).replace(/\t/g, '  ').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '');
 
 function req(method, p, body) {
@@ -30,7 +36,7 @@ function req(method, p, body) {
   });
 }
 
-// ---- transcript model: a flat list of {who, text} entries; 'sys' rows carry tool/notice lines ----
+// ---- transcript model: a flat list of {who, text}; 'sys' rows carry footers/notices ----
 const lines = [];          // { who: 'you'|'urfael'|'tool'|'sys', text }
 let scroll = 0;            // rows scrolled UP from the bottom (0 = pinned to newest)
 let input = '';            // current input buffer
@@ -38,91 +44,74 @@ let lastSent = '';         // for Up-arrow recall
 let inflight = false;      // a turn is streaming
 let vitals = { model: '', turnsToday: 0, warm: [] };
 let streamReq = null;      // the live POST /ask request, so a hard quit can tear it down
+// render/animation state
+let cfg = null;            // the frozen TUI config (set in run())
+let baseEnv = null;        // env used to resolve themes, for ^T cycling
+let animTimer = null;      // the worker setInterval (unref'd)
+let turnT0 = 0;            // wall-clock start of the in-flight turn
+let lastTool = '';         // current tool name → the worker verb
+let usageTokens = null;    // null in flight → authoritative output_tokens on done
+let answerIdx = -1;        // index of the urfael answer row (added lazily, so tools sit above it)
+let toolIdx = -1;          // index of the collapsed tool row for this turn
 
 function add(who, text) { lines.push({ who, text: sanitize(text) }); }
 
-// wrap one logical line to `width` cols, returning >=1 physical rows (preserves blank lines)
-function wrap(s, width) {
-  const out = [];
-  for (const para of String(s).split('\n')) {
-    if (para === '') { out.push(''); continue; }
-    let cur = para;
-    while (cur.length > width) { out.push(cur.slice(0, width)); cur = cur.slice(width); }
-    out.push(cur);
-  }
-  return out.length ? out : [''];
+// ---- the render: pure compose() of the model → flicker-free diff flush() ----
+function geom() { return { cols: Math.max(20, process.stdout.columns || 80), rows: Math.max(8, process.stdout.rows || 24) }; }
+function promptMark() { const T = cfg.theme; return inflight ? T.dim + '… ' + T.RST : T.accent + '> ' + T.RST; }
+function statusLine() {
+  const T = cfg.theme;
+  const left = ' ' + T.gold + 'Urfael' + T.RST + T.dim + ' · ' + (vitals.model || '…') + ' · ' + (vitals.turnsToday || 0) + ' turns' +
+    (inflight ? ' · ᚢ thinking' : (scroll ? ' · scrolled (End to pin)' : '')) + T.RST;
+  return left + '   ' + T.dim + 'Enter send · Esc abort · ^T theme · ^Y anim · q quit' + T.RST;
+}
+function workerLine(g, now) {
+  if (!inflight) return null;
+  const answerChars = (answerIdx >= 0 && lines[answerIdx] && lines[answerIdx].text || '').length;
+  return anim.composeWorker(cfg, cfg.theme, { t0: turnT0, lastTool, answerChars, usageTokens }, g.cols, now);
+}
+function caretFor(g) { const markW = rend.visLen(promptMark()); const room = Math.max(1, g.cols - markW - 1); return markW + Math.min(input.length, room) + 1; }
+
+function render() {
+  if (!cfg) return;
+  const g = geom(), T = cfg.theme;
+  const all = rend.renderTranscript(lines, g.cols, T, { inflight, answerIdx });
+  const L = rend.layout(g, cfg);
+  const maxScroll = Math.max(0, all.length - L.paneH);
+  if (scroll > maxScroll) scroll = maxScroll; if (scroll < 0) scroll = 0;
+  const mark = promptMark(), markW = rend.visLen(mark), room = Math.max(1, g.cols - markW - 1);
+  const buf = input.length > room ? input.slice(input.length - room) : input;
+  const inputView = (!inflight && !input) ? T.dim + 'ask the old intelligence anything…' + T.RST : buf;
+  const frame = rend.compose({ theme: T, cfg, vitals, lines: all, worker: workerLine(g, Date.now()), statusText: statusLine(), promptMark: mark, inputView, scroll }, g);
+  rend.flush(frame, caretFor(g), g, process.stdout);
 }
 
-// flatten the transcript into colored, wrapped physical rows for the current width
-function renderRows(width) {
-  const rows = [];
-  for (const e of lines) {
-    let prefix = '', color = '';
-    if (e.who === 'you') { prefix = 'you  '; color = BOLD; }
-    else if (e.who === 'urfael') { prefix = ''; color = GOLD; }
-    else if (e.who === 'tool') { prefix = '  '; color = DIM; }
-    else { color = DIM; } // sys
-    const body = e.who === 'tool' ? '⟳ ' + e.text : (prefix + e.text);
-    const wrapped = wrap(body, width);
-    for (let i = 0; i < wrapped.length; i++) {
-      // continuation rows of a 'you' line get a hanging indent so the speaker prefix reads cleanly
-      const indent = (e.who === 'you' && i > 0) ? '     ' : '';
-      rows.push(color + (indent + wrapped[i]).slice(0, width) + RST);
-    }
-  }
-  return rows;
+// the cheap animation tick: repaint ONLY the worker row
+function tickWorker() {
+  if (!inflight || !cfg) return;
+  const g = geom(), w = workerLine(g, Date.now());
+  if (w == null) return;
+  rend.renderWorkerOnly(rend.clipPad(w, g.cols, cfg.theme.RST), rend.layout(g, cfg).workerRow, caretFor(g), process.stdout);
 }
 
-function draw() {
-  const cols = Math.max(20, process.stdout.columns || 80);
-  const rowsTotal = Math.max(6, process.stdout.rows || 24);
-  const width = cols;                         // transcript wraps to full width
-  const paneH = rowsTotal - 2;                // last two rows: input line + status bar
-  const all = renderRows(width);
-
-  // clamp scroll so it can never run past the top or below the newest row
-  const maxScroll = Math.max(0, all.length - paneH);
-  if (scroll > maxScroll) scroll = maxScroll;
-  if (scroll < 0) scroll = 0;
-  const end = all.length - scroll;            // exclusive index of the last visible row + 1
-  const start = Math.max(0, end - paneH);
-  const view = all.slice(start, end);
-
-  let out = '\x1b[H\x1b[2J';                   // home + clear
-  for (let i = 0; i < paneH; i++) out += (view[i] || '') + '\x1b[K\r\n';
-
-  // status bar (row rowsTotal-1)
-  const status = ` ${GOLD}Urfael${RST}${DIM} · ${vitals.model || '…'} · ${vitals.turnsToday || 0} turns today${inflight ? ' · streaming' + (scroll ? ' · scrolled' : '') : (scroll ? ' · scrolled (End to pin)' : '')}${RST}`;
-  out += DIM + '─'.repeat(cols) + RST + '\x1b[K\r\n';
-  out += status + '\x1b[K\r\n';
-
-  // input line (last row) — render with a visible caret, clipped to width
-  const promptMark = inflight ? DIM + '… ' + RST : GOLD + '> ' + RST;
-  const shown = input.length > cols - 4 ? input.slice(input.length - (cols - 4)) : input;
-  out += '\x1b[' + rowsTotal + ';1H' + promptMark + shown + '\x1b[K';
-
-  process.stdout.write(out);
-}
-
-// ---- streaming a turn: mirror cli.js ask() — POST /ask NDJSON, render delta/tool/done live ----
+// ---- streaming a turn: POST /ask NDJSON, render delta/tool/done live ----
 function sendTurn(text) {
   if (inflight) return;
   lastSent = text;
   add('you', text);
-  scroll = 0;
-  inflight = true;
-  // start a fresh urfael line we append deltas into; index it so we can grow it in place
-  add('urfael', '');
-  const idx = lines.length - 1;
-  draw();
+  scroll = 0; inflight = true;
+  turnT0 = Date.now(); lastTool = ''; usageTokens = null; answerIdx = -1; toolIdx = -1;
+  animTimer = anim.startWorker(cfg, tickWorker);
+  render();
 
-  let buf = '', lastTool = '', sawDelta = false;
+  let buf = '', sawDelta = false;
+  const ensureAnswer = () => { if (answerIdx < 0) { add('urfael', ''); answerIdx = lines.length - 1; } };
   const finish = (suffix) => {
     if (!inflight) return;
-    inflight = false; streamReq = null;
-    if (suffix) lines[idx].text = sanitize(lines[idx].text + suffix);
-    if (!lines[idx].text) lines[idx].text = '(no reply)';
-    draw();
+    inflight = false; streamReq = null; animTimer = anim.stopWorker(animTimer);
+    if (answerIdx < 0) add('urfael', (suffix && suffix.trim()) || '(no reply)');
+    else { if (suffix) lines[answerIdx].text = sanitize(lines[answerIdx].text + suffix); if (!lines[answerIdx].text) lines[answerIdx].text = '(no reply)'; }
+    render();
   };
 
   const r = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 300000 }, (res) => {
@@ -133,89 +122,78 @@ function sendTurn(text) {
         if (!ln) continue;
         let e; try { e = JSON.parse(ln); } catch { continue; }
         if (e.kind === 'thinking' && e.tool && e.tool !== lastTool) {
-          lastTool = e.tool; add('tool', e.tool); draw();
+          lastTool = e.tool;
+          if (toolIdx < 0) { add('tool', e.tool); toolIdx = lines.length - 1; } else lines[toolIdx].text = sanitize(lines[toolIdx].text + ' · ' + e.tool);
+          render();
         } else if (e.kind === 'thinking' && e.delta) {
-          sawDelta = true; lines[idx].text = sanitize(lines[idx].text + stripSpoken(e.delta)); draw();
+          sawDelta = true; ensureAnswer(); lines[answerIdx].text = sanitize(lines[answerIdx].text + stripSpoken(e.delta)); render();
         } else if (e.kind === 'done') {
-          // the 'done' carries the full final text; prefer it over accumulated deltas (e.g. when no deltas streamed)
           const finalText = stripSpoken(e.text || '');
-          if (!sawDelta && finalText) lines[idx].text = sanitize(finalText);
-          inflight = false; streamReq = null;
-          if (!lines[idx].text) lines[idx].text = e.aborted ? '(stopped)' : '(no reply)';
-          add('sys', e.aborted ? '— stopped' : '— ' + (e.model || '') + (e.ms ? ' · ' + (e.ms / 1000).toFixed(1) + 's' : ''));
-          draw();
-          refreshVitals();
+          ensureAnswer();
+          if (!sawDelta && finalText) lines[answerIdx].text = sanitize(finalText);
+          if (!lines[answerIdx].text) lines[answerIdx].text = e.aborted ? '(stopped)' : '(no reply)';
+          usageTokens = (e.usage && (e.usage.output_tokens || 0)) || null;       // authoritative; no '~'
+          inflight = false; streamReq = null; animTimer = anim.stopWorker(animTimer);
+          const secs = e.ms ? (e.ms / 1000).toFixed(1) + 's' : '';
+          const tok = usageTokens != null ? anim.fmtTok(usageTokens) + ' tok' : '';
+          const stamp = cfg.timestamps ? ' · ' + new Date().toTimeString().slice(0, 5) : '';
+          add('sys', e.aborted ? '╶ stopped' : '╶ ' + (e.model || '') + (secs ? ' · ' + secs : '') + (tok ? ' · ' + tok : '') + stamp);
+          render(); refreshVitals();
         }
       }
     });
     res.on('end', () => finish(''));
   });
   streamReq = r;
-  r.on('error', () => finish(lines[idx].text ? '' : ' (brain unreachable)'));
+  r.on('error', () => finish(answerIdx >= 0 && lines[answerIdx].text ? '' : ' (brain unreachable)'));
   r.on('timeout', () => { try { r.destroy(); } catch {} finish(' (timed out)'); });
   r.end(JSON.stringify({ text }));
 }
 
 function abortTurn() {
   if (!inflight) return;
-  add('sys', '— aborting…'); draw();
+  add('sys', '╶ aborting…'); render();
   req('POST', '/abort').catch(() => {});
-  // the daemon emits a {done, aborted} which closes the stream and flips inflight; nothing else to do here
 }
 
-function refreshVitals() {
-  req('GET', '/vitals').then((v) => { if (v && typeof v === 'object') { vitals = v; draw(); } }).catch(() => {});
-}
+function refreshVitals() { req('GET', '/vitals').then((v) => { if (v && typeof v === 'object') { vitals = v; render(); } }).catch(() => {}); }
 
 // ---- terminal lifecycle: ONE cleanup, wired to every exit path ----
 let cleaned = false;
 function cleanup() {
   if (cleaned) return; cleaned = true;
+  animTimer = anim.stopWorker(animTimer);                 // stop the worker BEFORE we tear down the screen
   try { if (process.stdin.isTTY) process.stdin.setRawMode(false); } catch {}
   try { process.stdin.pause(); } catch {}
-  // leave alt buffer, show cursor, reset attributes — order matters: restore the main screen last
   try { process.stdout.write(RST + CUR_SHOW + ALT_OFF); } catch {}
 }
-
 function quit(code) { cleanup(); process.exit(code || 0); }
 
 // ---- key handling ----
 function onKey(str, key) {
   key = key || {};
-  // Ctrl+C: abort an in-flight turn if any, else quit
   if (key.ctrl && key.name === 'c') { if (inflight) { abortTurn(); return; } return quit(0); }
   if (key.ctrl && key.name === 'd') { return quit(0); }
-  if (key.ctrl && key.name === 'l') { lines.length = 0; scroll = 0; draw(); return; }
+  if (key.ctrl && key.name === 'l') { lines.length = 0; scroll = 0; rend.resetFrame(); render(); return; }
+  if (key.ctrl && key.name === 't') { cfg = theme.withTheme(cfg, baseEnv, cfg.isTTY); rend.resetFrame(); render(); return; }   // cycle theme
+  if (key.ctrl && key.name === 'y') { cfg = theme.withAnim(cfg); render(); return; }                                          // cycle animation
 
   if (key.name === 'escape') { if (inflight) abortTurn(); return; }
+  if (key.name === 'return' || key.name === 'enter') { const text = input.trim(); if (!text) return; input = ''; sendTurn(text); return; }
+  if (key.name === 'backspace') { input = input.slice(0, -1); render(); return; }
 
-  if (key.name === 'return' || key.name === 'enter') {
-    const text = input.trim();
-    if (!text) return;            // Enter on empty line: ignore (q quits, not blank Enter)
-    input = '';
-    sendTurn(text);
-    return;
-  }
+  if (key.name === 'up' && (key.shift || key.meta)) { scroll += 1; render(); return; }
+  if (key.name === 'down' && (key.shift || key.meta)) { scroll = Math.max(0, scroll - 1); render(); return; }
+  if (key.name === 'pageup') { scroll += Math.max(1, (process.stdout.rows || 24) - 3); render(); return; }
+  if (key.name === 'pagedown') { scroll = Math.max(0, scroll - Math.max(1, (process.stdout.rows || 24) - 3)); render(); return; }
+  if (key.name === 'home') { scroll = 1e9; render(); return; }
+  if (key.name === 'end') { scroll = 0; render(); return; }
 
-  if (key.name === 'backspace') { input = input.slice(0, -1); draw(); return; }
+  if (key.name === 'up') { if (!input && lastSent) { input = lastSent; render(); } else { scroll += 1; render(); } return; }
+  if (key.name === 'down') { scroll = Math.max(0, scroll - 1); render(); return; }
 
-  // scrolling the transcript
-  if (key.name === 'up' && (key.shift || key.meta)) { scroll += 1; draw(); return; }
-  if (key.name === 'down' && (key.shift || key.meta)) { scroll = Math.max(0, scroll - 1); draw(); return; }
-  if (key.name === 'pageup') { scroll += Math.max(1, (process.stdout.rows || 24) - 3); draw(); return; }
-  if (key.name === 'pagedown') { scroll = Math.max(0, scroll - Math.max(1, (process.stdout.rows || 24) - 3)); draw(); return; }
-  if (key.name === 'home') { scroll = 1e9; draw(); return; }   // clamped in draw()
-  if (key.name === 'end') { scroll = 0; draw(); return; }
-
-  // Up-arrow recalls the last sent line (only useful at an empty prompt; otherwise scrolls)
-  if (key.name === 'up') { if (!input && lastSent) { input = lastSent; draw(); } else { scroll += 1; draw(); } return; }
-  if (key.name === 'down') { scroll = Math.max(0, scroll - 1); draw(); return; }
-
-  // 'q' on an empty line quits; otherwise it's just a character
   if (str === 'q' && input === '') { return quit(0); }
-
-  // printable text: append (ignore other control keys)
-  if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { input += str; draw(); return; }
+  if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { input += str; render(); return; }
 }
 
 function run() {
@@ -223,25 +201,25 @@ function run() {
     process.stderr.write('urfael tui needs an interactive terminal (TTY). Use `urfael "..."` for one-shot questions.\n');
     process.exit(1);
   }
+  baseEnv = (() => { let f = {}; try { f = require('./setup').readEnv() || {}; } catch {} return { ...f, ...process.env }; })();
+  cfg = theme.readCfg(baseEnv, true);
 
-  // enter alt buffer + hide cursor BEFORE wiring cleanup so even an immediate failure restores cleanly
   process.stdout.write(ALT_ON + CUR_HIDE);
   process.on('exit', cleanup);
   process.on('SIGINT', () => { if (inflight) abortTurn(); else quit(0); });
   process.on('SIGTERM', () => quit(0));
   process.on('SIGHUP', () => quit(0));
   process.on('uncaughtException', (e) => { cleanup(); try { process.stderr.write('urfael tui crashed: ' + (e && e.stack || e) + '\n'); } catch {} process.exit(1); });
-  process.stdout.on('error', () => {}); // EPIPE if the pane is torn out from under us
+  process.stdout.on('error', () => {});
 
   readline.emitKeypressEvents(process.stdin);
   process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.on('keypress', (str, key) => { try { onKey(str, key); } catch {} });
+  process.stdout.on('resize', () => { rend.resetFrame(); render(); });
 
-  process.stdout.on('resize', () => draw());     // SIGWINCH → re-render to new cols/rows
-
-  add('sys', 'Urfael — Enter sends · Esc aborts · q or Ctrl+C quits · Ctrl+L clears · Up recalls');
-  draw();
+  add('sys', 'Urfael — Enter sends · Esc aborts · q quits · ^L clears · ^T theme · ^Y anim · Up recalls');
+  render();
   refreshVitals();
 }
 
