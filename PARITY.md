@@ -19,9 +19,14 @@ deliberate non-goal). Verdict: **Urfael matches or beats Hermes on every *real* 
   style) — a deliberate architecture choice (Urfael keeps the model local in an auto-injected USER.md), not an
   absent capability. The earlier real gap (email-push triggers) is now shipped.
 - **Genuinely ahead (the 12 wins):** the security posture (no inbound port, fail-closed roster, role-scoped
-  sandboxes, SSRF-filtered relay, 58/58 benchmark), self-verifying learning (quality gate before trusted memory),
-  ranked persistent recall, the 7-day curator, the isolated never-push `/goal` loop, the migration importer, and
-  the paranoid never-execute skill install.
+  sandboxes, SSRF-filtered relay, **66/66 benchmark across 9 attack classes**), self-verifying learning (quality
+  gate before trusted memory), ranked persistent recall, the 7-day curator, the isolated never-push `/goal` loop,
+  the migration importer, and the paranoid never-execute skill install.
+- **A craft layer neither competitor invests in** (see "Craft & developer experience" below): `urfael doctor`
+  (self-healing health card), the Hearth status card with a real token sparkline, `why`/`forget` rendered as
+  checkable citations + tombstone receipts, did-you-mean, persona auto-fill, and the runic terminal identity.
+  Net-new June 2026, benchmark-guarded against regression. The trust moat is the wedge; this is the wedge made
+  *felt*.
 - **Honest "parity, not better"** (the skeptic's repeat finding — "better" on an *unverified* Hermes baseline is
   not earned): voice, first-run onboarding, session search, the usage budget, curated USER.md, background jobs,
   cadence control. All real and complete; treat as parity.
@@ -113,6 +118,20 @@ deliberate non-goal). Verdict: **Urfael matches or beats Hermes on every *real* 
 | **Sovereign Seal** (a signed record) | ✗ | ✗ | ✦ **NET-NEW**: an owner **ed25519** keypair (private 0600 + credential-denied; public committed) signs the ledger head — `urfael seal` mints a signed attestation, `urfael seal --verify` proves only the owner's key could have, AND re-verifies that history wasn't rewritten *below* the seal. Honest scope: it proves authorship + integrity of the record at a moment, not that any claim is true |
 | **`urfael why`** (where a belief came from) | ✗ | ✗ (beliefs trusted blind) | ✦ **NET-NEW**: a git pickaxe walks any stored belief back to the exact commit / date / pass that introduced it — a checkable SHA, or an honest "inferred live, not stored" |
 | **Memory time-travel + honest forgetting** | ✗ | ✗ (in-place rewrite, accrue-only) | ✦ **NET-NEW** trio over the git-versioned memory: `urfael as-of <date>` reconstructs what it believed on a past date (can't leak present knowledge backward); `urfael drift` shows the belief changelog (what was added/revised/removed, when); `urfael forget "<phrase>"` removes a belief + leaves a git **tombstone** (date + content + reason) + a ledger entry — so even *deletion* is consented and provable |
+
+## Craft & developer experience (the "made for you" layer — neither competitor invests here)
+| Capability | OpenClaw | Hermes | Urfael |
+|---|---|---|---|
+| Terminal identity | text banner | text banner | ✦ gold ANSI-shadow logo + the Elder Futhark name **ᚢᚱᚠᚨᛖᛚ** woven through every surface (install sections spell URFAEL top-to-bottom); a runed `ᚦ fortress` glyph marks the security posture at a glance |
+| Health diagnostics | — | — | ✦ **`urfael doctor`** — one framed card: deps, brain, memory (readable **AND writable**), provider, persona, ledger, seal; **every red line carries its own one-command fix**, and it runs *before* spawning the brain so it can diagnose a down daemon. Built directly from the QA-found memory bug — it would have caught it |
+| Status / vitals | flat text | flat text | ✦ **the Hearth** — a bordered gold card: model, a real **7-day token sparkline** (additive `/vitals` field, scaled to actual logged turns — never a fabricated trend), facts-known count, live ledger-seal badge, uptime |
+| Provenance display | — | — | ✦ **`urfael why`** renders a **paste-ready citation** ("distilled on 10 June 2026 · `<sha>` · `git show <sha>`") — a checkable source, the date a pure reformat of the stored commit (no present-time leak) |
+| Provable deletion UX | — | — | ✦ **`urfael forget`** prints a dignified **tombstone receipt** (struck-through removed lines + the git-committed record) — deletion made as visible as the data it removed |
+| Typo handling | — | — | ✓ **did-you-mean**: a lone mistyped command (`urfael stauts`) is caught (edit-distance ≤1, transposition-aware) and suggested **before** it silently spends a turn — a genuine correctness fix; a real one-word question still reaches the brain. (Table-stakes for a good CLI → parity, but neither competitor does it) |
+| Onboarding friction | manual edits | guided | ✦ `urfael setup` **auto-detects + fills** the `{{USER_NAME}}`/`{{CITY}}`/`{{TIMEZONE}}`/`{{LANGUAGE}}` placeholders (git/email/system tz+locale) on one Enter — kills the #1 forgotten first-run step (the brain used to literally address you as "{{USER_NAME}}") |
+| Voice under failure | raw errors | raw errors | ✓ the composed "sir" register holds in the highest-visibility error paths (brain unreachable/asleep), each pointing at `urfael doctor` — character integrity without papering over a real failure |
+
+*All of the above are net-new in June 2026, unit- + benchmark-guarded (66/66, incl. a "correctness & craft regressions" class that fails the build if did-you-mean, the doctor's writability check, the real sparkline, or the provenance SHA ever regress). Scored honestly: did-you-mean is parity (table-stakes), the rest are genuine differentiation because the felt experience — not the raw capability — is the point.*
 
 ## UX bar (from the 2026 HIG/NN-G research — applies to every surface)
 - pin-to-bottom streaming with jump-to-latest; never fight the reader's scroll ✓

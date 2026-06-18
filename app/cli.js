@@ -4,7 +4,8 @@
 // (same brain, same memory, same warm sessions as the orb). No deps, no API key.
 //   urfael setup                               onboarding wizard — pick subscription / API key / local model
 //   urfael "what's on my calendar today?"      ask (streams the answer live)
-//   urfael status                              vitals: model, latency, turns, tokens, uptime
+//   urfael status                              the Hearth — a framed vitals card: model, 7-day token trend, facts known, ledger seal, uptime
+//   urfael doctor                              health read — deps, brain, memory (readable AND writable), provider, persona, ledger, seal; every red line carries its own one-command fix
 //   urfael jobs | job <id> | cancel <id>       background jobs
 //   urfael reminders                           list reminders
 //   urfael remind "text" --in 20 [--repeat daily|weekly|<mins>]   or  --at "2026-06-11T15:00"
@@ -55,6 +56,13 @@ const TOKENF = path.join(os.homedir(), '.claude', 'urfael', 'dashboard.token');
 const APITOKENF = path.join(os.homedir(), '.claude', 'urfael', 'api.token');
 const gold = (s) => `\x1b[33m${s}\x1b[0m`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const ok = (s) => `\x1b[32m${s}\x1b[0m`;
+const warn = (s) => `\x1b[38;5;208m${s}\x1b[0m`;
+const bad = (s) => `\x1b[31m${s}\x1b[0m`;
+// strip ANSI to measure true printed width, so box borders line up regardless of colour codes
+const visLen = (s) => s.replace(/\x1b\[[0-9;]*m/g, '').replace(/[̀-ͯ]/g, '').length;
+// every command keyword — powers `urfael <typo>` did-you-mean (lib.suggestCommand). Kept beside the handlers below.
+const COMMANDS = ['logo', 'help', 'doctor', 'status', 'setup', 'sessions', 'why', 'as-of', 'drift', 'forget', 'learn', 'skills', 'hub', 'import', 'serve', 'dashboard', 'hooks', 'hook', 'script', 'team', 'audit', 'seal', 'cron', 'tui', 'health', 'shutdown', 'stop', 'jobs', 'job', 'cancel', 'reminders', 'remind', 'unremind'];
 // The terminal logo — gold ANSI-shadow URFAEL + the Uruz rune (ᚢ) + tagline. Colour only on a TTY (plain when piped).
 function banner() {
   const logo = [
@@ -68,6 +76,21 @@ function banner() {
   const tag = 'an old intelligence, in service to one.';
   if (!process.stdout.isTTY) return '\n' + logo + '\n    ᚢᚱᚠᚨᛖᛚ   ' + tag + '\n';   // U·R·F·A·E·L in Elder Futhark
   return '\n\x1b[38;5;179m' + logo + '\x1b[0m\n    \x1b[38;5;214mᚢᚱᚠᚨᛖᛚ\x1b[0m   \x1b[2m' + tag + '\x1b[0m\n';
+}
+
+// A gold rounded box around pre-coloured content lines, title set into the top rule. Each line is padded
+// to a common inner width measured WITHOUT ANSI codes, so the borders always align. Plain when piped.
+function frame(title, lines) {
+  const tty = process.stdout.isTTY;
+  const G = tty ? '\x1b[38;5;179m' : '', A = tty ? '\x1b[38;5;214m' : '', R = tty ? '\x1b[0m' : '';
+  const inner = Math.max(visLen(title) + 4, ...lines.map((l) => visLen(l) + 2), 46);
+  const out = [G + '╭─ ' + A + title + R + ' ' + G + '─'.repeat(Math.max(1, inner - visLen(title) - 3)) + '╮' + R];
+  for (const l of lines) {
+    if (l === '') { out.push(G + '│' + R + ' '.repeat(inner) + G + '│' + R); continue; }
+    out.push(G + '│ ' + R + l + ' '.repeat(Math.max(0, inner - visLen(l) - 1)) + G + '│' + R);
+  }
+  out.push(G + '╰' + '─'.repeat(inner) + '╯' + R);
+  return out.join('\n');
 }
 
 function req(method, p, body) {
@@ -111,7 +134,7 @@ function ask(text) {
       });
       res.on('end', done);
     });
-    r.on('error', () => { console.error('brain unreachable'); done(); });
+    r.on('error', () => { console.error(bad('✗') + ' the brain is unreachable, sir.' + dim('  run  ') + gold('urfael doctor') + dim('  to diagnose it')); done(); });
     r.on('timeout', () => { r.destroy(); done(); }); // a wedged daemon mid-stream shouldn't hang the CLI forever
     r.end(JSON.stringify({ text }));
   });
@@ -154,9 +177,10 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     catch { console.log(dim('no versioned memory repo at ' + MEMORY_DIR + ' yet (or git unavailable)')); return; }
     const lines = out.trim().split('\n').filter(Boolean);
     if (!lines.length) { console.log(dim('No recorded provenance for "') + phrase + dim('" — I may be inferring it live rather than from a stored belief.')); return; }
-    console.log(gold('Provenance for "' + phrase + '"') + dim('  ·  ' + lines.length + ' change(s), newest first'));
-    for (const ln of lines.slice(0, 25)) { const [sha, date, subj] = ln.split(US); console.log('  ' + gold(sha) + dim('  ' + (date || '').slice(0, 16)) + '  ' + (subj || '')); }
-    console.log(dim('  see exactly what changed:  git -C ' + MEMORY_DIR + ' show <sha>'));
+    const prov = require('./provenance');
+    const rows = lines.slice(0, 25).map((ln) => { const [sha, ci, subject] = ln.split(US); return { sha, ci, subject }; });
+    console.log(prov.card(phrase, rows, { gold, dim }));
+    console.log(dim('  see any change in full:  git -C ' + MEMORY_DIR + ' show <sha>'));
     return;
   }
 
@@ -311,17 +335,80 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     return;
   }
 
-  if (!(await ensureDaemon())) { console.error('✗ brain offline and could not be started'); process.exit(1); }
+  // doctor: a one-card health read — every red line carries its own one-command fix. Pure CLI, runs BEFORE
+  // ensureDaemon so it can diagnose a DOWN brain rather than spawn one. Reads only real, local state.
+  if (cmd === 'doctor') {
+    const { has, claudePath, VAULT, readEnv } = require('./setup');
+    const probe = (p) => req('GET', p).catch(() => null);     // never spawns the brain; null if it's down
+    let healthy = 0, attention = 0;
+    const rows = [];
+    const add = (good, glyph, label, detail, fix) => {
+      good ? healthy++ : attention++;
+      rows.push('  ' + glyph + '  ' + label.padEnd(11) + ' ' + detail);
+      if (!good && fix) rows.push('       ' + dim('↳ ' + fix));
+    };
+    const note = (label, detail) => rows.push('  ' + dim('·') + '  ' + label.padEnd(11) + ' ' + dim(detail));
+    // 1) the engine — Claude Code on PATH
+    const cb = claudePath();
+    add(!!cb, cb ? ok('✓') : bad('✗'), 'claude CLI', cb ? dim(cb) : bad('not found on PATH'), 'install Claude Code — https://claude.com/claude-code');
+    // 2) the brain — probe the socket without spawning
+    const h = await probe('/health');
+    add(!!(h && h.ok), h && h.ok ? ok('✓') : warn('!'), 'brain', h && h.ok ? dim('warm · ' + ((h.warm || []).join(', ') || 'idle')) : warn('asleep'), 'wake it:  urfael status');
+    // 3) the vault — exists + writable + scaffolded
+    const vEx = fs.existsSync(VAULT); let vW = false; try { fs.accessSync(VAULT, fs.constants.W_OK); vW = true; } catch {}
+    add(vEx && vW, vEx && vW ? ok('✓') : bad('✗'), 'vault', vEx ? (vW ? dim(VAULT) : bad('not writable')) : bad('missing'), 'scaffold it:  ./install.sh');
+    // 4) memory — readable AND WRITABLE + versioned. This is the exact class of bug that shipped silently once.
+    const mEx = fs.existsSync(MEMORY_DIR), mGit = fs.existsSync(path.join(MEMORY_DIR, '.git')); let mW = false; try { fs.accessSync(MEMORY_DIR, fs.constants.W_OK); mW = true; } catch {}
+    const memOk = mEx && mGit && mW;
+    add(memOk, memOk ? ok('✓') : bad('✗'), 'memory', memOk ? dim(MEMORY_DIR + ' · writable, versioned') : bad(!mEx ? 'missing' : !mGit ? 'not a git repo' : 'not writable'), 'fix:  ./install.sh   (creates + git-inits ~/Urfael-memory)');
+    // 5) provider — how it reaches Claude (always "ok"; just surfaces the mode)
+    const env = readEnv();
+    const pmode = env.ANTHROPIC_BASE_URL ? 'local model / proxy' : env.ANTHROPIC_API_KEY ? 'API key (pay-per-token)' : 'Claude subscription';
+    add(true, ok('✓'), 'provider', dim(pmode) + dim('   ·   change with  urfael setup'));
+    // 6) persona — the {{PLACEHOLDER}} fill that everyone used to forget
+    let leftover = false; try { leftover = /\{\{(USER_NAME|CITY|TIMEZONE|LANGUAGE)\}\}/.test(fs.readFileSync(path.join(VAULT, 'CLAUDE.md'), 'utf8')); } catch {}
+    add(!leftover, leftover ? warn('!') : ok('✓'), 'persona', leftover ? warn('placeholders not filled in') : dim('Urfael knows who it serves'), 'fill them:  urfael setup');
+    // 7) ledger + seal — only meaningful while the brain is up
+    if (h && h.ok) {
+      const lv = await probe('/audit/verify');
+      add(!!(lv && lv.ok), lv && lv.ok ? ok('✓') : bad('✗'), 'ledger', lv && lv.ok ? dim('tamper-evident chain intact · ' + (lv.count || 0) + ' entries') : bad('TAMPERED at seq ' + (lv && lv.brokenSeq)), 'investigate:  urfael audit --verify');
+      const sv = await probe('/seal/verify');
+      if (sv && sv.reason !== 'no_seal') add(!!(sv && sv.ok), sv && sv.ok ? ok('✓') : bad('✗'), 'seal', sv && sv.ok ? dim('owner key ' + sv.fp + ' · sealed through seq ' + sv.seq) : bad('does not verify'), 'reseal:  urfael seal');
+      else note('seal', 'unsealed (optional) — mint one:  urfael seal');
+    } else { note('ledger', '— brain asleep; start it to check the ledger + seal'); }
+    const head = attention === 0
+      ? ok('✓ all ' + healthy + ' systems nominal')
+      : ok(healthy + ' healthy') + dim(' · ') + warn(attention + (attention === 1 ? ' needs' : ' need') + ' attention');
+    console.log(frame('urfael doctor', [head, '', ...rows]));
+    return;
+  }
+
+  if (!(await ensureDaemon())) { console.error(bad('✗') + ' I could not wake the brain, sir.' + dim('   run  ') + gold('urfael doctor') + dim('  to see why, or check  ~/.claude/urfael/daemon.log')); process.exit(1); }
   // tui: hand the terminal to the full-screen cockpit (ensureDaemon ran first so spawn logs can't corrupt the alt buffer)
   if (cmd === 'tui') { require('./tui').run(); return; }
   if (cmd === 'health') { console.log(JSON.stringify(await req('GET', '/health'))); return; }
   if (cmd === 'shutdown') { await req('POST', '/shutdown').catch(() => {}); console.log('brain stopped'); return; }
   if (cmd === 'status') {
+    // the Hearth — a framed vitals card. Every number is real: facts counts memory bullets, the sparkline is
+    // the 7-day token series from /vitals, the seal badge is a live signature check.
+    const lib = require('./lib');
     const v = await req('GET', '/vitals');
-    console.log(gold('Urfael') + dim(' · the brain is warm') + (v.mode === 'full' ? '  ' + '\x1b[38;5;208mFULL mode\x1b[0m' : dim('  · fortress mode')));
-    console.log(`  model     ${v.model}    warm: ${(v.warm || []).join(', ')}`);
-    console.log(`  today     ${v.turnsToday} turns · ${v.tokToday >= 1000 ? Math.round(v.tokToday / 1000) + 'k tokens' : (v.tokToday || 0) + ' tokens'} · avg ${v.avgMs}ms`);
-    console.log(`  memory    ${v.memCommits} commits    uptime ${Math.round(v.uptimeS / 60)}m    brain restarts today: ${v.errors}`);
+    let facts = 0; for (const f of ['MEMORY.md', 'USER.md']) { try { facts += (fs.readFileSync(path.join(MEMORY_DIR, f), 'utf8').match(/^\s*[-*] .+/gm) || []).length; } catch {} }
+    const sv = await req('GET', '/seal/verify').catch(() => null);
+    const seal = sv && sv.ok ? ok('✓ sealed') + dim(' · ' + sv.fp) : (sv && sv.reason !== 'no_seal') ? bad('⚠ seal broken') : dim('unsealed');
+    const mode = v.mode === 'full' ? warn('FULL') : gold('ᚦ fortress');                 // ᚦ Thurisaz — the warding rune
+    const tok = (n) => (n >= 1000 ? Math.round(n / 1000) + 'k' : (n || 0) + '');
+    const spark = lib.sparkline(v.days7 || []);
+    const sum7 = (v.days7 || []).reduce((a, b) => a + b, 0);
+    console.log(frame('Urfael · the Hearth', [
+      gold(v.model) + dim('   warm: ' + ((v.warm || []).join(', ') || 'idle')) + '   ' + mode,
+      '',
+      dim('today    ') + v.turnsToday + ' turns · ' + tok(v.tokToday) + ' tokens · avg ' + v.avgMs + 'ms',
+      dim('7-day    ') + gold(spark) + dim('  ' + tok(sum7) + ' tokens'),
+      dim('memory   ') + facts + ' facts known · ' + v.memCommits + ' commits',
+      dim('ledger   ') + seal,
+      dim('uptime   ') + Math.round(v.uptimeS / 60) + 'm' + (v.errors ? dim('   ·   restarts today: ') + v.errors : ''),
+    ]));
     return;
   }
   if (cmd === 'cron') {
@@ -482,17 +569,33 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     // consented forgetting with a provable tombstone. No arg → show the tombstone record (auditable deletions).
     const phrase = rest.filter((a) => !a.startsWith('--')).join(' ').trim();
     if (!phrase) {
+      // the record, as dignified blocks: each forgotten phrase, when, and its struck-through lines.
       let txt = ''; try { txt = fs.readFileSync(path.join(MEMORY_DIR, 'TOMBSTONES.md'), 'utf8'); } catch {}
       if (!txt.trim()) { console.log(dim('nothing forgotten yet — forget something:  ') + gold('urfael forget "<phrase>"')); return; }
-      console.log(gold('Forgotten — the tombstone record') + dim('  ·  consented, git-committed deletions'));
-      console.log(txt.trim().split('\n').slice(-40).join('\n'));
+      const blocks = txt.split(/^## /m).map((b) => b.trim()).filter(Boolean).slice(-12);
+      const lines = [];
+      for (const b of blocks) {
+        const whenM = /^([\d-]+ [\d:]+)/.exec(b), quoteM = /"([^"]*)"/.exec(b);
+        lines.push(gold('“' + (quoteM ? quoteM[1] : '?') + '”') + dim('   ' + (whenM ? whenM[1] : '')));
+        for (const ln of b.split('\n').slice(1)) { const m = /^- (.+)$/.exec(ln.trim()); if (m) lines.push('    ' + bad('−') + ' ' + dim('\x1b[9m' + m[1].slice(0, 82) + '\x1b[0m')); }
+        lines.push('');
+      }
+      if (lines[lines.length - 1] === '') lines.pop();
+      console.log(frame('The tombstone record · provable deletions', lines));
       return;
     }
     const r = await req('POST', '/forget', { phrase });
     if (r && r.error) { console.error('✗ ' + r.error); process.exit(1); }
-    if (!r.count) { console.log(dim('nothing in memory matched "' + phrase + '"')); return; }
-    console.log(gold('✓ forgotten ' + r.count + ' line(s)') + dim('  · tombstoned + committed — the deletion itself is now provable'));
-    for (const x of (r.removed || []).slice(0, 20)) console.log('  \x1b[31m-\x1b[0m ' + dim('(' + x.file + ') ') + x.line.slice(0, 90));
+    if (!r.count) { console.log(dim('nothing in memory matched “' + phrase + '” — there was nothing to forget, sir.')); return; }
+    const when = (r.at || '').slice(0, 16).replace('T', ' ');
+    console.log(frame('Forgotten', [
+      ok('✓ ' + r.count + ' belief' + (r.count === 1 ? '' : 's') + ' removed at your request') + (when ? dim('   · ' + when) : ''),
+      '',
+      ...(r.removed || []).slice(0, 20).map((x) => '  ' + bad('−') + ' ' + dim('(' + x.file + ') ') + '\x1b[9m\x1b[2m' + x.line.slice(0, 78) + '\x1b[0m'),
+      '',
+      dim('tombstoned + git-committed — the deletion itself is now provable.'),
+      dim('see the record:  ') + gold('urfael forget'),
+    ]));
     return;
   }
   if (cmd === 'learn') {
@@ -533,6 +636,15 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
   }
   if (cmd === 'unremind' && rest[0]) { console.log(JSON.stringify(await req('POST', `/reminder/${rest[0]}/cancel`))); return; }
 
-  // default: everything is a question for the brain
+  // default: everything is a question for the brain — UNLESS a lone word is an obvious command typo, in which
+  // case suggest the fix instead of silently spending a turn on it. You can always force it as a real question.
+  if (!rest.length) {
+    const guess = require('./lib').suggestCommand(cmd, COMMANDS);
+    if (guess) {
+      console.log(dim('did you mean  ') + gold('urfael ' + guess) + dim('  ?'));
+      console.log(dim('  (or ask me literally:  ') + gold('urfael "' + cmd + '"') + dim(')'));
+      return;
+    }
+  }
   await ask([cmd, ...rest].join(' '));
 })();

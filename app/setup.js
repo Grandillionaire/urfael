@@ -228,4 +228,4 @@ async function run() {
   } finally { io.close(); }
 }
 
-module.exports = { run, readEnv, writeEnv, PROVIDER_ENV };
+module.exports = { run, readEnv, writeEnv, detectPersona, has, claudePath, PROVIDER_ENV, VAULT };

@@ -430,10 +430,16 @@ function budgetWindow() {
 function vitals() {
   const today = new Date().toISOString().slice(0, 10);
   const rates = priceRates();
+  // 7-day token series (oldest→today) for the status sparkline. Seeded to 0 so quiet days read as a floor,
+  // not a gap. Read from the same bounded log tail — a tail estimate, like costToday.
+  const dayMs = 86400000, nowMs = Date.now();
+  const days7keys = Array.from({ length: 7 }, (_, i) => new Date(nowMs - (6 - i) * dayMs).toISOString().slice(0, 10));
+  const byDay = Object.fromEntries(days7keys.map((d) => [d, 0]));
   let turnsToday = 0, errors = 0, lat = [], tokToday = 0, costToday = 0;
   for (const ln of tailLines(LOGFILE).slice(-500)) {
     let e; try { e = JSON.parse(ln); } catch { continue; }
     const day = (e.t || '').slice(0, 10);
+    if (e.ev === 'turn' && day in byDay) byDay[day] += (e.tokIn || 0) + (e.tokOut || 0);
     if (e.ev === 'turn' && day === today) { turnsToday++; if (e.ms) lat.push(e.ms); tokToday += (e.tokIn || 0) + (e.tokOut || 0); costToday += turnCost(e, rates); }
     if (e.ev === 'brain_exit' && day === today) errors++;
   }
@@ -449,6 +455,7 @@ function vitals() {
   // the existing /vitals shape, so this stays backward-compatible.
   const bw = budgetWindow();
   return { warm: [...sessions.keys()], model: convoModel, mode: AGENT_MODE, turnsToday, avgMs, errors, tokToday, costToday: LOCAL_MODE ? 0 : Math.round(costToday * 100) / 100, local: LOCAL_MODE, memCommits: memCommitCache.n, uptimeS: Math.round((Date.now() - START_MS) / 1000),
+    days7: days7keys.map((d) => byDay[d]),
     budget: bw.limits.active ? { level: bw.state.level, pctTurns: bw.state.pctTurns, pctTok: bw.state.pctTok, windowH: bw.limits.windowH, hard: bw.limits.hard } : null };
 }
 
@@ -1079,7 +1086,7 @@ function forgetPhrase(phrase) {
   try { fs.appendFileSync(TOMBSTONES, tomb); } catch {}
   logEvent({ ev: 'forget', count: removed.length });   // also enters the tamper-evident Ledger of Record
   try { spawn('bash', ['-c', `cd "${MEMORY_DIR}" && git add -A && git commit -m "forget: ${removed.length} line(s)" && git push`], { stdio: 'ignore', detached: true }).unref(); } catch {}
-  return { removed, count: removed.length };
+  return { removed, count: removed.length, at: t };
 }
 
 // ---- per-turn background review (opt-in via URFAEL_REVIEW; the lighter, more-frequent cousin of distill).

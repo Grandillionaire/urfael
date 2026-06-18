@@ -254,6 +254,28 @@ async function main() {
   if (rid) await sock('POST', '/hook/' + rid + '/delete');
   if (hid) await sock('POST', '/hook/' + hid + '/delete'); // cleanup the test hook
 
+  // ── craft & correctness regression guards (QA-found / user-first details that must not silently regress) ──
+  attackClass('correctness & craft regressions', 'silent quality rot — a typo burns a paid turn; a card stops verifying its own numbers');
+  const cliSrc = fs.readFileSync(path.join(APP, 'cli.js'), 'utf8');
+  // did-you-mean: a lone mistyped command must be intercepted, NOT sent to the LLM (which silently spends a turn).
+  check('a one-word command typo is caught before the brain (no silently-burned turn)',
+    lib.suggestCommand('stauts', ['status', 'doctor', 'seal']) === 'status' && /suggestCommand\(cmd, COMMANDS\)/.test(cliSrc),
+    'editDistance ≤1 → suggest the fix; a real one-word question still reaches the brain');
+  check('did-you-mean never hijacks a genuine one-word question (hello/weather pass through)',
+    lib.suggestCommand('hello', ['status', 'help', 'seal']) === '' && lib.suggestCommand('weather', ['status', 'why', 'learn']) === '',
+    'strictly distance-1; greetings are ≥2 edits from any command');
+  // doctor: the health card MUST verify memory is writable — the exact class of bug that once shipped silently.
+  check('urfael doctor checks memory is readable AND WRITABLE (would have caught the QA-found bug)',
+    /cmd === 'doctor'/.test(cliSrc) && /accessSync\(MEMORY_DIR, fs\.constants\.W_OK\)/.test(cliSrc),
+    'a red line carries its own ./install.sh fix; runs before ensureDaemon so it can diagnose a down brain');
+  // the status sparkline + provenance date are PURE reformats of stored data — no fabricated trend, no time leak.
+  check('the status 7-day token series is real (additive /vitals field, fed by logged turns)',
+    /days7: days7keys\.map/.test(daemonSrc) && /lib\.sparkline\(v\.days7/.test(cliSrc),
+    'sparkline scales actual per-day tokens; an all-zero week renders as a floor, never a fake climb');
+  check('provenance renders a checkable SHA + a pure date reformat (no present-time leak)',
+    require('../provenance').card('x', [{ sha: 'abc1234', ci: '2026-06-10 19:22:16 +0200', subject: 'memory: distilled' }], { gold: (s) => s, dim: (s) => s }).includes('git show abc1234'),
+    'fullDate only reformats the STORED commit date; the SHA stays pasteable into `git show`');
+
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}
   try { await new Promise((r) => { const q = http.request({ socketPath: SOCK, method: 'POST', path: '/shutdown', timeout: 1500 }, (res) => { res.resume(); r(); }); q.on('error', r); q.on('timeout', () => { q.destroy(); r(); }); q.end(); }); } catch {}
