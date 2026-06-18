@@ -122,4 +122,4 @@ These would make Urfael a blurrier clone, not a better product. Each conflicts w
 
 ## The one-line measure of success
 
-Every capability Hermes or OpenClaw has, Urfael offers in its **only trustworthy form** — and `npm run security` still prints 8/8. That is "better than both combined, for everyone who values being able to trust the thing acting on their behalf," which in the age of agents is becoming everyone.
+Every capability Hermes or OpenClaw has, Urfael offers in its **only trustworthy form** — and `npm run security` still prints 9/9. That is "better than both combined, for everyone who values being able to trust the thing acting on their behalf," which in the age of agents is becoming everyone.

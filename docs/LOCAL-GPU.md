@@ -79,7 +79,7 @@ still listens, thinks, and speaks.
 
 Going local doesn't widen the blast radius — it shrinks it further (no Anthropic round-trip either). The
 daemon still opens no port; remote turns are still read-only with no egress; the credential-store deny still
-holds; `npm run security` still passes 8/8. The model credential Urfael forwards to its sandboxed children is
+holds; `npm run security` still passes 9/9. The model credential Urfael forwards to its sandboxed children is
 just the local proxy's (often a dummy `local` token), and the untrusted profile has no tool to exfiltrate it
 with anyway.
 

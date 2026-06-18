@@ -42,7 +42,7 @@ urfael audit           # the recent per-principal activity trail
 urfael audit --json    # the same, machine-readable, for an SIEM / a compliance export
 ```
 
-Combined with `npm run security` (the 8/8 benchmark, now including the team-mode escalation checks) and [docs/THREAT-MODEL.md](THREAT-MODEL.md), that's the package you hand a security team: *here is who can reach it, what each can do, the structural proof they can't escalate, and the log of what they did.*
+Combined with `npm run security` (the 9/9 benchmark, now including the team-mode escalation checks) and [docs/THREAT-MODEL.md](THREAT-MODEL.md), that's the package you hand a security team: *here is who can reach it, what each can do, the structural proof they can't escalate, and the log of what they did.*
 
 ## Channel support
 

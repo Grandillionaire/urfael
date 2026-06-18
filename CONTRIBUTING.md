@@ -14,10 +14,16 @@ and PRs are all welcome.
 ```bash
 git clone https://github.com/Grandillionaire/urfael.git && cd urfael
 cd app && npm install
-node --test          # unit tests (lib.js: routing + sentence segmentation)
+npm test             # 283 fast unit tests (pure modules: lib, council, personas, seal, audit-chain, registry, recall, …); no credentials, ~0.5s
+npm run security     # 9/9 attack classes · 74/74 checks — boots a REAL daemon + dashboard and attacks them
+npm run e2e          # live end-to-end against a real daemon (uses your real claude login)
 ```
-The engine lives in `app/` (Electron overlay + the `daemon.js` brain + `voice.js`). Vault-side logic
-(commands, hooks, scripts) is in `vault-template/_urfael/`.
+Use `npm test` (the scoped `test/*.test.js` glob), not bare `node --test` — the latter also discovers the
+two live-daemon harnesses (`e2e.js`, `security-benchmark.js`), which boot a real daemon on your `claude`
+login. New to the codebase? Read **[ARCHITECTURE.md](ARCHITECTURE.md)**, then the five files in its "the moat,
+in five files" section, and you understand the whole security posture. The engine lives in `app/` (Electron
+overlay + the `daemon.js` brain + `voice.js`); vault-side logic (commands, hooks, scripts) is in
+`vault-template/_urfael/`.
 
 ## High-value contributions
 - **Linux / Windows ports** — the brain/daemon are portable; the blockers are macOS-only bits (launchd,
@@ -28,7 +34,7 @@ The engine lives in `app/` (Electron overlay + the `daemon.js` brain + `voice.js
 
 ## Pull requests
 1. Fork, branch, make your change.
-2. `node --test` passes and the app still launches.
+2. `npm test` (283) and `npm run security` (9/9 · 74/74) pass, and the app still launches.
 3. Describe the change and the "why." If it touches permissions or untrusted-data handling, call that out.
 
 ## Reporting bugs / security
