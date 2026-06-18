@@ -99,7 +99,10 @@ function ask(text) {
           let e; try { e = JSON.parse(ln); } catch { continue; }
           if (e.kind === 'thinking' && e.tool && e.tool !== lastTool) { lastTool = e.tool; process.stderr.write(dim(`  ⟳ ${e.tool}\n`)); }
           else if (e.kind === 'thinking' && e.delta) { if (!started) { started = true; } process.stdout.write(e.delta); }
-          else if (e.kind === 'done') { process.stdout.write('\n' + dim(`— ${e.aborted ? 'stopped' : (e.model || '')}${e.ms ? ' · ' + (e.ms / 1000).toFixed(1) + 's' : ''}\n`)); done(); }
+          else if (e.kind === 'done') {
+            if (!started && e.text) process.stdout.write(e.text.replace(/\[\/?SPOKEN\]/gi, ''));   // reply carried only in done (e.g. a control command) — show it
+            process.stdout.write('\n' + dim(`— ${e.aborted ? 'stopped' : (e.model || '')}${e.ms ? ' · ' + (e.ms / 1000).toFixed(1) + 's' : ''}\n`)); done();
+          }
         }
       });
       res.on('end', done);
@@ -375,7 +378,7 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     const spark = lib.sparkline(v.days7 || []);
     const sum7 = (v.days7 || []).reduce((a, b) => a + b, 0);
     console.log(frame('Urfael · the Hearth', [
-      gold(v.model) + dim('   warm: ' + ((v.warm || []).join(', ') || 'idle')) + '   ' + mode,
+      gold(v.model) + (v.pinned ? dim(' · pinned') : '') + dim('   warm: ' + ((v.warm || []).join(', ') || 'idle')) + '   ' + mode,
       '',
       dim('today    ') + v.turnsToday + ' turns · ' + tok(v.tokToday) + ' tokens · avg ' + v.avgMs + 'ms',
       dim('7-day    ') + gold(spark) + dim('  ' + tok(sum7) + ' tokens'),
@@ -383,6 +386,22 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
       dim('ledger   ') + seal,
       dim('uptime   ') + Math.round(v.uptimeS / 60) + 'm' + (v.errors ? dim('   ·   restarts today: ') + v.errors : ''),
     ]));
+    return;
+  }
+  if (cmd === 'model') {
+    // show or pin the model. The same switch works verbally in chat ("switch to opus", "back to auto").
+    const sub = (rest[0] || '').toLowerCase();
+    if (sub) {
+      const spec = /^(auto|reset|unpin|automatic)$/.test(sub) ? { action: 'auto' } : (sub === 'opus' || sub === 'sonnet') ? { model: sub } : null;
+      if (!spec) { console.error('usage: urfael model [opus | sonnet | auto]'); process.exit(1); }
+      const r = await req('POST', '/model', spec);
+      if (r && r.error) { console.error('✗ ' + r.error); process.exit(1); }
+      console.log(gold('✓ ' + (r.text || 'done')));
+      return;
+    }
+    const m = await req('GET', '/model');
+    if (m && m.pinned) console.log(gold('pinned to ' + m.pinned) + dim('   · say “go back to auto” (or `urfael model auto`) to unpin'));
+    else console.log(gold('auto-routing') + dim('   · on ' + ((m && m.model) || '…') + ' now · say “switch to opus” (or `urfael model opus`) to pin'));
     return;
   }
   if (cmd === 'cron') {

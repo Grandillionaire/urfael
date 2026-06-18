@@ -26,7 +26,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode } = require('./lib');
+const { MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective } = require('./lib');
 const recall = require('./recall');
 const ridx = require('./recall-index');         // persistent BM25 inverted index — recall AT SCALE (FTS5-equivalent)
 const embed = require('./embed');               // optional local-first embeddings client (semantic recall)
@@ -292,11 +292,43 @@ let transcript = [];
 let convoModel = MODELS.sonnet;   // sticky: escalate to Opus and stay for the conversation (continuity)
 let softTurns = 0;                // consecutive non-hard turns while on Opus → de-escalate back to Sonnet
 let turnCounter = 0;
+
+// A user-PINNED model overrides auto-routing entirely (set by NL "switch to opus" or `urfael model`),
+// persisted so it survives restarts and is shared by every channel (TUI/CLI/voice/chat). null = auto.
+const MODELPIN = path.join(JDIR, 'model.pin');
+let pinnedModel = (() => { try { const v = fs.readFileSync(MODELPIN, 'utf8').trim(); return (v === 'opus' || v === 'sonnet') ? v : null; } catch { return null; } })();
+if (pinnedModel) convoModel = MODELS[pinnedModel];   // a persisted pin takes effect immediately, before the first turn
+function setPin(model) {
+  pinnedModel = (model === 'opus' || model === 'sonnet') ? model : null;
+  try { fs.mkdirSync(JDIR, { recursive: true }); if (pinnedModel) fs.writeFileSync(MODELPIN, pinnedModel + '\n'); else fs.rmSync(MODELPIN, { force: true }); } catch {}
+  return pinnedModel;
+}
+const tierName = (m) => (m === MODELS.opus ? 'Opus' : 'Sonnet');
+// Apply a parsed model directive WITHOUT an LLM turn — a control command. Returns a normal ask result so
+// every channel renders/speaks the confirmation. Never recorded into the transcript or memory.
+function applyModelDirective(dir) {
+  let text;
+  if (dir.action === 'status') {
+    text = pinnedModel
+      ? 'I am pinned to ' + tierName(MODELS[pinnedModel]) + ', sir — until you say otherwise.'
+      : 'Auto-routing, sir — I am on ' + tierName(convoModel) + ' right now (Opus for the hard problems, Sonnet otherwise).';
+  } else if (dir.action === 'auto') {
+    setPin(null); softTurns = 0;
+    text = 'Auto-routing restored, sir — Opus for the hard problems, Sonnet for the rest.';
+  } else {
+    setPin(dir.model); convoModel = MODELS[dir.model]; softTurns = 0;
+    text = tierName(MODELS[dir.model]) + ' it is, sir. I will stay on ' + tierName(MODELS[dir.model]) + ' until you tell me to switch back.';
+  }
+  return { text, model: convoModel, ms: 0, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 } };
+}
 const brain = {
   warmUp() { getSession(MODELS.sonnet).ask('Reply with exactly: ready', { silent: true }).catch(() => {}); }, // silent: never leak the warm-up into a client stream
   async ask(text) {
-    const ov = routeOverride(text);                                   // explicit "/opus …" / "/sonnet …" wins (local turns only)
+    const dir = parseModelDirective(text);                            // "switch to opus" / "use the fast model" / "back to auto"
+    if (dir) return applyModelDirective(dir);                          // a control command — no LLM turn, not recorded
+    const ov = routeOverride(text);                                   // explicit "/opus …" / "/sonnet …" wins for THIS turn
     if (ov) { text = ov.text; convoModel = MODELS[ov.model]; softTurns = 0; }
+    else if (pinnedModel) { convoModel = MODELS[pinnedModel]; softTurns = 0; }   // a user pin overrides auto-routing entirely
     else if (classifyModel(text) === MODELS.opus) { convoModel = MODELS.opus; softTurns = 0; }
     else if (convoModel === MODELS.opus && ++softTurns >= 3) { convoModel = MODELS.sonnet; softTurns = 0; } // don't stay pinned to Opus forever
     // usage guardrail (opt-in URFAEL_BUDGET_*): in HARD mode, refuse a new turn once the rolling window is spent.
@@ -327,7 +359,7 @@ const brain = {
     return { text: reply, model, ms, aborted: reply === '(stopped)',
       usage: { input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read_input_tokens: u.cache_read_input_tokens || 0 } };
   },
-  endConversation() { convoModel = MODELS.sonnet; softTurns = 0; },
+  endConversation() { convoModel = pinnedModel ? MODELS[pinnedModel] : MODELS.sonnet; softTurns = 0; },
   // Abort the current LOCAL turn across the warm sessions. Touches only the serialized `sessions` map —
   // never askScoped (remote one-shots) or background jobs. Returns true if a turn was actually aborted.
   abort() { let any = false; for (const s of sessions.values()) if (s.abort()) any = true; return any; },
@@ -341,6 +373,8 @@ const brain = {
       // allowlist + framing and MUST NOT bypass — if anything looks off, fall back to the most-restricted
       // profile. (guest's ['Read'] is non-empty by design, so it passes the floor and stays a guest.)
       if (!Array.isArray(profile.allowedTools) || !profile.allowedTools.length || !profile.trustFraming) profile = resolveProfile('untrusted');
+      // a remote OWNER may switch the model verbally too (it's their assistant); members/guests cannot.
+      if (ctx && ctx.role === 'owner') { const dir = parseModelDirective(text); if (dir) { const r = applyModelDirective(dir); resolve({ text: r.text, model: r.model }); return; } }
       const permMode = (profile.permissionMode && profile.permissionMode !== 'bypassPermissions') ? profile.permissionMode : 'acceptEdits';
       if (inflightScoped.size >= MAX_SCOPED) { resolve({ text: '(busy — too many remote requests in flight; try again in a moment)', model: '' }); return; }
       const model = classifyModel(text);
@@ -456,6 +490,7 @@ function vitals() {
   const bw = budgetWindow();
   return { warm: [...sessions.keys()], model: convoModel, mode: AGENT_MODE, turnsToday, avgMs, errors, tokToday, costToday: LOCAL_MODE ? 0 : Math.round(costToday * 100) / 100, local: LOCAL_MODE, memCommits: memCommitCache.n, uptimeS: Math.round((Date.now() - START_MS) / 1000),
     days7: days7keys.map((d) => byDay[d]),
+    pinned: pinnedModel ? tierName(MODELS[pinnedModel]) : null,
     budget: bw.limits.active ? { level: bw.state.level, pctTurns: bw.state.pctTurns, pctTok: bw.state.pctTok, windowH: bw.limits.windowH, hard: bw.limits.hard } : null };
 }
 
@@ -1256,6 +1291,22 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok }));
   } else if (req.method === 'POST' && req.url === '/conversation-end') {
     brain.endConversation(); distill(); res.writeHead(200); res.end('{}');
+  } else if (req.url === '/model') {
+    // GET → current model + pin; POST {action:'pin'|'auto'|'status', model} → same path as the verbal switch.
+    if (req.method === 'POST') {
+      let body = ''; req.on('data', (d) => { body += d; if (body.length > 1e4) req.destroy(); });
+      req.on('end', () => {
+        let spec = {}; try { spec = JSON.parse(body || '{}'); } catch {}
+        const dir = (spec.action === 'auto') ? { action: 'auto' } : (spec.action === 'status') ? { action: 'status' }
+          : (spec.model === 'opus' || spec.model === 'sonnet') ? { action: 'pin', model: spec.model } : null;
+        if (!dir) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'use {action:"auto"|"status"} or {model:"opus"|"sonnet"}' })); return; }
+        const r = applyModelDirective(dir);
+        res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, pinned: pinnedModel, model: tierName(convoModel), text: r.text }));
+      });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ pinned: pinnedModel, model: tierName(convoModel) }));
   } else if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, warm: [...sessions.keys()] }));
