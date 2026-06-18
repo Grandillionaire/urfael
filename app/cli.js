@@ -379,6 +379,7 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     const sum7 = (v.days7 || []).reduce((a, b) => a + b, 0);
     console.log(frame('Urfael · the Hearth', [
       gold(v.model) + (v.pinned ? dim(' · pinned') : '') + dim('   warm: ' + ((v.warm || []).join(', ') || 'idle')) + '   ' + mode,
+      ...(v.persona ? [gold(v.persona.glyph + ' ' + v.persona.name) + dim('   ' + v.persona.essence)] : []),
       '',
       dim('today    ') + v.turnsToday + ' turns · ' + tok(v.tokToday) + ' tokens · avg ' + v.avgMs + 'ms',
       dim('7-day    ') + gold(spark) + dim('  ' + tok(sum7) + ' tokens'),
@@ -402,6 +403,23 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
     const m = await req('GET', '/model');
     if (m && m.pinned) console.log(gold('pinned to ' + m.pinned) + dim('   · say “go back to auto” (or `urfael model auto`) to unpin'));
     else console.log(gold('auto-routing') + dim('   · on ' + ((m && m.model) || '…') + ' now · say “switch to opus” (or `urfael model opus`) to pin'));
+    return;
+  }
+  if (cmd === 'persona') {
+    // show, switch, or reset the voice. The same switch works verbally in chat ("become the architect", "back to urfael").
+    const sub = (rest[0] || '').toLowerCase();
+    if (sub) {
+      const spec = /^(reset|urfael|default|anchor|none)$/.test(sub) ? { action: 'reset' } : (sub === 'list') ? { action: 'list' } : (sub === 'status' || sub === 'who') ? { action: 'status' } : { id: sub };
+      const r = await req('POST', '/persona', spec);
+      if (r && r.error) { console.error('✗ ' + r.error); process.exit(1); }
+      console.log(gold('✓ ' + (r.text || 'done')));
+      return;
+    }
+    const m = await req('GET', '/persona');
+    const cur = m && m.display;
+    if (cur && m.persona !== 'urfael') console.log(gold(cur.glyph + ' ' + cur.name) + dim('   · ' + cur.essence + ' · say “back to urfael” (or `urfael persona reset`) to return'));
+    else console.log(gold('ᚢ Urfael') + dim('   · the anchor · say “become the architect” (or `urfael persona <id>`) to switch'));
+    console.log(dim('  roster:  ') + (m && m.roster || []).map((d) => d.glyph + ' ' + d.id).join('   '));
     return;
   }
   if (cmd === 'cron') {

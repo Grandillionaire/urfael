@@ -26,7 +26,8 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective } = require('./lib');
+const { MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
+const personas = require('./personas');
 const recall = require('./recall');
 const ridx = require('./recall-index');         // persistent BM25 inverted index — recall AT SCALE (FTS5-equivalent)
 const embed = require('./embed');               // optional local-first embeddings client (semantic recall)
@@ -187,10 +188,12 @@ class Session {
   constructor(model) { this.model = model; this.proc = null; this.queue = []; this.current = null; this.buf = ''; this.acc = ''; this.spokenSent = false; this.spokenDone = false; this.spokenEmitted = 0; this.spokenChars = 0; this.speakCur = false; this.curSilent = false; this.curTurn = 0; }
   _ensure() {
     if (this.proc && !this.proc.killed) return;
+    const overlayArgs = currentOverlay ? ['--append-system-prompt', currentOverlay] : [];   // active PERSONA voice; [] on the anchor → byte-identical spawn
     this.proc = spawn(CLAUDE_BIN, [
       '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
       '--model', this.model, '--verbose', '--include-partial-messages', '--permission-mode', PERM_MODE,
       ...MEMDIR_ADD,   // the brain can READ its own memory (it lives outside the vault/project root)
+      ...overlayArgs,  // persona = a VOICE overlay only; the moat is PERM_MODE + the vault settings, not this text
     ], { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: ['pipe', 'pipe', 'ignore'] });
     const p = this.proc; // bind handlers to THIS proc identity so a stale exit can't clobber a freshly-spawned one
     recordBrainPid(p.pid);
@@ -304,6 +307,37 @@ function setPin(model) {
   return pinnedModel;
 }
 const tierName = (m) => (m === MODELS.opus ? 'Opus' : 'Sonnet');
+
+// PERSONA: a voice overlay applied to the warm sessions via --append-system-prompt. The anchor 'urfael'
+// has no overlay (byte-identical spawn). Persisted like the model pin; shared by every local channel.
+let personaRoster = personas.loadPersonas();                       // built-ins + authored; re-read on every switch
+const PERSONAPIN = path.join(JDIR, 'persona.pin');
+let activePersona = (() => { try { const v = fs.readFileSync(PERSONAPIN, 'utf8').trim(); return personaRoster[v] ? v : 'urfael'; } catch { return 'urfael'; } })();
+let currentOverlay = personas.overlayFor(personaRoster, activePersona);   // null on the anchor
+function setPersona(id) {
+  personaRoster = personas.loadPersonas();                         // pick up freshly-authored personas
+  activePersona = personaRoster[id] ? id : 'urfael';               // fail-soft to the anchor on an unknown id
+  currentOverlay = personas.overlayFor(personaRoster, activePersona);
+  try { fs.mkdirSync(JDIR, { recursive: true }); if (activePersona !== 'urfael') fs.writeFileSync(PERSONAPIN, activePersona + '\n'); else fs.rmSync(PERSONAPIN, { force: true }); } catch {}
+  return activePersona;
+}
+function turnInFlight() { for (const s of sessions.values()) if (s.current && !s.curSilent) return true; return false; }   // a real (non-silent) answer is streaming — not the warm-up
+function respawnForPersona() { for (const s of sessions.values()) { try { s.proc && s.proc.kill('SIGKILL'); } catch {} s.proc = null; } }   // idle warm procs re-_ensure with the new overlay on the next ask
+// Apply a persona directive WITHOUT an LLM turn — an in-voice control reply (not recorded). Refuses mid-stream.
+function applyPersonaDirective(dir) {
+  const r = (text) => ({ text, model: convoModel, ms: 0, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 } });
+  if (dir.action === 'status') { const d = personas.displayFor(personaRoster, activePersona);
+    return r(activePersona === 'urfael' ? 'Just myself, sir — Urfael.' : 'I am wearing ' + d.name + ' ' + d.glyph + ', sir — ' + d.essence + '. Say "back to urfael" to return.'); }
+  if (dir.action === 'list') { const ids = personas.knownIds(personaRoster);
+    return r('Personas, sir: ' + ids.map((id) => { const d = personas.displayFor(personaRoster, id); return d.glyph + ' ' + d.name + (id === activePersona ? ' (current)' : ''); }).join(' · ') + '.'); }
+  if (turnInFlight()) return r('One moment, sir — let me finish this first, then I will change.');
+  if (dir.action === 'reset') { if (activePersona === 'urfael') return r('Already myself, sir.'); setPersona('urfael'); respawnForPersona(); return r('Back to myself, sir.'); }
+  const id = dir.id;
+  if (!personaRoster[id]) return r('I have no persona by that name, sir. Say "list personas" to see them.');
+  if (id === activePersona) { const d = personas.displayFor(personaRoster, id); return r('Already ' + d.name + ', sir.'); }
+  const d = personas.displayFor(personaRoster, id); setPersona(id); respawnForPersona();
+  return r(d.name + ' ' + d.glyph + ' it is, sir. I will hold this voice until you say otherwise.');
+}
 // Apply a parsed model directive WITHOUT an LLM turn — a control command. Returns a normal ask result so
 // every channel renders/speaks the confirmation. Never recorded into the transcript or memory.
 function applyModelDirective(dir) {
@@ -326,6 +360,8 @@ const brain = {
   async ask(text) {
     const dir = parseModelDirective(text);                            // "switch to opus" / "use the fast model" / "back to auto"
     if (dir) return applyModelDirective(dir);                          // a control command — no LLM turn, not recorded
+    const pdir = parsePersonaDirective(text, personas.knownIds(personaRoster));   // "be the architect" / "list personas" / "back to urfael"
+    if (pdir) return applyPersonaDirective(pdir);
     const ov = routeOverride(text);                                   // explicit "/opus …" / "/sonnet …" wins for THIS turn
     if (ov) { text = ov.text; convoModel = MODELS[ov.model]; softTurns = 0; }
     else if (pinnedModel) { convoModel = MODELS[pinnedModel]; softTurns = 0; }   // a user pin overrides auto-routing entirely
@@ -373,8 +409,11 @@ const brain = {
       // allowlist + framing and MUST NOT bypass — if anything looks off, fall back to the most-restricted
       // profile. (guest's ['Read'] is non-empty by design, so it passes the floor and stays a guest.)
       if (!Array.isArray(profile.allowedTools) || !profile.allowedTools.length || !profile.trustFraming) profile = resolveProfile('untrusted');
-      // a remote OWNER may switch the model verbally too (it's their assistant); members/guests cannot.
-      if (ctx && ctx.role === 'owner') { const dir = parseModelDirective(text); if (dir) { const r = applyModelDirective(dir); resolve({ text: r.text, model: r.model }); return; } }
+      // a remote OWNER may switch the model/persona verbally too (it's their assistant); members/guests cannot.
+      if (ctx && ctx.role === 'owner') {
+        const dir = parseModelDirective(text); if (dir) { const r = applyModelDirective(dir); resolve({ text: r.text, model: r.model }); return; }
+        const pdir = parsePersonaDirective(text, personas.knownIds(personaRoster)); if (pdir) { const r = applyPersonaDirective(pdir); resolve({ text: r.text, model: r.model }); return; }
+      }
       const permMode = (profile.permissionMode && profile.permissionMode !== 'bypassPermissions') ? profile.permissionMode : 'acceptEdits';
       if (inflightScoped.size >= MAX_SCOPED) { resolve({ text: '(busy — too many remote requests in flight; try again in a moment)', model: '' }); return; }
       const model = classifyModel(text);
@@ -491,6 +530,8 @@ function vitals() {
   return { warm: [...sessions.keys()], model: convoModel, mode: AGENT_MODE, turnsToday, avgMs, errors, tokToday, costToday: LOCAL_MODE ? 0 : Math.round(costToday * 100) / 100, local: LOCAL_MODE, memCommits: memCommitCache.n, uptimeS: Math.round((Date.now() - START_MS) / 1000),
     days7: days7keys.map((d) => byDay[d]),
     pinned: pinnedModel ? tierName(MODELS[pinnedModel]) : null,
+    persona: activePersona === 'urfael' ? null : personas.displayFor(personaRoster, activePersona),   // null on the anchor → chip drawn only off-anchor
+
     budget: bw.limits.active ? { level: bw.state.level, pctTurns: bw.state.pctTurns, pctTok: bw.state.pctTok, windowH: bw.limits.windowH, hard: bw.limits.hard } : null };
 }
 
@@ -1307,6 +1348,24 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ pinned: pinnedModel, model: tierName(convoModel) }));
+  } else if (req.url === '/persona') {
+    // GET → active persona + roster; POST {action:'reset'|'list'|'status'} or {id:'<known>'} → same path as the verbal switch.
+    if (req.method === 'POST') {
+      let body = ''; req.on('data', (d) => { body += d; if (body.length > 1e4) req.destroy(); });
+      req.on('end', () => {
+        let spec = {}; try { spec = JSON.parse(body || '{}'); } catch {}
+        personaRoster = personas.loadPersonas();
+        const dir = (spec.action === 'reset' || spec.id === 'urfael') ? { action: 'reset' }
+          : (spec.action === 'list') ? { action: 'list' } : (spec.action === 'status') ? { action: 'status' }
+          : (typeof spec.id === 'string' && personaRoster[spec.id]) ? { action: 'set', id: spec.id } : null;
+        if (!dir) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'use {action:"reset"|"list"|"status"} or {id:"<known persona>"}' })); return; }
+        const r = applyPersonaDirective(dir);
+        res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, persona: activePersona, display: personas.displayFor(personaRoster, activePersona), text: r.text }));
+      });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ persona: activePersona, display: personas.displayFor(personaRoster, activePersona), roster: personas.knownIds(personaRoster).map((id) => personas.displayFor(personaRoster, id)) }));
   } else if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, warm: [...sessions.keys()] }));

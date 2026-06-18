@@ -44,8 +44,9 @@ function buildTitle(theme, v, cols) {
   try { spark = require('./lib').sparkline((v && v.days7) || []); } catch { spark = ''; }
   const mode = (v && v.mode) === 'full' ? theme.accent + 'FULL' + theme.RST : theme.gold + 'ᚦ fortress' + theme.RST;
   const dot = theme.dim + ' · ' + theme.RST;
-  let head = theme.frame + '╭─ ' + theme.RST + theme.accent + 'ᚢ urfael' + theme.RST + dot +
-             theme.gold + ((v && v.model) || '…') + theme.RST + dot + mode;
+  let head = theme.frame + '╭─ ' + theme.RST + theme.accent + 'ᚢ urfael' + theme.RST;
+  if (v && v.persona) head += dot + theme.accent + v.persona.glyph + ' ' + theme.RST + theme.gold + v.persona.name + theme.RST;   // a chip AFTER the wordmark (never replacing it), only off-anchor
+  head += dot + theme.gold + ((v && v.model) || '…') + theme.RST + dot + mode;
   if (spark) head += dot + theme.accent + spark + theme.RST;
   head += ' ';
   const fill = Math.max(1, cols - visLen(head) - 1);

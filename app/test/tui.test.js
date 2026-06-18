@@ -156,3 +156,12 @@ test('renderTranscript: a done-footer "╶ …" extends its rule to the width', 
   assert.equal(rend.visLen(rows[0]), 60);
   assert.ok(strip(rows[0]).endsWith('─'));
 });
+
+test('buildTitle: the ᚢ urfael wordmark is always present; a persona is a CHIP after it, only off-anchor', () => {
+  const anchor = strip(rend.buildTitle(TH, { model: 'sonnet', mode: 'fortress', persona: null }, 80));
+  assert.ok(anchor.startsWith('╭─ ᚢ urfael'), 'wordmark present on the anchor');
+  assert.ok(!/The Architect/.test(anchor), 'no persona chip on the anchor');
+  const chipped = strip(rend.buildTitle(TH, { model: 'sonnet', mode: 'fortress', persona: { glyph: 'ᚨ', name: 'The Architect' } }, 80));
+  assert.ok(chipped.includes('ᚢ urfael'), 'wordmark NOT replaced by the persona');
+  assert.ok(chipped.includes('The Architect'), 'persona chip added after the wordmark');
+});
