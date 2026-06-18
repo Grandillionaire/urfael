@@ -44,7 +44,7 @@ function banner() {
     '   ╚██████╔╝██║  ██║██║     ██║  ██║███████╗███████╗',
     '    ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝',
   ].join('\n');
-  const tag = 'an old intelligence, in service to one.';
+  const tag = 'Liquid Intelligence. At your service.';
   if (!COLOR) return '\n' + logo + '\n    ᚢᚱᚠᚨᛖᛚ   ' + tag + '\n';   // U·R·F·A·E·L in Elder Futhark
   return '\n\x1b[38;5;179m' + logo + '\x1b[0m\n    \x1b[38;5;214mᚢᚱᚠᚨᛖᛚ\x1b[0m   \x1b[2m' + tag + '\x1b[0m\n';
 }
@@ -84,31 +84,43 @@ async function ensureDaemon() {
 
 function ask(text) {
   return new Promise((resolve) => {
-    // Ctrl+C while a turn streams: stop the brain's in-flight turn, then leave cleanly.
-    // race the abort against a short timer so a wedged daemon can't make Ctrl+C hang (req timeout is 5min)
-    const onSigint = () => { Promise.race([req('POST', '/abort').catch(() => {}), new Promise((r) => setTimeout(r, 1500))]).then(() => process.exit(0)); };
+    // While the turn runs, show a live one-line "oracle" status on stderr (a changing rune + thinking-word +
+    // elapsed + token estimate + the current tool), then render the FULL answer as Markdown → ANSI on stdout —
+    // so it reads like Claude Code's terminal (headings/bold/lists/code), never raw ## / ** .
+    const ttyErr = !!process.stderr.isTTY;
+    const anim = ttyErr ? require('./tui-anim') : null;
+    const TH = COLOR ? { accent: '\x1b[38;5;214m', gold: '\x1b[33m', dim: '\x1b[2m', RST: '\x1b[0m' } : { accent: '', gold: '', dim: '', RST: '' };
+    const acfg = { anim: 'oracle', frameMs: 83, reduceMotion: false };
+    const t0 = Date.now();
+    let buf = '', started = false, lastTool = '', acc = '', timer = null;
+    const cols = () => Math.max(20, process.stdout.columns || process.stderr.columns || 80);
+    const drawStatus = () => { if (ttyErr) process.stderr.write('\r' + anim.composeWorker(acfg, TH, { t0, lastTool, answerChars: acc.length, usageTokens: null }, cols(), Date.now()) + '\x1b[K'); };
+    const clearStatus = () => { if (timer) { clearInterval(timer); timer = null; } if (ttyErr) process.stderr.write('\r\x1b[K'); };
+    const onSigint = () => { clearStatus(); Promise.race([req('POST', '/abort').catch(() => {}), new Promise((r) => setTimeout(r, 1500))]).then(() => process.exit(0)); };
     process.on('SIGINT', onSigint);
-    const done = () => { process.removeListener('SIGINT', onSigint); resolve(); };
+    const done = () => { clearStatus(); process.removeListener('SIGINT', onSigint); resolve(); };
+    if (ttyErr) { timer = setInterval(drawStatus, acfg.frameMs); if (timer.unref) timer.unref(); }
+    const render = (e) => {
+      const answer = acc.replace(/\[\/?SPOKEN\]/gi, '').replace(/[ \t\r\n]+$/, '');
+      if (answer) process.stdout.write(require('./md').toAnsi(answer, { color: COLOR, base: COLOR ? '\x1b[33m' : '' }) + (COLOR ? '\x1b[0m' : '') + '\n');
+      process.stdout.write(dim(`— ${e.aborted ? 'stopped' : (e.model || '')}${e.ms ? ' · ' + (e.ms / 1000).toFixed(1) + 's' : ''}`) + '\n');
+    };
     const r = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 300000 }, (res) => {
-      let buf = '', started = false, lastTool = '';
       res.on('data', (d) => {
         buf += d.toString(); let i;
         while ((i = buf.indexOf('\n')) >= 0) {
           const ln = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
           if (!ln) continue;
           let e; try { e = JSON.parse(ln); } catch { continue; }
-          if (e.kind === 'thinking' && e.tool && e.tool !== lastTool) { lastTool = e.tool; process.stderr.write(dim(`  ⟳ ${e.tool}\n`)); }
-          else if (e.kind === 'thinking' && e.delta) { if (!started) { started = true; } process.stdout.write(e.delta); }
-          else if (e.kind === 'done') {
-            if (!started && e.text) process.stdout.write(e.text.replace(/\[\/?SPOKEN\]/gi, ''));   // reply carried only in done (e.g. a control command) — show it
-            process.stdout.write('\n' + dim(`— ${e.aborted ? 'stopped' : (e.model || '')}${e.ms ? ' · ' + (e.ms / 1000).toFixed(1) + 's' : ''}\n`)); done();
-          }
+          if (e.kind === 'thinking' && e.tool) lastTool = e.tool;
+          else if (e.kind === 'thinking' && e.delta) { started = true; acc += e.delta; }
+          else if (e.kind === 'done') { if (!started && e.text) acc = e.text; clearStatus(); render(e); done(); }
         }
       });
       res.on('end', done);
     });
-    r.on('error', () => { console.error(bad('✗') + ' the brain is unreachable, sir.' + dim('  run  ') + gold('urfael doctor') + dim('  to diagnose it')); done(); });
-    r.on('timeout', () => { r.destroy(); done(); }); // a wedged daemon mid-stream shouldn't hang the CLI forever
+    r.on('error', () => { clearStatus(); console.error(bad('✗') + ' the brain is unreachable, sir.' + dim('  run  ') + gold('urfael doctor') + dim('  to diagnose it')); done(); });
+    r.on('timeout', () => { clearStatus(); r.destroy(); done(); }); // a wedged daemon mid-stream shouldn't hang the CLI forever
     r.end(JSON.stringify({ text }));
   });
 }

@@ -30,14 +30,14 @@ test('readCfg: reduce-motion auto-on under NO_COLOR / dumb / non-256; fps clamps
   assert.equal(themer.readCfg({ TERM: 'xterm-256color', URFAEL_TUI_REDUCE_MOTION: 'off' }, true).reduceMotion, false);
   assert.equal(themer.readCfg({ TERM: 'xterm-256color', URFAEL_TUI_FPS: '999' }, true).fps, 20);
   assert.equal(themer.readCfg({ TERM: 'xterm-256color', URFAEL_TUI_FPS: '1' }, true).fps, 4);
-  assert.equal(themer.readCfg({ TERM: 'xterm-256color', URFAEL_TUI_ANIM: 'bogus' }, true).anim, 'rune');
+  assert.equal(themer.readCfg({ TERM: 'xterm-256color', URFAEL_TUI_ANIM: 'bogus' }, true).anim, 'oracle');
 });
 
 test('withTheme / withAnim cycle to the next option without mutating the original cfg', () => {
   const c0 = themer.readCfg({ TERM: 'xterm-256color' }, true);
   const c1 = themer.withAnim(c0);
   assert.notEqual(c1.anim, c0.anim);
-  assert.equal(c0.anim, 'rune');                 // original untouched
+  assert.equal(c0.anim, 'oracle');               // original untouched (oracle is the default)
   const t1 = themer.withTheme(c0, { TERM: 'xterm-256color' }, true);
   assert.equal(t1.themeName, 'ember');           // gold → ember
 });

@@ -81,7 +81,7 @@ function render() {
   if (scroll > maxScroll) scroll = maxScroll; if (scroll < 0) scroll = 0;
   const mark = promptMark(), markW = rend.visLen(mark), room = Math.max(1, g.cols - markW - 1);
   const buf = input.length > room ? input.slice(input.length - room) : input;
-  const inputView = (!inflight && !input) ? T.dim + 'ask the old intelligence anything…' + T.RST : buf;
+  const inputView = (!inflight && !input) ? T.dim + 'ask Liquid Intelligence anything…' + T.RST : buf;
   const frame = rend.compose({ theme: T, cfg, vitals, lines: all, worker: workerLine(g, Date.now()), statusText: statusLine(), promptMark: mark, inputView, scroll }, g);
   rend.flush(frame, caretFor(g), g, process.stdout);
 }

@@ -31,7 +31,7 @@ banner(){
     ╚██████╔╝██║  ██║██║     ██║  ██║███████╗███████╗
      ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝
 LOGO
-  printf "${R}    ${AM}ᚢᚱᚠᚨᛖᛚ${R}   ${D}an old intelligence, in service to one.${R}\n"
+  printf "${R}    ${AM}ᚢᚱᚠᚨᛖᛚ${R}   ${D}Liquid Intelligence. At your service.${R}\n"
 }
 
 # Which platform are we on? Darwin = macOS, Linux = Linux. Everything else is unsupported.

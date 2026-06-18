@@ -6,6 +6,7 @@
 //                          ONLY on the first paint and after a resize (when prevFrame is reset/stale).
 //   renderWorkerOnly(…)  → the cheap animation tick: rewrites just the worker row, restores the caret.
 
+const md = require('./md');
 // shared with cli.js: measure TRUE printed width (strip SGR + zero-width combining marks).
 const visLen = (s) => String(s).replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '').replace(/[̀-ͯ]/g, '').length;
 
@@ -121,6 +122,27 @@ function wrap(s, width) {
   return out.length ? out : [''];
 }
 
+// ANSI-aware wrap: break a styled line into rows ≤ width VISIBLE cells, never splitting an SGR sequence, and
+// carrying the active SGR across each break so colour/bold survive a wrap (markdown answers stay styled).
+function wrapAnsi(s, width) {
+  const out = [];
+  for (const para of String(s).split('\n')) {
+    if (para === '') { out.push(''); continue; }
+    let row = '', active = '', vis = 0, i = 0;
+    while (i < para.length) {
+      if (para[i] === '\x1b') {
+        const m = /^\x1b\[[0-9;?]*[ -\/]*[@-~]/.exec(para.slice(i));
+        if (m) { const c = m[0]; row += c; if (/^\x1b\[0?m$/.test(c)) active = ''; else active += c; i += c.length; continue; }
+      }
+      if (/[̀-ͯ]/.test(para[i])) { row += para[i]; i++; continue; }       // zero-width combining mark
+      row += para[i]; vis++; i++;
+      if (vis >= width) { out.push(row + (active ? '\x1b[0m' : '')); row = active; vis = 0; }
+    }
+    out.push(row + (active ? '\x1b[0m' : ''));
+  }
+  return out.length ? out : [''];
+}
+
 // renderTranscript(lines, width, T, opts): the themed speaker chrome → wrapped physical rows. PURE.
 //   you    → a gold "┤you├" pill        urfael → a "ᚢ urfael" sigil column (caret on the live tail)
 //   tool   → one collapsed dim row "⟳ a · b · c     N tools"
@@ -144,18 +166,24 @@ function renderTranscript(lines, width, T, opts) {
       for (const w of wrap(txt, width)) rows.push(T.dim + w + T.RST);
       continue;
     }
-    let label, labelW, color;
-    if (e.who === 'you') { label = T.accent + '┤' + T.gold + 'you' + T.accent + '├' + T.RST + '  '; labelW = 7; color = T.bold; }
-    else { label = T.accent + 'ᚢ' + T.RST + ' ' + T.gold + 'urfael' + T.RST + '  '; labelW = 10; color = T.gold; }
-    const indent = ' '.repeat(labelW);
-    const wrapped = wrap(e.text, Math.max(8, width - labelW));
-    for (let i = 0; i < wrapped.length; i++) {
-      let body = wrapped[i];
-      if (inflight && ei === answerIdx && e.who === 'urfael' && i === wrapped.length - 1) body += T.accent + '▌' + T.RST;
-      rows.push((i === 0 ? label : indent) + color + body + T.RST);
+    const color = T.RST !== '';
+    if (e.who === 'you') {
+      const label = T.accent + '┤' + T.gold + 'you' + T.accent + '├' + T.RST + '  ', labelW = 7, indent = ' '.repeat(labelW);
+      const wrapped = wrap(e.text, Math.max(8, width - labelW));
+      for (let i = 0; i < wrapped.length; i++) rows.push((i === 0 ? label : indent) + T.bold + wrapped[i] + T.RST);
+    } else {
+      // urfael: render Markdown → ANSI (headings/bold/lists/code, not raw ## / **), gold-based, then ANSI-aware wrap.
+      const label = T.accent + 'ᚢ' + T.RST + ' ' + T.gold + 'urfael' + T.RST + '  ', labelW = 10, indent = ' '.repeat(labelW);
+      const styled = md.toAnsi(e.text, { color, base: color ? T.gold : '' });
+      const wrapped = wrapAnsi(styled, Math.max(8, width - labelW));
+      for (let i = 0; i < wrapped.length; i++) {
+        let body = wrapped[i];
+        if (inflight && ei === answerIdx && i === wrapped.length - 1) body += T.accent + '▌' + T.RST;
+        rows.push((i === 0 ? label : indent) + body);
+      }
     }
   }
   return rows;
 }
 
-module.exports = { visLen, clipPad, layout, wrap, renderTranscript, buildTitle, compose, flush, renderWorkerOnly, resetFrame, _peekPrev: () => prevFrame };
+module.exports = { visLen, clipPad, layout, wrap, wrapAnsi, renderTranscript, buildTitle, compose, flush, renderWorkerOnly, resetFrame, _peekPrev: () => prevFrame };

@@ -19,7 +19,7 @@ const THEME_16 = Object.freeze({ frame: '\x1b[33m', accent: '\x1b[1m\x1b[33m', g
 const THEME_PLAIN = Object.freeze({ frame: '', accent: '', gold: '', dim: '', bold: '' });
 
 const THEME_NAMES = ['gold', 'ember', 'mono', 'custom'];
-const ANIM_NAMES = ['rune', 'ember', 'braille', 'scry', 'shimmer'];
+const ANIM_NAMES = ['oracle', 'rune', 'ember', 'braille', 'scry', 'shimmer'];   // oracle (changing rune+word) is the default
 
 // supports256(env): cheap, honest probe — COLORTERM=truecolor or a 256-capable TERM.
 function supports256(env) {
@@ -62,8 +62,8 @@ function readCfg(env, isTTY) {
     /^(0|off|false)$/.test(rm) ? false :
     (!isTTY || (env.NO_COLOR != null && env.NO_COLOR !== '') || /^(dumb|linux)$/.test(env.TERM || '') || !supports256(env) || !!env.CI);
 
-  let anim = String(env.URFAEL_TUI_ANIM || 'rune').toLowerCase();
-  if (!ANIM_NAMES.includes(anim)) anim = 'rune';
+  let anim = String(env.URFAEL_TUI_ANIM || 'oracle').toLowerCase();
+  if (!ANIM_NAMES.includes(anim)) anim = 'oracle';
   let fps = parseInt(env.URFAEL_TUI_FPS || '12', 10);
   if (!Number.isFinite(fps) || fps < 4) fps = 4; if (fps > 20) fps = 20;
   const themeName = THEME_NAMES.includes(String(env.URFAEL_TUI_THEME || env.URFAEL_THEME || 'gold').toLowerCase())
