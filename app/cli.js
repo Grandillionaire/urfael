@@ -39,6 +39,7 @@
 //   urfael dashboard                           open the token-gated localhost web console (prints the URL)
 //   urfael stop                                abort the current in-flight turn (also: Ctrl+C while asking)
 //   urfael health | shutdown
+//   urfael logo                                print the Urfael terminal logo
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
@@ -54,6 +55,20 @@ const TOKENF = path.join(os.homedir(), '.claude', 'urfael', 'dashboard.token');
 const APITOKENF = path.join(os.homedir(), '.claude', 'urfael', 'api.token');
 const gold = (s) => `\x1b[33m${s}\x1b[0m`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+// The terminal logo — gold ANSI-shadow URFAEL + the Uruz rune (ᚢ) + tagline. Colour only on a TTY (plain when piped).
+function banner() {
+  const logo = [
+    '   ██╗   ██╗██████╗ ███████╗ █████╗ ███████╗██╗',
+    '   ██║   ██║██╔══██╗██╔════╝██╔══██╗██╔════╝██║',
+    '   ██║   ██║██████╔╝█████╗  ███████║█████╗  ██║',
+    '   ██║   ██║██╔══██╗██╔══╝  ██╔══██║██╔══╝  ██║',
+    '   ╚██████╔╝██║  ██║██║     ██║  ██║███████╗███████╗',
+    '    ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝',
+  ].join('\n');
+  const tag = 'an old intelligence, in service to one.';
+  if (!process.stdout.isTTY) return '\n' + logo + '\n    ᚢ  ' + tag + '\n';
+  return '\n\x1b[38;5;179m' + logo + '\x1b[0m\n    \x1b[38;5;214mᚢ\x1b[0m  \x1b[2m' + tag + '\x1b[0m\n';
+}
 
 function req(method, p, body) {
   return new Promise((resolve, reject) => {
@@ -122,7 +137,8 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
 
 (async () => {
   const [cmd, ...rest] = process.argv.slice(2);
-  if (!cmd || cmd === 'help' || cmd === '--help') { console.log(fs.readFileSync(__filename, 'utf8').split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n')); return; }
+  if (cmd === 'logo') { console.log(banner()); return; }
+  if (!cmd || cmd === 'help' || cmd === '--help') { if (!cmd) console.log(banner()); console.log(fs.readFileSync(__filename, 'utf8').split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n')); return; }
 
   if (cmd === 'sessions') { if (rest[0] === 'search' && rest[1]) searchSessions(rest.slice(1).join(' ')); else console.log('usage: urfael sessions search <query>'); return; }
 

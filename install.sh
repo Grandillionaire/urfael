@@ -9,18 +9,38 @@ MEM="$HOME/Urfael-memory"
 LA="$HOME/Library/LaunchAgents"
 SDU="$HOME/.config/systemd/user"
 
-say(){ printf '%s\n' "$1"; }
-ok(){ printf '  ✓ %s\n' "$1"; }
-warn(){ printf '  ⚠ %s\n' "$1"; }
+# ── presentation: a designed terminal experience (gold-on-dark; color on a TTY, plain when piped) ──────
+if [ -t 1 ]; then
+  G=$'\033[38;5;179m'; GB=$'\033[1;38;5;179m'; AM=$'\033[38;5;214m'; D=$'\033[2m'
+  GR=$'\033[38;5;108m'; RD=$'\033[38;5;167m'; CY=$'\033[38;5;109m'; R=$'\033[0m'
+else G=''; GB=''; AM=''; D=''; GR=''; RD=''; CY=''; R=''; fi
+say(){  printf '%s\n' "$1"; }
+ok(){   printf "    ${GR}✓${R}  %s\n" "$1"; }                 # done / present
+warn(){ printf "    ${AM}●${R}  %s\n" "$1"; }                # optional / heads-up
+bad(){  printf "    ${RD}✗${R}  %s\n" "$1"; }                # missing / problem
+sect(){ printf "\n  ${GB}▌${R} ${GB}%s${R}  ${D}%s${R}\n" "$1" "${2:-}"; }   # a step group, like a menu section
+banner(){
+  printf "\n${G}"
+  cat <<'LOGO'
+    ██╗   ██╗██████╗ ███████╗ █████╗ ███████╗██╗
+    ██║   ██║██╔══██╗██╔════╝██╔══██╗██╔════╝██║
+    ██║   ██║██████╔╝█████╗  ███████║█████╗  ██║
+    ██║   ██║██╔══██╗██╔══╝  ██╔══██║██╔══╝  ██║
+    ╚██████╔╝██║  ██║██║     ██║  ██║███████╗███████╗
+     ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝
+LOGO
+  printf "${R}    ${AM}ᚢ${R}  ${D}an old intelligence, in service to one.${R}\n"
+}
 
 # Which platform are we on? Darwin = macOS, Linux = Linux. Everything else is unsupported.
 OS="$(uname)"
 case "$OS" in
   Darwin) ;;
   Linux)  ;;
-  *) say "✗ Urfael supports macOS and Linux only (uname=$OS)."; exit 1 ;;
+  *) printf "  ${RD}✗ Urfael supports macOS and Linux only (uname=%s).${R}\n" "$OS"; exit 1 ;;
 esac
-say "── Urfael install ───────────────────────────────"
+banner
+printf "\n  ${GB}I N S T A L L${R}   ${D}· idempotent · nothing risky enabled · keeps your vault & secrets${R}\n"
 
 # ── shared steps ─────────────────────────────────────────────────────────────
 # These behave identically on macOS and Linux (no platform-specific shell-outs).
@@ -90,7 +110,7 @@ install_app_and_cli(){
 if [ "$OS" = "Darwin" ]; then
   # ════════════════════════════ macOS ════════════════════════════
   # 1) dependency check (report, don't auto-install heavy things)
-  say "Checking dependencies…"
+  sect "DEPENDENCIES" "what the brain + local voice need"
   for c in claude node npm; do command -v "$c" >/dev/null && ok "$c" || warn "$c MISSING — install it (claude: https://claude.com/claude-code)"; done
   command -v uv >/dev/null && ok "uv" || warn "uv missing — https://docs.astral.sh/uv (needed for some MCP servers)"
   { command -v gtimeout >/dev/null || command -v timeout >/dev/null; } && ok "timeout/gtimeout" || warn "gtimeout missing — 'brew install coreutils' (needed for the autonomous loop)"
@@ -101,10 +121,12 @@ if [ "$OS" = "Darwin" ]; then
   command -v whisper-server >/dev/null && ok "whisper-cpp (local STT)" || warn "whisper-cpp missing — 'brew install whisper-cpp' (free local speech-to-text)"
 
   # 2) config dir + model + secret templates
+  sect "VOICE & CONFIG" "local speech model (checksum-pinned) + secret templates (chmod 600)"
   fetch_model
   write_secret_templates
 
   # 3) scaffold the vault from the template (never overwrite an existing vault)
+  sect "VAULT & MEMORY" "your second brain (PARA + daily notes) + a private, git-versioned memory repo"
   scaffold_vault
 
   # 4) local, private memory repo (never public)
@@ -114,9 +136,11 @@ if [ "$OS" = "Darwin" ]; then
   record_repo
 
   # 6) app deps + the `urfael` terminal command
+  sect "APP & CLI" "node deps + the \`urfael\` terminal command"
   install_app_and_cli
 
   # 7) launchd plists — fill placeholders, but DO NOT auto-load (you choose what runs in the background)
+  sect "BACKGROUND SERVICES" "launchd units — written, NOT loaded (you decide what runs)"
   NODE="$(command -v node || echo /opt/homebrew/bin/node)"
   mkdir -p "$LA"
   for t in "$REPO"/config/launchagents/*.plist.template; do
@@ -127,7 +151,7 @@ if [ "$OS" = "Darwin" ]; then
 
   cat <<NEXT
 
-── Next steps ───────────────────────────────────
+${GB}▌ FIRST STEPS${R}   ${D}you choose what runs — nothing was started for you${R}
 1. Voice works out of the box — FREE & local (macOS \`say\` + whisper.cpp), no API key needed.
    Optional: edit "$JDIR/tts.env" for a higher-quality local voice (Kokoro) or to add an ElevenLabs key.
 2. Open ~/Urfael as a vault in Obsidian → enable community plugins → install "Local REST API",
@@ -141,16 +165,16 @@ if [ "$OS" = "Darwin" ]; then
 5. ⚠️  Hands/eyes, the autonomous loop, and full permissions are OFF by default.
    Read SECURITY.md, then opt in (URFAEL_YOLO=1 in a sandbox; uncomment MCPs in config/mcp.json.example).
 
-Run  urfael setup  to choose how Urfael reaches Claude (your subscription, an API key, or a local model).
+  ${AM}▸${R} ${GB}Run  urfael setup${R}  ${D}— pick how Urfael reaches Claude (your subscription, an API key, or a local model).${R}
 
-Done. Talk to Urfael: tap the orb (or set a Picovoice key — see WAKE_KEYWORD in tts.env for the wake word).
+  ${GB}ᚢ  Ready, sir.${R}  ${D}Talk to Urfael — tap the orb, or just run  ${R}${CY}urfael "hello"${R}${D}  from any terminal.${R}
 NEXT
 
 else
   # ════════════════════════════ Linux ════════════════════════════
   # 1) dependency check (report, don't auto-install heavy things). Package names vary by distro;
   #    we name the binary/library so you can `apt`/`dnf`/`pacman` it however your distro wants.
-  say "Checking dependencies…"
+  sect "DEPENDENCIES" "what the brain + local voice need"
   for c in claude node npm; do command -v "$c" >/dev/null && ok "$c" || warn "$c MISSING — install it (claude: https://claude.com/claude-code)"; done
   command -v uv >/dev/null && ok "uv" || warn "uv missing — https://docs.astral.sh/uv (needed for some MCP servers)"
   command -v timeout >/dev/null && ok "timeout" || warn "timeout missing — install GNU coreutils (needed for the autonomous loop)"
@@ -169,10 +193,12 @@ else
   [ "${SHOT_OK:-0}" = 1 ] || warn "no screenshot tool — install 'grim' (Wayland) or 'scrot'/'maim' (X11) for vision"
 
   # 2) config dir + model + secret templates  (identical to macOS)
+  sect "VOICE & CONFIG" "local speech model (checksum-pinned) + secret templates (chmod 600)"
   fetch_model
   write_secret_templates
 
   # 3) scaffold the vault from the template (never overwrite an existing vault)  (identical to macOS)
+  sect "VAULT & MEMORY" "your second brain (PARA + daily notes) + a private, git-versioned memory repo"
   scaffold_vault
 
   # 4) local, private memory repo (never public)  (identical to macOS)
@@ -185,6 +211,7 @@ else
   install_app_and_cli
 
   # 7) systemd --user units — fill placeholders, but DO NOT enable (you choose what runs in the background)
+  sect "BACKGROUND SERVICES" "systemd --user units — written, NOT enabled (you decide what runs)"
   NODE="$(command -v node || echo /usr/bin/node)"
   mkdir -p "$SDU"
   for t in "$REPO"/config/systemd/*.template; do
@@ -196,7 +223,7 @@ else
 
   cat <<NEXT
 
-── Next steps ───────────────────────────────────
+${GB}▌ FIRST STEPS${R}   ${D}you choose what runs — nothing was started for you${R}
 1. Voice works out of the box — FREE & local (espeak-ng/spd-say + whisper.cpp), no API key needed.
    Optional: edit "$JDIR/tts.env" for a higher-quality local voice (Kokoro) or to add an ElevenLabs key.
 2. Open ~/Urfael as a vault in Obsidian → enable community plugins → install "Local REST API",
@@ -211,9 +238,9 @@ else
 5. ⚠️  Hands/eyes, the autonomous loop, and full permissions are OFF by default.
    Read SECURITY.md, then opt in (URFAEL_YOLO=1 in a sandbox; uncomment MCPs in config/mcp.json.example).
 
-Run  urfael setup  to choose how Urfael reaches Claude (your subscription, an API key, or a local model).
+  ${AM}▸${R} ${GB}Run  urfael setup${R}  ${D}— pick how Urfael reaches Claude (your subscription, an API key, or a local model).${R}
 
-Done. Talk to Urfael: tap the orb (or set a Picovoice key — see WAKE_KEYWORD in tts.env for the wake word).
+  ${GB}ᚢ  Ready, sir.${R}  ${D}Talk to Urfael — tap the orb, or just run  ${R}${CY}urfael "hello"${R}${D}  from any terminal.${R}
 NEXT
 
 fi
