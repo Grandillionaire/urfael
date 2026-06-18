@@ -47,6 +47,22 @@ function has(bin) { // scan PATH for an executable — no shell (avoids the shel
 }
 function claudePath() { return ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude'].find((p) => { try { fs.accessSync(p); return true; } catch { return false; } }) || (has('claude') ? 'claude' : ''); }
 
+// Best-effort auto-detect of who the user is, so we can fill the CLAUDE.md {{PLACEHOLDERS}} instead of making
+// them hand-edit (a step everyone forgets — then the brain literally addresses you as "{{USER_NAME}}").
+function detectPersona() {
+  const tryCmd = (c) => { try { return spawnSync('sh', ['-c', c], { stdio: ['ignore', 'pipe', 'ignore'] }).stdout.toString().trim(); } catch { return ''; } };
+  let name = tryCmd('git config user.name');
+  const email = tryCmd('git config user.email');
+  if (!name && email) name = email.split('@')[0];
+  if (!name) name = process.env.USER || process.env.LOGNAME || '';
+  let tz = '', locale = '';
+  try { const o = Intl.DateTimeFormat().resolvedOptions(); tz = o.timeZone || ''; locale = o.locale || ''; } catch {}
+  const city = tz.includes('/') ? tz.split('/').pop().replace(/_/g, ' ') : '';
+  const LANGS = { en: 'English', de: 'German', fr: 'French', es: 'Spanish', it: 'Italian', pt: 'Portuguese', nl: 'Dutch', ru: 'Russian', zh: 'Chinese', ja: 'Japanese', ko: 'Korean', ar: 'Arabic', hi: 'Hindi', pl: 'Polish', tr: 'Turkish', sv: 'Swedish', uk: 'Ukrainian' };
+  const language = LANGS[(locale.split('-')[0] || 'en').toLowerCase()] || 'English';
+  return { name, city, timezone: tz, language };
+}
+
 // read provider.env into a {KEY:val} map (so we edit non-destructively), and write it back atomic + 0600
 function readEnv() {
   const out = {};
@@ -171,6 +187,27 @@ async function run() {
     const mpick = await io.ask('  Choose ' + gold('[1-2]') + ' (Enter = 1, Fortress): ');
     if (/^2/.test(mpick)) { next.URFAEL_MODE = 'full'; p('  ' + warn('Full mode set.') + ' ' + dim('Remote turns can now reach the web. You can switch back anytime.')); }
     else p('  ' + ok('Fortress (secure default).'));
+
+    // 2d) personalize — auto-detect + FILL the CLAUDE.md placeholders so Urfael knows who it serves from turn one
+    //     (no more hand-editing {{USER_NAME}}; the #1 forgotten first-run step).
+    try {
+      const CLAUDE_MD = path.join(VAULT, 'CLAUDE.md');
+      let md = ''; try { md = fs.readFileSync(CLAUDE_MD, 'utf8'); } catch {}
+      if (md && /\{\{(USER_NAME|CITY|TIMEZONE|LANGUAGE)\}\}/.test(md)) {
+        p('');
+        p('  ' + bold('Who do I serve?') + dim('   I detected these — press Enter to accept each, or type a correction.'));
+        const d = detectPersona();
+        const ask = async (label, val) => (await io.ask('    ' + label.padEnd(9) + (val ? dim('[' + val + '] ') : '') + ': ')).trim() || val;
+        const name = await ask('name', d.name);
+        const city = await ask('city', d.city);
+        const tz = await ask('timezone', d.timezone);
+        const lang = await ask('language', d.language);
+        md = md.replace(/\{\{USER_NAME\}\}/g, name || 'friend').replace(/\{\{CITY\}\}/g, city || 'your city')
+          .replace(/\{\{TIMEZONE\}\}/g, tz || 'local').replace(/\{\{LANGUAGE\}\}/g, lang || 'English');
+        fs.writeFileSync(CLAUDE_MD, md);
+        p('  ' + ok('✓ Personalized ') + dim(CLAUDE_MD) + dim('  — Urfael now knows who it serves, from the first turn.'));
+      }
+    } catch {}
 
     writeEnv(next);
     p('');

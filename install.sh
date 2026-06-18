@@ -83,7 +83,7 @@ scaffold_vault(){
     rm -rf "$VAULT/memory"                                        # memory lives in ~/Urfael-memory, not the vault
     ( cd "$VAULT" && [ -L .claude ] || ln -s _urfael .claude )   # Claude Code reads commands/hooks via .claude
     chmod +x "$VAULT"/_urfael/*.sh 2>/dev/null
-    ok "scaffolded $VAULT (fill the {{PLACEHOLDERS}} in CLAUDE.md)"
+    ok "scaffolded $VAULT  ($(printf "${D}")run \`urfael setup\` — it fills your details for you$(printf "${R}"))"
   fi
 }
 
@@ -159,7 +159,7 @@ if [ "$OS" = "Darwin" ]; then
 2. Open ~/Urfael as a vault in Obsidian → enable community plugins → install "Local REST API",
    then register it:  cd ~/Urfael && claude mcp add -s local --transport http obsidian \\
       http://127.0.0.1:27123/mcp/ --header "Authorization: Bearer <your REST key>"
-3. Fill the {{USER_NAME}} / {{CITY}} / {{TIMEZONE}} / {{LANGUAGE}} placeholders in ~/Urfael/CLAUDE.md
+3. ${GB}urfael setup${R} auto-detects + fills your name / city / timezone / language into ~/Urfael/CLAUDE.md (no hand-editing)
 4. Start the brain + UI:
       launchctl load -w "$LA/com.urfael.daemon.plist"      # the always-on brain
       cd "$REPO/app" && npm start                          # the overlay UI
@@ -231,7 +231,7 @@ else
 2. Open ~/Urfael as a vault in Obsidian → enable community plugins → install "Local REST API",
    then register it:  cd ~/Urfael && claude mcp add -s local --transport http obsidian \\
       http://127.0.0.1:27123/mcp/ --header "Authorization: Bearer <your REST key>"
-3. Fill the {{USER_NAME}} / {{CITY}} / {{TIMEZONE}} / {{LANGUAGE}} placeholders in ~/Urfael/CLAUDE.md
+3. ${GB}urfael setup${R} auto-detects + fills your name / city / timezone / language into ~/Urfael/CLAUDE.md (no hand-editing)
 4. Start the brain + UI:
       systemctl --user enable --now urfael-daemon          # the always-on brain
       cd "$REPO/app" && npm start                          # the overlay UI
