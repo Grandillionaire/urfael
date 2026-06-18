@@ -289,6 +289,24 @@ async function main() {
   check('only a LOCAL or remote-OWNER turn can switch the persona — a member/guest never reaches it',
     /ctx && ctx\.role === 'owner'[\s\S]{0,200}parsePersonaDirective/.test(daemonSrc),
     'askScoped gates persona/model directives on ctx.role===owner; an untrusted remote sender can\'t repin the owner');
+  // COUNCIL is a live multi-agent orchestration — its workers must stay in the read-only fail-closed sandbox.
+  const councilm = require('../council');
+  check('a Council worker can only NARROW its tools below the read-only floor — never gains Write/Edit/Bash',
+    (() => { const r = councilm.intersectTools(['Read', 'Write', 'Bash', 'Edit', 'WebFetch'], councilm.COUNCIL_BASE_TOOLS); return r.length && r.every((t) => councilm.COUNCIL_BASE_TOOLS.includes(t)) && !r.some((t) => /Write|Edit|Bash/.test(t)); })()
+    && councilm.intersectTools([], councilm.COUNCIL_BASE_TOOLS).length > 0,
+    'intersectTools = requested ∩ floor; fail-closed to read-only, never empty; acceptEdits is not a cwd jail so this floor is load-bearing');
+  check('a Council worker spawn never bypasses permissions and is nonce-framed',
+    (() => { const a = councilm._mkWorkerArgs('x', 'sonnet', councilm.COUNCIL_BASE_TOOLS, 'NNN'); return !a.includes('bypassPermissions') && a[a.indexOf('--permission-mode') + 1] === 'acceptEdits' && !/Write|Edit|Bash/.test(a[a.indexOf('--allowedTools') + 1]); })(),
+    'workers run acceptEdits (never bypass), read-only tools, untrusted-framed');
+  check('Council is LOCAL-ONLY — a remote channel can never convene one, and agents are clamped 1..6',
+    /req\.url === '\/council'[\s\S]{0,400}'channel' in parsed && parsed\.channel[\s\S]{0,120}local-only/.test(daemonSrc)
+    && councilm.clampAgents('99') === 6 && councilm.clampAgents('0') === 1,
+    'the /council route refuses any present channel; clampAgents bounds fan-out; streams over the 0600 socket, no new port');
+  check('Council single-flight + reaped on shutdown — workers join inflightScoped, /council/abort kills them',
+    /if \(councilInFlight\)[\s\S]{0,160}already in session/.test(daemonSrc)
+    && /councilAbort = \(\) => \{[\s\S]{0,140}SIGKILL/.test(daemonSrc)
+    && /function shutdown\(\)[\s\S]{0,260}councilAbort[\s\S]{0,320}inflightScoped/.test(daemonSrc),
+    'one council at a time (409); abort SIGKILLs the worker set; shutdown reaps every worker via inflightScoped');
 
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}

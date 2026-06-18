@@ -375,6 +375,20 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
   if (!(await ensureDaemon())) { console.error(bad('✗') + ' I could not wake the brain, sir.' + dim('   run  ') + gold('urfael doctor') + dim('  to see why, or check  ~/.claude/urfael/daemon.log')); process.exit(1); }
   // tui: hand the terminal to the full-screen cockpit (ensureDaemon ran first so spawn logs can't corrupt the alt buffer)
   if (cmd === 'tui') { require('./tui').run(); return; }
+  if (cmd === 'council') {
+    // a live, watchable round table of agents — the orchestrator decomposes, dispatches, and synthesizes.
+    if (rest.includes('--list')) {
+      const cs = await req('GET', '/councils');
+      if (!cs || !cs.length) { console.log(dim('no councils yet — convene one:  ') + gold('urfael council "<task>"')); return; }
+      for (const c of cs) console.log(gold(c.id) + dim('  ' + String(c.state || '').padEnd(11) + '  ') + String(c.task || '').slice(0, 70));
+      return;
+    }
+    const replay = flag(rest, '--replay'), agents = flag(rest, '--agents');
+    const task = rest.filter((a, i) => !a.startsWith('--') && rest[i - 1] !== '--replay' && rest[i - 1] !== '--agents').join(' ');
+    if (!replay && !task.trim()) { console.error('usage: urfael council "<task>" [--agents N]   ·   urfael council --list   ·   urfael council --replay <id>'); process.exit(1); }
+    await require('./council-view').run(task, agents, { replay });
+    return;
+  }
   if (cmd === 'health') { console.log(JSON.stringify(await req('GET', '/health'))); return; }
   if (cmd === 'shutdown') { await req('POST', '/shutdown').catch(() => {}); console.log('brain stopped'); return; }
   if (cmd === 'status') {
