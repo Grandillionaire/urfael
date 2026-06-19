@@ -142,9 +142,9 @@ const COMMANDS = [
 
   // ── PLUGINS ──────────────────────────────────────────────────────────────────
   { name: 'plugin', group: 'PLUGINS', aliases: ['plugins'],
-    summary: 'inspect a plugin: capability grant, safety scan, signature',
-    usage: 'urfael plugin [info <file> | scan <file>]',
-    examples: ['urfael plugin', 'urfael plugin scan ./plugin.json', 'urfael plugin info ./plugin.json'],
+    summary: 'install, enable, scan + inspect sandboxed MCP plugins',
+    usage: 'urfael plugin [list | scan <file> | info <file>\n  | install <file> | enable <id> | disable <id>]',
+    examples: ['urfael plugin list', 'urfael plugin scan ./plugin.json', 'urfael plugin install ./plugin.json'],
     see: ['connect', 'skills'] },
 
   // ── SERVE ────────────────────────────────────────────────────────────────────

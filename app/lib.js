@@ -460,10 +460,35 @@ function parseIPv4Any(h) {
   return [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255];
 }
 
-// True for any host the relay / skill-fetcher must NOT reach: loopback, RFC1918, link-local (incl. cloud
-// metadata 169.254.169.254), CGNAT, multicast/reserved, and the IPv6 equivalents — in any encoding. FAIL-CLOSED:
-// an empty/garbage host is treated as private (blocked), and an unrecognized name is only allowed if it parses
-// as a clearly-public literal (a bare hostname returns false → resolved + checked again at connect time upstream).
+// Parse an IPv6 literal into its 16 bytes (handles :: compression + an embedded IPv4 tail), or null. IPv6 has
+// infinitely many spellings of the same address ('::1', '0::1', '0:0::1', '::ffff:7f00:1' …), so loopback/ULA/
+// link-local/IPv4-mapped must be classified on the NUMERIC bytes, not a text regex that any of those forms evades.
+function parseIPv6(h) {
+  let s = String(h || '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  if (s.indexOf(':') < 0) return null;
+  const lc = s.lastIndexOf(':'), tail = s.slice(lc + 1);                       // an embedded IPv4 in the last group → two hex groups
+  if (tail.indexOf('.') >= 0) {
+    const v4 = parseIPv4Any(tail);
+    if (!v4) return null;
+    s = s.slice(0, lc + 1) + (((v4[0] << 8) | v4[1]).toString(16)) + ':' + (((v4[2] << 8) | v4[3]).toString(16));
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const back = halves.length === 2 ? (halves[1] ? halves[1].split(':') : []) : null;
+  let groups;
+  if (back === null) { groups = head; }                                        // no '::' → must already be 8 groups
+  else { const miss = 8 - head.length - back.length; if (miss < 1) return null; groups = head.concat(Array(miss).fill('0'), back); }
+  if (groups.length !== 8) return null;
+  const bytes = [];
+  for (const g of groups) { if (!/^[0-9a-f]{1,4}$/.test(g)) return null; const n = parseInt(g, 16); bytes.push((n >> 8) & 255, n & 255); }
+  return bytes;
+}
+
+// True for any host the relay / skill-fetcher / plugin egress broker must NOT reach: loopback, RFC1918, link-local
+// (incl. cloud metadata 169.254.169.254), CGNAT, multicast/reserved, and the IPv6 equivalents — in any encoding.
+// FAIL-CLOSED: an empty/garbage host is treated as private (blocked), and an unrecognized name is only allowed if it
+// parses as a clearly-public literal (a bare hostname returns false → resolved + checked again at connect time upstream).
 function isPrivateHost(h) {
   h = String(h || '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '').replace(/%.*$/, '');
   if (!h) return true;                                                       // empty → fail-closed
@@ -479,8 +504,24 @@ function isPrivateHost(h) {
     if (a === 198 && (b === 18 || b === 19)) return true;                   // benchmarking (198.18/15)
     return false;
   }
-  if (/^(::1$|::$|::ffff:|fe80:|fec0:|fc|fd)/.test(h)) return true;          // IPv6 loopback / link-local / ULA / mapped
-  if (/^0*:0*:0*:0*:0*:0*:0*:0*1$/.test(h)) return true;                     // expanded ::1
+  const v6 = parseIPv6(h);
+  if (v6) {
+    if (v6.slice(0, 15).every((x) => x === 0) && (v6[15] === 0 || v6[15] === 1)) return true;   // :: (unspecified) and ::1 (loopback), in any spelling
+    if (v6[0] === 0xfe && (v6[1] & 0xc0) === 0x80) return true;                                  // fe80::/10 link-local
+    if (v6[0] === 0xfe && (v6[1] & 0xc0) === 0xc0) return true;                                  // fec0::/10 site-local (deprecated; still block)
+    if ((v6[0] & 0xfe) === 0xfc) return true;                                                    // fc00::/7 unique-local (fc/fd)
+    if (v6.slice(0, 10).every((x) => x === 0) && v6[10] === 0xff && v6[11] === 0xff) {           // ::ffff:0:0/96 IPv4-mapped → classify the embedded v4
+      const a = v6[12], b = v6[13];
+      if (a === 0 || a === 127 || a === 10 || a >= 224) return true;
+      if (a === 169 && b === 254) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 192 && b === 168) return true;
+      if (a === 100 && b >= 64 && b <= 127) return true;
+      if (a === 198 && (b === 18 || b === 19)) return true;
+      return false;                                                                              // mapped PUBLIC ip = public
+    }
+    return false;                                                                                // other global-unicast IPv6 = public
+  }
   return false;
 }
 

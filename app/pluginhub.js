@@ -238,6 +238,7 @@ function buildMcpConfig(manifest, grant = {}, opts = {}) {
   const server = hasHostGrant(grant)
     ? { command: opts.docker || 'docker', args: buildCellArgs(manifest, grant, opts), env: {} }
     : { command: manifest.entry.cmd[0], args: manifest.entry.cmd.slice(1), env: {} };
+  if (opts.bundleDir && !hasHostGrant(grant)) server.cwd = opts.bundleDir;   // the brain-tools child runs from its own bundle dir
   return { mcpServers: { [manifest.id]: server } };
 }
 

@@ -437,12 +437,54 @@ function printPluginPreview(ph, m) {
       }
       return;
     }
+    // install — pure six-gate (parse -> scan -> preview -> consent -> write bundle + grant 0600, DISABLED). No daemon.
+    if (sub === 'install' && rest[1]) {
+      const m = ph.load(rest[1]);
+      if (!m) { console.error('✗ not a valid plugin manifest (urfael.plugin/v1): ' + rest[1]); process.exit(1); }
+      const { flags } = ph.scanBundle(m);
+      printPluginPreview(ph, m);
+      const danger = flags.some((f) => f.level === 'danger');
+      if (flags.length) { const d = flags.filter((f) => f.level === 'danger').length; console.log((d ? gold('⚠ ' + d + ' DANGER') : gold('⚠ ' + flags.length + ' warning')) + dim(' flag(s):')); for (const f of flags) console.log('  ' + (f.level === 'danger' ? gold('[DANGER]') : dim('[warn]  ')) + ' ' + f.why); }
+      else console.log(gold('✓ scan clean'));
+      if (danger) { console.error('✗ refusing to install: the static scan flagged DANGER'); process.exit(1); }
+      const ok = await promptYesNo('Install plugin "' + m.id + '"? (installed DISABLED; you enable it separately)');
+      if (!ok) { console.log(dim('aborted — nothing written')); return; }
+      const dir = path.join(ph.PLUGINS_DIR, m.id);
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'plugin.json'), JSON.stringify(m, null, 2), { mode: 0o600 });
+        const grant = { id: m.id, enabled: false, caps: ph.grantFromManifest(m), manifestSha: ph.sha256(Buffer.from(JSON.stringify(m))) };
+        fs.writeFileSync(path.join(dir, 'grant.json'), JSON.stringify(grant, null, 2), { mode: 0o600 });
+      } catch (e) { console.error('✗ write failed: ' + ((e && e.message) || e)); process.exit(1); }
+      console.log(gold('✓ installed ') + m.id + dim(' (disabled) — enable with: ') + gold('urfael plugin enable ' + m.id));
+      if (m.hostReaching) console.log(dim('  note: requests host capabilities (fs/net/secret); brain-tools plugins enable today, host-reaching tiers land with the cell + broker.'));
+      return;
+    }
+    // enable / disable / list — via the daemon (re-verifies, attaches/detaches the plugin's MCP server on the warm sessions)
+    if ((sub === 'enable' || sub === 'disable') && rest[1]) {
+      if (!await ensureDaemon()) { console.error('✗ daemon unreachable'); process.exit(1); }
+      const r = await req('POST', '/plugin/' + ph.slugify(rest[1]) + '/' + sub).catch(() => ({ ok: false, error: 'request failed' }));
+      if (!r || !r.ok) { console.error('✗ ' + ((r && r.error) || 'failed')); process.exit(1); }
+      if (sub === 'enable') console.log(gold('✓ enabled ') + rest[1] + ((r.tools && r.tools.length) ? dim('  tools: ' + r.tools.join(', ')) : ''));
+      else console.log(gold('✓ disabled ') + rest[1]);
+      return;
+    }
+    if (sub === 'list') {
+      if (!await ensureDaemon()) { console.error('✗ daemon unreachable'); process.exit(1); }
+      const r = await req('GET', '/plugins').catch(() => ({ plugins: [] }));
+      const list = (r && r.plugins) || [];
+      if (!list.length) { console.log(dim('no plugins installed — ') + gold('urfael plugin install <file>')); return; }
+      for (const p of list) console.log('  ' + (p.enabled ? gold('●') : dim('○')) + ' ' + gold(p.id.padEnd(20)) + ' ' + dim('v' + p.version) + (p.hostReaching ? gold('  host-reaching') : '') + ((p.tools && p.tools.length) ? dim('  [' + p.tools.length + ' tools]') : ''));
+      console.log(dim('  ● enabled  ○ installed   ·   ') + gold('urfael plugin enable <id>'));
+      return;
+    }
     console.log(gold('Plugins') + dim('  ·  capability-scoped, sandboxed, signed MCP extensions'));
     console.log(dim('  A plugin is loaded as DATA, never run inside the daemon, and only ever runs as an MCP server'));
     console.log(dim('  in a --network none Docker cell on OWNER turns. Zero capability by default: every power is'));
     console.log(dim('  declared, then granted by you, then compiled into the sandbox. It never opens a port.'));
     console.log('');
-    console.log(dim('  inspect a manifest:  ') + gold('urfael plugin scan ./plugin.json') + dim('   ·   ') + gold('urfael plugin info ./plugin.json'));
+    console.log(dim('  install + enable:  ') + gold('urfael plugin install ./plugin.json') + dim('  →  ') + gold('urfael plugin enable <id>'));
+    console.log(dim('  inspect first:  ') + gold('urfael plugin scan ./plugin.json') + dim('   ·   list:  ') + gold('urfael plugin list'));
     console.log(dim('  the design + the v1 / next-increment split:  ') + gold('docs/PLUGINS.md'));
     return;
   }

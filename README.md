@@ -101,7 +101,7 @@ The brain is a local daemon reachable only through a `0600` unix socket, and **i
 - **Fail-closed everything.** An unknown channel resolves to the most-restricted profile, not the least. A malformed request is rejected, not guessed.
 - **Sandboxed autonomy.** The `/goal` loop runs on the host, in a throwaway `--network none` Docker container (only the `claude` auth files are staged in, never your `bridge.env`/API keys), or on a remote box over SSH.
 
-**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (OpenClaw's ClawJacked token-leak RCE, 40k exposed gateways, the poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **10/10 attack classes resisted, 82/82 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md); multi-user is in [Team mode](docs/TEAM-MODE.md).
+**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (OpenClaw's ClawJacked token-leak RCE, 40k exposed gateways, the poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **10/10 attack classes resisted, 84/84 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md); multi-user is in [Team mode](docs/TEAM-MODE.md).
 
 > [!WARNING]
 > Full capability (`URFAEL_YOLO=1`) gives the agent an unrestricted shell that also reads untrusted email and web. Run that mode **only** in a VM, container, or throwaway account.
@@ -262,7 +262,7 @@ It runs on a flat-rate subscription, so there's nothing to meter, but you can st
 
 Honesty is a feature here, so this section exists. As of now:
 
-- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, all 8 bridges degrading cleanly, and the skill-hub SSRF refusal + scanner, plus 321 unit tests, several of them adversarial security regressions.
+- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, all 8 bridges degrading cleanly, and the skill-hub SSRF refusal + scanner, plus 335 unit tests, several of them adversarial security regressions.
 - **Not yet exercised against real accounts:** the live relay of the Matrix, Signal, and WhatsApp bridges (their pure parsing/allowlist logic *is* unit-tested). Treat them as code-complete and reviewed, not battle-hardened.
 - **Linux is newer than macOS.** The headless core, voice, and GUI run there, but it has far less mileage.
 - **Real-world scale is small.** This is a personal tool, honestly stated, not a 100k-deployment veteran. That's the one thing only time and users add.

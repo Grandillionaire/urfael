@@ -348,9 +348,11 @@ async function main() {
     (() => { const m = ph.parse({ schema: 'urfael.plugin/v1', id: 'evil', runtime: 'mcp-native', entry: { transport: 'stdio', cmd: ['x'] }, capabilities: { fs: [{ mode: 'read', path: 'vault:~/.claude/.credentials.json' }, { mode: 'read', path: 'vault:../.ssh/id_rsa' }, { mode: 'read', path: 'vault:.env' }] } }); return m && m.caps.fs.length === 0; })(),
     'the skillhub SECRET_PATH deny-oracle + a vault-escape check reject the path before it can ever become a bind mount');
 
-  check('no in-process plugin execution: the loader NEVER eval()s or dynamically require()s a plugin entry; plugin code only ever appears as a child argv',
-    !/\beval\s*\(/.test(phSrc) && !/require\s*\(\s*[A-Za-z_$]/.test(phSrc) && !/--mcp-config[\s\S]{0,200}plugin/.test(daemonSrc),
-    'pluginhub builds docker/stdio argv as DATA; plugin code never enters the daemon address space, never inherits its env, never holds the subscription token');
+  check('no in-process plugin execution: the loader NEVER eval()s or dynamically require()s a plugin; plugin code only ever appears as a spawned child',
+    !/\beval\s*\(/.test(phSrc) && !/require\s*\(\s*[A-Za-z_$]/.test(phSrc)
+      && typeof ph.buildMcpConfig(okM, {}).mcpServers.bench.command === 'string'   // a plugin runs as a SPAWNED child (a command), never inlined into the daemon
+      && !/require\([^'")]*plugin/i.test(daemonSrc),                               // the daemon never require()s a plugin manifest/entry/bundle path
+    'pluginhub builds the child-spawn config as DATA; plugin code never enters the daemon address space, never inherits its env, never holds the subscription token');
 
   check('a host-reaching plugin is docker-confined and its secret is never in the launch config; a pure brain-tools plugin needs no host reach',
     (() => { const host = ph.buildMcpConfig(okM, { fs: okM.caps.fs, secret: okM.caps.secret }); const v = JSON.stringify(host); return host.mcpServers.bench.command === 'docker' && !v.includes('TOKEN_VALUE') && JSON.stringify(host.mcpServers.bench.env) === '{}'; })(),
@@ -372,6 +374,26 @@ async function main() {
   check('plugin tools never reach a sandboxed turn, and the zero-capability floor is never "local"',
     /--strict-mcp-config/.test(daemonSrc) && lib.resolveProfile('plugin-zero').name === 'plugin-zero' && JSON.stringify(lib.resolveProfile('plugin-zero').allowedTools) === '[]' && lib.resolveProfile('plugin-zero').permissionMode !== null,
     'plugin tools attach via --mcp-config on OWNER turns only; every scoped/cron/remote spawn stays --strict-mcp-config; plugin-zero grants nothing and is never the local bypass profile');
+
+  const broker = require('../plugin-broker');
+  check('the egress+secret broker is SSRF-safe on the RESOLVED ip and never sends a secret to a non-granted host',
+    (() => {
+      const g = { net: [{ host: 'api.example.com', ports: [443] }], secret: [{ ref: 'K' }] };
+      const denyHost = broker.authorizeEgress(g, { host: 'evil.example.com', port: 443, resolvedIps: ['1.2.3.4'] }).ok === false;
+      const denyRebind = broker.authorizeEgress(g, { host: 'api.example.com', port: 443, resolvedIps: ['127.0.0.1'] }).ok === false;        // DNS-rebind to loopback
+      const denyMetadata = broker.authorizeEgress(g, { host: 'api.example.com', port: 443, resolvedIps: ['169.254.169.254'] }).ok === false; // cloud metadata
+      const failClosedNoIp = broker.authorizeEgress(g, { host: 'api.example.com', port: 443, resolvedIps: [] }).ok === false;
+      const toGranted = broker.prepareRequest(g, { host: 'api.example.com', port: 443, resolvedIps: ['93.184.216.34'], useSecret: 'K' }, { K: 's3cr3t' });
+      const secretInjected = toGranted.ok && toGranted.headers.Authorization === 'Bearer s3cr3t';
+      const noSecretToEvil = broker.prepareRequest(g, { host: 'evil.example.com', port: 443, resolvedIps: ['1.2.3.4'], useSecret: 'K' }, { K: 's3cr3t' }).ok === false;
+      const masked = !toGranted.redactor('sent K=s3cr3t').includes('s3cr3t');
+      return denyHost && denyRebind && denyMetadata && failClosedNoIp && secretInjected && noSecretToEvil && masked;
+    })(),
+    'authorizeEgress re-checks the RESOLVED ip (DNS-rebind defense) and fails closed without a resolution; a secret is injected ONLY for a granted host and masked in logs');
+
+  check('the plugin attach is safe-by-default and owner-only: --mcp-config is added to the WARM session (empty when none); host-reaching grants fail closed',
+    /pluginMcpArgs\(\)/.test(daemonSrc) && /currentPluginConfig \? \['--mcp-config'[\s\S]{0,40}: \[\]/.test(daemonSrc) && /enablePlugin[\s\S]{0,800}hasHostGrant[\s\S]{0,160}host-reaching tiers/.test(daemonSrc),
+    'pluginMcpArgs() is [] with nothing enabled (byte-identical warm spawn); enablePlugin refuses any host-reaching grant until the cell+broker land; scoped/cron/remote spawns keep --strict-mcp-config');
 
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}

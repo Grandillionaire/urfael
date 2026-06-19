@@ -13,6 +13,8 @@ const lib = require('../lib');
 const LOOPBACK_FORMS = [
   '127.0.0.1', '127.1', '127.0.1', '0177.0.0.1', '2130706433', '0x7f000001', '0x7f.0.0.1', '017700000001',
   '::1', '::ffff:127.0.0.1', '::ffff:7f00:1', 'localhost', '127.0.0.2', '0.0.0.0',
+  // IPv6 loopback in its many compressed spellings — the class an in-repo red-team caught the guard matching textually
+  '0::1', '0:0::1', '00::1', '0000::0001', '0:0:0::1', '::0.0.0.1', '0:0:0:0:0:ffff:7f00:1', '::',
 ];
 const INTERNAL_FORMS = ['10.0.0.5', '192.168.1.1', '172.16.0.1', '172.31.255.255', '169.254.169.254', '100.64.0.1', 'fc00::1', 'fe80::1', 'foo.internal', 'bar.local'];
 const PUBLIC_FORMS = ['8.8.8.8', '1.1.1.1', '203.0.113.10', 'example.com', 'github.com', 'raw.githubusercontent.com', '142.250.0.1'];

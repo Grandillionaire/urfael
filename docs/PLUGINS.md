@@ -45,15 +45,17 @@ A freshly installed plugin sits at the `plugin-zero` floor: no tools, no host re
 
 `fetch -> static scan -> sha-pin -> signature verify -> capability preview -> consent`. The preview shows exactly what the plugin can do, where it connects, whether it runs local code, which secrets it needs, and the literal `docker run` command that would launch it. Nothing is written until you confirm. `--yes` is refused for anything that trips a scan flag, widens a grant, overwrites, or carries a secret, exec, or net capability.
 
-## Inspect it yourself, today
+## The lifecycle
 
 ```bash
-urfael plugin scan ./plugin.json   # parse + static scan + the full capability preview
-urfael plugin info ./plugin.json   # the capability grant + the exact sandbox command
-urfael plugin                      # what the loader does, and this design
+urfael plugin scan ./plugin.json      # parse + static scan + the full capability preview
+urfael plugin install ./plugin.json   # six-gate install; written DISABLED, 0600
+urfael plugin enable <id>             # attach its tools to your owner turns (re-verified first)
+urfael plugin list                    # what is installed, and what is enabled
+urfael plugin disable <id>            # detach it
 ```
 
-`urfael plugin scan` prints the capability grant a plugin would receive (with any unsafe path or host already dropped) and the exact `--network none` cell command, before anything runs. That pre-enable preview is the move no competitor ships.
+`urfael plugin scan` prints the capability grant a plugin would receive (with any unsafe path or host already dropped) and the exact `--network none` cell command, before anything runs. That pre-enable preview is the move no competitor ships. Install writes the bundle and a grant file (both 0600) in a disabled state; you enable it deliberately as a separate step.
 
 ## What v1 ships, and what is next
 
@@ -61,12 +63,12 @@ This is an honest split. v1 ships the verified core; the live runtime is the nex
 
 **Ships now (verified and frozen):**
 - The pure loader (`app/pluginhub.js`): parse and validate, static scan, sha256 integrity, ed25519 signature verify, the declared-to-granted capability diff, the default-deny cell builder, and the capability preview.
-- The inspect CLI (`urfael plugin scan` / `info`).
-- A 10th class in the runnable security benchmark (`npm run security`, now 10/10 classes, 82/82 checks) plus unit and fuzz coverage, so the capability model cannot silently regress.
+- The full inspect-and-run lifecycle for the brain-tools tier: `urfael plugin scan` / `install` / `enable` / `list` / `disable`. An enabled plugin's tools attach to your owner turns through `--mcp-config`. The attach is safe-by-default: with nothing enabled, the warm session spawn is byte-identical to before. Every sandboxed, remote, or cron turn stays `--strict-mcp-config`, so a plugin never reaches an untrusted turn.
+- The egress and secret broker (`app/plugin-broker.js`): the trusted seam that lets a sandboxed plugin reach an allowlisted host and use a secret without either becoming an exfiltration channel. It is built, unit-tested, and frozen behind its own benchmark probe now (allowlist, SSRF re-checked on the resolved IP for DNS-rebind, secret injected only for a granted host, masking), because the rule is that this logic must hold before any net or secret grant can run.
+- An 11th-and-12th-check 10th attack class in the runnable security benchmark (`npm run security`, now 10/10 classes, 84/84 checks) plus 27 unit tests and two fuzz targets, so the capability model and the broker cannot silently regress.
 
-**Lands next (the runtime, sequenced deliberately):**
-- The daemon enable path: write the per-plugin MCP config, attach it via `--mcp-config` on owner turns only, and spawn or tear down the cell.
-- The egress proxy and the secret broker. These are the new trusted seams, the highest-value target in the system, so they ship only after they clear their own frozen benchmark probes (SSRF on the resolved IP, no secret reaching a non-granted host). Until then, a brain-tools-only plugin (no host reach) is the runnable tier; a plugin requesting net, secret, or exec is installed and previewed but refuses to enable, which is fail-closed by design.
+**Lands next (the host-reaching transport):**
+- The Docker-cell mount for the `fs` tier and the in-cell broker client for the `net`, `secret`, and `exec` tiers. The broker logic that gates these is already verified; what remains is the transport that carries a plugin's brokered request from inside the `--network none` cell to the daemon. Until that lands, a plugin requesting `fs`, `net`, `secret`, or `exec` installs and previews but refuses to enable, which is fail-closed by design.
 
 ## Honest limits
 

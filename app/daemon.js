@@ -240,6 +240,7 @@ class Session {
       '--model', this.model, '--verbose', '--include-partial-messages', '--permission-mode', PERM_MODE,
       ...MEMDIR_ADD,   // the brain can READ its own memory (it lives outside the vault/project root)
       ...overlayArgs,  // persona = a VOICE overlay only; the moat is PERM_MODE + the vault settings, not this text
+      ...pluginMcpArgs(),  // enabled plugins on the WARM (owner) session only; [] when none → byte-identical spawn. Scoped/remote/cron spawns stay --strict-mcp-config, so a plugin never reaches an untrusted turn.
     ], { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: ['pipe', 'pipe', 'ignore'] });
     const p = this.proc; // bind handlers to THIS proc identity so a stale exit can't clobber a freshly-spawned one
     recordBrainPid(p.pid);
@@ -1343,6 +1344,74 @@ function readBody(req) { // capped to MAX_BODY so an oversized body can't exhaus
   });
 }
 let chain = Promise.resolve();
+// ---- PLUGIN RUNTIME --------------------------------------------------------------------------------
+// An enabled plugin is a capability-scoped MCP server that attaches to the WARM (owner) sessions ONLY, via
+// --mcp-config (added to the user's connectors, not --strict). Every scoped/remote/cron spawn stays
+// --strict-mcp-config, so a plugin never reaches an untrusted turn. SAFE-BY-DEFAULT: pluginMcpArgs() is [] when
+// nothing is enabled, so the warm spawn is byte-identical to today. v1 runs the brain-tools tier (a pure MCP
+// server, no host reach); fs needs the cell mount and net/secret need the broker transport (next increment), so
+// enablePlugin fails closed for any host-reaching grant — the broker LOGIC is already built + frozen (plugin-broker.js).
+const pluginhub = require('./pluginhub');
+const PLUGIN_CONFIG = path.join(JDIR, 'plugins.mcp.json');
+const enabledPlugins = new Map();   // id -> { manifest, grant, bundleDir }
+let currentPluginConfig = null;     // path to the merged config, or null when none enabled
+const pluginGrantPath = (id) => path.join(pluginhub.PLUGINS_DIR, id, 'grant.json');
+const pluginManifestPath = (id) => path.join(pluginhub.PLUGINS_DIR, id, 'plugin.json');
+
+function loadEnabledPlugins() {            // boot: re-enable every plugin whose grant.json says enabled. Fail-soft.
+  enabledPlugins.clear();
+  let ids = [];
+  try { ids = fs.readdirSync(pluginhub.PLUGINS_DIR, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch { writeMergedPluginConfig(); return; }
+  for (const id of ids) {
+    let grant; try { grant = JSON.parse(fs.readFileSync(pluginGrantPath(id), 'utf8')); } catch { continue; }
+    if (!grant || grant.enabled !== true) continue;
+    const manifest = pluginhub.load(pluginManifestPath(id));
+    if (!manifest || manifest.id !== id || pluginhub.hasHostGrant(grant.caps || {})) continue;   // only the brain-tools tier auto-loads
+    enabledPlugins.set(id, { manifest, grant, bundleDir: path.join(pluginhub.PLUGINS_DIR, id) });
+  }
+  writeMergedPluginConfig();
+}
+function writeMergedPluginConfig() {       // merge every enabled plugin's MCP server into one config the warm sessions load
+  if (!enabledPlugins.size) { currentPluginConfig = null; try { fs.rmSync(PLUGIN_CONFIG, { force: true }); } catch {} return; }
+  const merged = { mcpServers: {} };
+  for (const { manifest, grant, bundleDir } of enabledPlugins.values()) Object.assign(merged.mcpServers, pluginhub.buildMcpConfig(manifest, grant.caps || {}, { bundleDir }).mcpServers);
+  try { fs.mkdirSync(JDIR, { recursive: true }); const tmp = PLUGIN_CONFIG + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(merged, null, 2), { mode: 0o600 }); fs.renameSync(tmp, PLUGIN_CONFIG); currentPluginConfig = PLUGIN_CONFIG; }
+  catch { currentPluginConfig = null; }
+}
+function pluginMcpArgs() { return currentPluginConfig ? ['--mcp-config', currentPluginConfig] : []; }   // [] when none → byte-identical warm spawn
+function respawnForPlugins() { for (const s of sessions.values()) { try { s.proc && s.proc.kill('SIGKILL'); } catch {} s.proc = null; } }   // idle warm procs re-_ensure with the new --mcp-config on the next ask
+
+function enablePlugin(id) {
+  const manifest = pluginhub.load(pluginManifestPath(String(id)));
+  if (!manifest || manifest.id !== id) return { ok: false, error: 'no installed plugin: ' + id };
+  if (pluginhub.scanBundle(manifest).flags.some((f) => f.level === 'danger')) return { ok: false, error: 'static scan flagged DANGER — refusing to enable' };
+  let grant; try { grant = JSON.parse(fs.readFileSync(pluginGrantPath(id), 'utf8')); } catch { return { ok: false, error: 'no grant for ' + id + ' — run `urfael plugin install` first' }; }
+  if (pluginhub.hasHostGrant(grant.caps || {})) return { ok: false, error: 'host-reaching tiers (fs/net/secret/exec) land with the cell + broker transport; brain-tools plugins run today', tier: 'host-pending' };
+  grant.enabled = true;
+  try { fs.writeFileSync(pluginGrantPath(id), JSON.stringify(grant, null, 2), { mode: 0o600 }); } catch (e) { return { ok: false, error: 'grant write failed: ' + ((e && e.message) || e) }; }
+  enabledPlugins.set(id, { manifest, grant, bundleDir: path.join(pluginhub.PLUGINS_DIR, id) });
+  writeMergedPluginConfig(); respawnForPlugins();
+  logEvent({ ev: 'plugin_enable', id, tools: pluginhub.pluginTools(manifest).length });
+  return { ok: true, tier: 'mcp-tools', tools: pluginhub.pluginTools(manifest) };
+}
+function disablePlugin(id) {
+  let grant; try { grant = JSON.parse(fs.readFileSync(pluginGrantPath(String(id)), 'utf8')); grant.enabled = false; fs.writeFileSync(pluginGrantPath(id), JSON.stringify(grant, null, 2), { mode: 0o600 }); } catch {}
+  const had = enabledPlugins.delete(String(id));
+  writeMergedPluginConfig(); respawnForPlugins();
+  logEvent({ ev: 'plugin_disable', id });
+  return { ok: true, wasEnabled: had };
+}
+function listPlugins() {
+  const out = [];
+  let ids = []; try { ids = fs.readdirSync(pluginhub.PLUGINS_DIR, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch { return out; }
+  for (const id of ids) {
+    const manifest = pluginhub.load(pluginManifestPath(id)); if (!manifest) continue;
+    let grant = null; try { grant = JSON.parse(fs.readFileSync(pluginGrantPath(id), 'utf8')); } catch {}
+    out.push({ id, name: manifest.name, version: manifest.version, enabled: enabledPlugins.has(id), hostReaching: manifest.hostReaching, tools: pluginhub.pluginTools(manifest) });
+  }
+  return out;
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/ask') {
     const body = await readBody(req);
@@ -1456,6 +1525,18 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ persona: activePersona, display: personas.displayFor(personaRoster, activePersona), roster: personas.knownIds(personaRoster).map((id) => personas.displayFor(personaRoster, id)) }));
+  } else if (req.url === '/plugins') {
+    // GET /plugins — installed plugins + which are enabled. (Owner-only: the daemon socket is 0600.)
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ plugins: listPlugins() }));
+  } else if (req.method === 'POST' && /^\/plugin\/[a-z0-9][a-z0-9-]{0,47}\/(enable|disable)$/.test(req.url || '')) {
+    // POST /plugin/<id>/{enable,disable} — re-verify (scan) + attach/detach the plugin's MCP server on the warm
+    // sessions. enablePlugin fails closed for host-reaching tiers (cell + broker transport land next).
+    const mm = req.url.match(/^\/plugin\/([a-z0-9][a-z0-9-]{0,47})\/(enable|disable)$/);
+    req.resume();   // drain any body
+    const r = mm[2] === 'enable' ? enablePlugin(mm[1]) : disablePlugin(mm[1]);
+    res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(r));
   } else if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, warm: [...sessions.keys()] }));
@@ -1694,6 +1775,7 @@ function listen() {
   server.listen(SOCK, () => {
     try { fs.chmodSync(SOCK, 0o600); } catch {} // 0600: only the owner can POST to the brain
     logEvent({ ev: 'daemon_start', heartbeatMins: HB_MINS || 0, review: REVIEW_ON ? REVIEW_EVERY : 0, curatorDays: CURATOR_DAYS, usermodel: MODEL_USER_ON ? MODEL_USER_EVERY : 0 });
+    loadEnabledPlugins();   // re-arm enabled (brain-tools-tier) plugins before the warm session spawns, so --mcp-config is set
     brain.warmUp();
     scheduler.start(deliverReminder);
     scheduler.startCron(deliverCron); // re-arm persisted cron jobs; ticked in the same scheduler interval
