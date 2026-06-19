@@ -75,10 +75,18 @@ function exportSkill(name) {
 
 // Static safety scan of a skill markdown. Pure pattern matching — NEVER executes the content.
 // Returns { flags:[{level,why,sample}] }. Errs toward flagging; the human makes the final call.
+// Cap each line before pattern-scanning: several danger patterns are quadratic on a single very long line
+// (`…[^\n]*…[^\s]+`), so a hostile skill could wedge the scanner before the user ever sees the verdict. A real
+// dropper/exfil command fits in well under 2KB; a 100k-char line is an attack on the scanner itself, not content.
+function boundLines(t, maxLine) {
+  if (t.length > (1 << 20)) t = t.slice(0, 1 << 20);                  // a skill is text, not a megabyte payload
+  if (t.length <= maxLine) return t;
+  return t.split('\n').map((l) => (l.length > maxLine ? l.slice(0, maxLine) : l)).join('\n');
+}
 function scan(text) {
   const flags = [];
   const add = (level, why, sample) => flags.push({ level, why, sample: (sample || '').replace(/\s+/g, ' ').trim().slice(0, 120) });
-  const s = String(text || '');
+  const s = boundLines(String(text || ''), 2000);                    // linear-bounded: every line ≤ 2KB before scanning
 
   // 1) embedded shell that runs a remote download — the classic dropper, plus its common evasions
   let m;

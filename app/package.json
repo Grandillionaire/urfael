@@ -1,7 +1,7 @@
 {
   "name": "urfael-app",
   "version": "0.1.0",
-  "description": "Urfael \u2014 voice overlay, brain daemon, and CLI on Claude Code + Obsidian",
+  "description": "Urfael — voice overlay, brain daemon, and CLI on Claude Code + Obsidian",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -9,17 +9,49 @@
     "e2e": "node test/e2e.js",
     "security": "node test/security-benchmark.js",
     "dist": "electron-builder",
-    "dist:dir": "electron-builder --dir"
+    "dist:dir": "electron-builder --dir",
+    "fuzz": "node test/fuzz.js",
+    "redteam": "node test/redteam.js"
   },
   "build": {
     "appId": "com.urfael.app",
     "productName": "Urfael",
-    "files": ["**/*", "!test/**", "!**/*.test.js"],
-    "mac": { "category": "public.app-category.productivity", "target": ["dmg", "zip"], "icon": "renderer/urfael-logo.svg", "hardenedRuntime": true, "gatekeeperAssess": false },
-    "dmg": { "title": "Urfael" },
-    "linux": { "target": ["AppImage"], "category": "Utility", "icon": "renderer/urfael-logo.svg" },
-    "win": { "target": ["nsis"], "icon": "renderer/urfael-logo.svg" },
-    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true }
+    "files": [
+      "**/*",
+      "!test/**",
+      "!**/*.test.js"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "renderer/urfael-logo.svg",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "Urfael"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "icon": "renderer/urfael-logo.svg"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "renderer/urfael-logo.svg"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -33,5 +65,8 @@
   },
   "bin": {
     "urfael": "./cli.js"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

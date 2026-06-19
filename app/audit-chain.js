@@ -43,6 +43,7 @@ function verify(lines) {
   let prevH = GENESIS;
   for (let i = 0; i < lines.length; i++) {
     let e; try { e = JSON.parse(lines[i]); } catch { return { ok: false, reason: 'bad_json', brokenSeq: i, brokenLine: i + 1 }; }
+    if (!e || typeof e !== 'object' || Array.isArray(e)) return { ok: false, reason: 'bad_json', brokenSeq: i, brokenLine: i + 1 };  // a non-object line (null/number/array) is malformed — fail closed, never crash on it
     if (e.seq !== i) return { ok: false, reason: 'seq_gap', brokenSeq: i, brokenLine: i + 1 };           // deleted/reordered
     if (e.prevH !== prevH) return { ok: false, reason: 'broken_prev', brokenSeq: i, brokenLine: i + 1 };  // a link was severed
     const expect = linkHash(prevH, { seq: e.seq, t: e.t, kind: e.kind, payloadDigest: e.payloadDigest, prevH: e.prevH });

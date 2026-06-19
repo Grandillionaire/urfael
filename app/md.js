@@ -10,18 +10,21 @@ const B0 = '\x1b[1m', B1 = '\x1b[22m', I0 = '\x1b[3m', I1 = '\x1b[23m', U0 = '\x
 const CODE = '\x1b[38;5;215m';   // inline/code-fence tint (a light amber); returns to `base` (or default fg)
 
 // inline(s, base, color): render the inline spans of ONE line. Inline code is protected first (no styling inside).
+// Every span quantifier is BOUNDED (e.g. {1,400}) so a long run of one char can't make the global replace
+// quadratic (a ReDoS on the streamed-render hot path); a pathological long line styles only its head, raw tail.
 function inline(s, base, color) {
-  if (!color) return s.replace(/`([^`]+)`/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/__([^_]+)__/g, '$1')
-    .replace(/(?<![\w*])\*([^*\n]+)\*(?![\w*])/g, '$1').replace(/(?<![\w_])_([^_\n]+)_(?![\w_])/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  if (s.length > 4000) return inline(s.slice(0, 4000), base, color) + (color ? (base || '') : '') + s.slice(4000);
+  if (!color) return s.replace(/`([^`\n]{1,400})`/g, '$1').replace(/\*\*([^*\n]{1,300})\*\*/g, '$1').replace(/__([^_\n]{1,300})__/g, '$1')
+    .replace(/(?<![\w*])\*([^*\n]{1,300})\*(?![\w*])/g, '$1').replace(/(?<![\w_])_([^_\n]{1,300})_(?![\w_])/g, '$1')
+    .replace(/\[([^\]\n]{1,300})\]\(([^)\n]{1,600})\)/g, '$1');
   const ret = base || '\x1b[39m';
   const codes = [];
-  s = s.replace(/`([^`]+)`/g, (m, c) => { codes.push(c); return '\x00' + (codes.length - 1) + '\x01'; });   // stash code spans
-  s = s.replace(/\*\*([^*]+)\*\*/g, B0 + '$1' + B1)
-       .replace(/__([^_]+)__/g, B0 + '$1' + B1)
-       .replace(/(?<![\w*])\*([^*\n]+)\*(?![\w*])/g, I0 + '$1' + I1)
-       .replace(/(?<![\w_])_([^_\n]+)_(?![\w_])/g, I0 + '$1' + I1)
-       .replace(/\[([^\]]+)\]\([^)]+\)/g, U0 + '$1' + U1);
+  s = s.replace(/`([^`\n]{1,400})`/g, (m, c) => { codes.push(c); return '\x00' + (codes.length - 1) + '\x01'; });   // stash code spans
+  s = s.replace(/\*\*([^*\n]{1,300})\*\*/g, B0 + '$1' + B1)
+       .replace(/__([^_\n]{1,300})__/g, B0 + '$1' + B1)
+       .replace(/(?<![\w*])\*([^*\n]{1,300})\*(?![\w*])/g, I0 + '$1' + I1)
+       .replace(/(?<![\w_])_([^_\n]{1,300})_(?![\w_])/g, I0 + '$1' + I1)
+       .replace(/\[([^\]\n]{1,300})\]\(([^)\n]{1,600})\)/g, U0 + '$1' + U1);
   s = s.replace(/\x00(\d+)\x01/g, (m, i) => CODE + codes[+i] + ret);     // restore code spans, tinted, returning to base
   return s;
 }

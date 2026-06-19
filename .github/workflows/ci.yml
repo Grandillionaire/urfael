@@ -1,0 +1,38 @@
+name: ci
+
+# The credential-free gate. Runs on every push + PR across an OS/node matrix so the unit suite, the input-fuzz
+# harness, and the SSRF red-team actually GATE changes (build.yml only fires on release tags). The live-daemon
+# harnesses — `npm run security` and `npm run e2e` — are deliberately NOT here: they boot a real daemon on your
+# `claude` login and spend real turns, so they stay local/manual.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    name: test · ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [20, 22, 24]
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: install
+        run: npm ci || npm install
+      - name: unit tests (289, pure — no credentials)
+        run: npm test
+      - name: fuzz the input boundaries (small budget for CI)
+        run: npm run fuzz
+        env:
+          FUZZ_ITERS: '6000'
+      - name: SSRF red-team (differential, loopback)
+        run: npm run redteam

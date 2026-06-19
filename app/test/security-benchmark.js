@@ -250,6 +250,13 @@ async function main() {
   check('a relay reply URL to a private/loopback/metadata host is REFUSED (SSRF guard, shared with skillhub)',
     (await sock('POST', '/hooks', { name: 'ssrf', action: 'relay', replyUrl: 'http://169.254.169.254/latest/meta-data' })).status === 400
     && (await sock('POST', '/hooks', { name: 'ssrf2', action: 'relay', replyUrl: 'http://127.0.0.1:9000/x' })).status === 400, 'no POST to 127/10/192.168/169.254/::1');
+  // the OS resolver accepts loopback in many encodings (2130706433 / 0x7f000001 / 127.1 / octal / IPv4-mapped IPv6);
+  // a dotted-decimal-only guard ships a live internal-write SSRF. The guard must canonicalize like inet_aton. (fuzz/redteam-found)
+  check('the SSRF guard blocks ENCODED loopback — decimal/hex/octal/short-form/IPv4-mapped, not only dotted-decimal',
+    ['2130706433', '0x7f000001', '127.1', '0177.0.0.1', '017700000001', '::ffff:127.0.0.1'].every((h) => lib.isPrivateHost(h) === true)
+    && ['8.8.8.8', 'example.com'].every((h) => lib.isPrivateHost(h) === false)
+    && (await sock('POST', '/hooks', { name: 'ssrf3', action: 'relay', replyUrl: 'http://2130706433/x' })).status === 400,
+    'inet_aton-style canonicalization: every encoding the OS routes to loopback is refused; public hosts still allowed');
   check('the relay outbound auth token never leaks in the hook list', !/replyAuth|s3cret-outbound/i.test((await sock('GET', '/hooks')).raw), 'list shows only id/name/action/deliver/createdAt');
   if (rid) await sock('POST', '/hook/' + rid + '/delete');
   if (hid) await sock('POST', '/hook/' + hid + '/delete'); // cleanup the test hook
