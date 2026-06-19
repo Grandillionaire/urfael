@@ -402,6 +402,14 @@ async function main() {
       && (() => { const m = ph.parse({ schema: 'urfael.plugin/v1', id: 'netp', runtime: 'mcp-native', entry: { transport: 'stdio', cmd: ['x'] }, capabilities: { net: [{ host: 'api.example.com' }], secret: [{ ref: 'K' }] } }); const a = ph.buildCellArgs(m, { net: m.caps.net, secret: m.caps.secret }, { brokerSock: '/j/x.sock' }).join(' '); return /--network none/.test(a) && /\/run\/urfael\/broker\.sock/.test(a) && !/--publish|-p /.test(a) && !ph.buildCellArgs(m, { net: m.caps.net }, {}).join(' ').includes('broker.sock'); })(),
     'plugin-brokerd listens only on a 0600 unix socket (no TCP port); the allow/secret decision stays in plugin-broker.js; a 3xx is returned not followed; a net grant adds exactly one -v broker socket and the cell stays --network none');
 
+  const acpSrc = fs.readFileSync(path.join(APP, 'acp.js'), 'utf8');
+  const acptSrc = fs.readFileSync(path.join(APP, 'acp-translate.js'), 'utf8');
+  check('the ACP editor bridge opens NO new inbound port: its only network primitive is the existing outbound socket',
+    !/createServer|\.listen\(/.test(acpSrc) && !/createServer|\.listen\(/.test(acptSrc)
+      && /socketPath: SOCK/.test(acpSrc) && /daemon\.sock/.test(acpSrc)
+      && !/mcpServers/.test(acptSrc.replace(/NOT forwarded[\s\S]*?moat/i, '')),   // editor-supplied MCP servers are never forwarded into the trusted turn
+    'urfael acp is a foreground stdio child (the editor owns it); it CONNECTs to the 0600 daemon socket and never .listen()s — strictly quieter than serve/dashboard/hooks, which at least bind loopback');
+
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}
   try { await new Promise((r) => { const q = http.request({ socketPath: SOCK, method: 'POST', path: '/shutdown', timeout: 1500 }, (res) => { res.resume(); r(); }); q.on('error', r); q.on('timeout', () => { q.destroy(); r(); }); q.end(); }); } catch {}

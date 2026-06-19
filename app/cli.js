@@ -604,6 +604,9 @@ function printPluginPreview(ph, m) {
   if (!(await ensureDaemon())) { console.error(bad('✗') + ' I could not wake the brain, sir.' + dim('   run  ') + gold('urfael doctor') + dim('  to see why, or check  ~/.claude/urfael/daemon.log')); process.exit(1); }
   // tui: hand the terminal to the full-screen cockpit (ensureDaemon ran first so spawn logs can't corrupt the alt buffer)
   if (cmd === 'tui') { require('./tui').run(); return; }
+  // acp: the ACP stdio bridge — an editor (Zed/JetBrains/Neovim/VS Code) spawns this and drives Urfael over JSON-RPC
+  // on stdin/stdout. FOREGROUND (the editor owns the process), like tui; it opens NO port, only the 0600 socket.
+  if (cmd === 'acp') { if (rest.includes('--probe')) { await require('./acp').probe(); return; } require('./acp').run(); return; }
   if (cmd === 'council') {
     // a live, watchable round table of agents — the orchestrator decomposes, dispatches, and synthesizes.
     if (rest.includes('--list')) {
