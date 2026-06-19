@@ -170,7 +170,33 @@ function resolvePrincipal(roster, channel, senderId) {
 }
 
 // The channels a roster can have (used to validate `urfael team add`).
-const TEAM_CHANNELS = ['telegram', 'discord', 'slack', 'imessage', 'email', 'matrix', 'signal', 'whatsapp'];
+const TEAM_CHANNELS = ['telegram', 'discord', 'slack', 'imessage', 'email', 'matrix', 'signal', 'whatsapp', 'qq', 'simplex'];
+
+// Pure parser for a SimpleX `newChatItems` response from the local simplex-chat control WS → {contactId, text} | null.
+// Fail-closed/defensive: null for the wrong type, a group (only Direct is bridged), a self-loop (outbound/snd
+// direction = our own echo), or any item with no extractable text. The allowlist key is the LOCAL integer
+// contactId (string-coerced), NEVER the spoofable displayName. Unit-tested against fixtures; never touches I/O.
+function parseSimplexEvent(resp) {
+  if (!resp || typeof resp !== 'object' || resp.type !== 'newChatItems') return null;
+  const items = Array.isArray(resp.chatItems) ? resp.chatItems
+    : (resp.chatInfo || resp.chatItem) ? [{ chatInfo: resp.chatInfo, chatItem: resp.chatItem }] : [];
+  for (const it of items) {
+    if (!it || typeof it !== 'object') continue;
+    const ci = it.chatInfo || {};
+    if (ci.type !== 'direct') continue;                                  // only Direct bridged (group/etc skipped)
+    const contactId = ci.contact && ci.contact.contactId;
+    if (contactId == null) continue;
+    const item = it.chatItem || {};
+    const dir = (item.chatDir && item.chatDir.type) || '';
+    const content = item.content || {};
+    if (/snd/i.test(dir) || /snd/i.test(content.type || '')) continue;   // outbound = our own send re-surfacing (self-loop guard)
+    const mc = content.msgContent || {};
+    const text = (typeof mc.text === 'string' && mc.text) ? mc.text : (typeof item.text === 'string' ? item.text : '');
+    if (!text.trim()) continue;
+    return { contactId: String(contactId), text: text.trim() };
+  }
+  return null;
+}
 // Pure team.json editors for the CLI. Return { team, error } — never throw, never mutate the input.
 function addPrincipal(team, channel, principal) {
   const t = (team && typeof team === 'object' && !Array.isArray(team)) ? JSON.parse(JSON.stringify(team)) : {};
@@ -762,4 +788,4 @@ function sparkline(nums) {
   return a.map((n) => B[Math.min(B.length - 1, Math.round((n / max) * (B.length - 1)))]).join('');
 }
 
-module.exports = { MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective };
+module.exports = { MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };

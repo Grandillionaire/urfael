@@ -410,6 +410,19 @@ async function main() {
       && !/mcpServers/.test(acptSrc.replace(/NOT forwarded[\s\S]*?moat/i, '')),   // editor-supplied MCP servers are never forwarded into the trusted turn
     'urfael acp is a foreground stdio child (the editor owns it); it CONNECTs to the 0600 daemon socket and never .listen()s — strictly quieter than serve/dashboard/hooks, which at least bind loopback');
 
+  check('the native QQ + SimpleX bridges open NO inbound port and allowlist BEFORE the brain (fail-closed)',
+    (() => {
+      const qqSrc = fs.readFileSync(path.join(APP, 'bridge', 'qq-bridge.js'), 'utf8');
+      const sxSrc = fs.readFileSync(path.join(APP, 'bridge', 'simplex-bridge.js'), 'utf8');
+      const noListen = !/createServer|\.listen\(/.test(qqSrc) && !/createServer|\.listen\(/.test(sxSrc);   // outbound WS clients only
+      const allowlistFirst = /resolvePrincipal\('qq'[\s\S]{0,160}qq_drop[\s\S]{0,120}return/.test(qqSrc) && /resolvePrincipal\('simplex'[\s\S]{0,160}simplex_drop[\s\S]{0,120}return/.test(sxSrc);
+      const libm = require(path.join(APP, 'lib.js'));
+      const fc = libm.resolvePrincipal({ qq: [{ id: 'U1', role: 'owner' }] }, 'qq', 'stranger') === null   // a non-enrolled sender is dropped
+        && libm.parseSimplexEvent({ type: 'newChatItems', chatItems: [{ chatInfo: { type: 'direct', contact: { contactId: 1 } }, chatItem: { chatDir: { type: 'directSnd' }, content: { type: 'sndMsgContent', msgContent: { text: 'echo' } } } }] }) === null;  // self-loop guard
+      return noListen && allowlistFirst && fc;
+    })(),
+    'QQ dials wss outbound + replies via REST; SimpleX dials a loopback CLI; neither .listen()s. Both run resolvePrincipal and drop+audit a non-allowlisted sender before askDaemon; the parsers guard the self-loop');
+
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}
   try { await new Promise((r) => { const q = http.request({ socketPath: SOCK, method: 'POST', path: '/shutdown', timeout: 1500 }, (res) => { res.resume(); r(); }); q.on('error', r); q.on('timeout', () => { q.destroy(); r(); }); q.end(); }); } catch {}

@@ -12,7 +12,7 @@ untrusted content with real power. Urfael inverts both: **the topology is one-wa
 your `claude` login and the chat APIs it polls; nothing reaches *in*), and **untrusted input is structurally
 contained** (every remote turn resolves — fail-closed — to a read-only, no-egress, nonce-framed sandbox
 *before a single token reaches the model*). The claim is not an adjective; it is a command: `npm run security`
-boots the real daemon and dashboard and attacks them, printing **10/10 attack classes · 86/86 checks**.
+boots the real daemon and dashboard and attacks them, printing **10/10 attack classes · 87/87 checks**.
 
 ## System shape
 
@@ -43,7 +43,7 @@ boots the real daemon and dashboard and attacks them, printing **10/10 attack cl
 
 **Why `daemon.js` is large and that is fine:** it is the *conductor*, not the orchestra. It owns I/O, process
 lifecycle, and routing; every decision worth testing is delegated to a pure satellite module that takes data
-and returns data with no daemon, no socket, no `claude`. That is why 367 unit tests run in ~0.5s with zero
+and returns data with no daemon, no socket, no `claude`. That is why 377 unit tests run in ~0.5s with zero
 credentials, and why the security benchmark re-uses the exact same functions the daemon calls.
 
 ## The moat, in five files (read these first)
@@ -124,13 +124,13 @@ The full version, with the residual risks Urfael does **not** cover, is in [docs
 
 Honesty is the product, so the tests are too:
 
-- **367 fast unit tests** (`npm test` → `node --test test/*.test.js`) — pure modules, no credentials, ~0.5s.
+- **377 fast unit tests** (`npm test` → `node --test test/*.test.js`) — pure modules, no credentials, ~0.5s.
   They exercise the load-bearing logic directly: fail-closed profile resolution, `intersectTools`, the persona
   anchor / `SAFETY_CLAUSE` invariants, the hash-chain verifier, the seal, the cron/hook/script normalizers,
   BM25 recall, did-you-mean, and the registry drift guard. Several are frozen adversarial regressions.
 - **The security benchmark** (`npm run security` → `node test/security-benchmark.js`) — boots the **real**
   daemon + dashboard and runs the actual attack classes that compromised self-hosted agents in the wild:
-  **10/10 attack classes · 86/86 individual checks**. Class 9, "correctness & craft regressions," guards against
+  **10/10 attack classes · 87/87 individual checks**. Class 9, "correctness & craft regressions," guards against
   silent quality rot (a typo burning a turn, a status card that stops verifying its own numbers, a persona
   that widens real power, a Council worker that escalates its tools).
 - **The end-to-end harness** (`npm run e2e`) — every feature against a live daemon: streamed conversation,

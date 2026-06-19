@@ -17,7 +17,7 @@ const AUDIT = path.join(JDIR, 'bridge-audit.log');
 
 // TEAM MODE — the roster: per-channel allowlist of principals (id/name/role). team.json is the source of truth
 // when present; otherwise the legacy single-owner env id is the lone owner (so existing setups are unchanged).
-const OWNER_ENV = { telegram: 'TELEGRAM_OWNER_CHAT_ID', discord: 'DISCORD_OWNER_USER_ID', slack: 'SLACK_OWNER_USER_ID', imessage: 'IMESSAGE_OWNER_HANDLE', matrix: 'MATRIX_OWNER_USER_ID', signal: 'SIGNAL_OWNER_UUID', whatsapp: 'WHATSAPP_OWNER_NUMBER' };
+const OWNER_ENV = { telegram: 'TELEGRAM_OWNER_CHAT_ID', discord: 'DISCORD_OWNER_USER_ID', slack: 'SLACK_OWNER_USER_ID', imessage: 'IMESSAGE_OWNER_HANDLE', matrix: 'MATRIX_OWNER_USER_ID', signal: 'SIGNAL_OWNER_UUID', whatsapp: 'WHATSAPP_OWNER_NUMBER', qq: 'QQ_OWNER_OPENID', simplex: 'SIMPLEX_OWNER_CONTACT_ID' };
 function loadRoster() {
   const cfg = loadEnv();
   const envOwners = {};
@@ -132,6 +132,18 @@ async function discordDM(token, userId, text) {
     headers: { Authorization: `Bot ${token}`, 'Content-Type': 'application/json' } }, { content: (text || '(empty)').slice(0, 1900) });
 }
 
+// QQ Bot passive reply (outbound HTTPS REST, no WS send) — echoes the inbound msg_id within the reply window.
+// target = { kind:'c2c'|'group'|'guild', openid?, channelId? } from qq-bridge.parseEvent.
+function qqSend(target, accessToken, text, msgId, msgSeq) {
+  const body = { content: (text || '(empty)').slice(0, 1900), msg_type: 0, msg_id: msgId, msg_seq: msgSeq };
+  let p;
+  if (target && target.kind === 'c2c') p = `/v2/users/${target.openid}/messages`;
+  else if (target && target.kind === 'group') p = `/v2/groups/${target.openid}/messages`;
+  else if (target && target.kind === 'guild') p = `/channels/${target.channelId}/messages`;
+  else return Promise.resolve({ status: 0 });
+  return httpsJson({ hostname: 'api.sgroup.qq.com', path: p, method: 'POST', headers: { Authorization: 'QQBot ' + accessToken, 'Content-Type': 'application/json' } }, body);
+}
+
 // Slack Web API call with a bearer token (app-level token for apps.connections.open, bot token for chat.postMessage).
 function slackApi(token, method, body) {
   return httpsJson({ hostname: 'slack.com', path: '/api/' + method, method: 'POST',
@@ -205,4 +217,4 @@ async function notifyAll(text) {
   if (process.platform === 'darwin' && cfg.IMESSAGE_OWNER_HANDLE) { try { await imessageSend(cfg.IMESSAGE_OWNER_HANDLE, text); } catch {} }
 }
 
-module.exports = { JDIR, SOCK, ENVF, TEAMF, AUDIT, loadEnv, loadRoster, resolvePrincipal, tryPair, audit, askDaemon, notifyDaemon, stripSpoken, TokenBucket, httpsJson, telegramSend, discordDM, slackApi, slackPost, imessageSend, notifyAll, httpsDownload, transcribeLocal };
+module.exports = { JDIR, SOCK, ENVF, TEAMF, AUDIT, loadEnv, loadRoster, resolvePrincipal, tryPair, audit, askDaemon, notifyDaemon, stripSpoken, TokenBucket, httpsJson, telegramSend, discordDM, qqSend, slackApi, slackPost, imessageSend, notifyAll, httpsDownload, transcribeLocal };
