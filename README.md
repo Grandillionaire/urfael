@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="vault-template/_urfael/assets/urfael-logo.svg" width="104" alt="Urfael — the Uruz rune" />
+<img src="vault-template/_urfael/assets/urfael-logo.svg" width="104" alt="Urfael, the Uruz rune" />
 
 # U R F A E L
 
 <img src="vault-template/_urfael/assets/urfael-runes.svg" width="190" alt="URFAEL spelled in Elder Futhark runes" />
 
-**A personal, voice-capable AI assistant you run on your own machine — built security-first, on the flat-rate Claude subscription you already have. No inbound port to attack. No per-token meter running.**
+**A personal, voice-capable AI assistant you run on your own machine. Built security-first, on the flat-rate Claude subscription you already have. No inbound port to attack. No per-token meter running.**
 
 It listens and speaks locally, sandboxes every autonomous action fail-closed, allowlists who can reach it, regression-tests itself against its own adversarial attacks, and tells you plainly what's battle-tested and what isn't.
 
@@ -19,13 +19,13 @@ It listens and speaks locally, sandboxes every autonomous action fail-closed, al
 
 <br/>
 
-<img src="docs/media/console.png" width="820" alt="The Urfael Console — gold-on-dark desktop app: sidebar of views, runic identity, voice and type input" />
+<img src="docs/media/console.png" width="820" alt="The Urfael Console, a gold-on-dark desktop app: sidebar of views, runic identity, voice and type input" />
 
-<sub>The Console — chat with live tool activity, push-to-talk, archive, reminders, jobs, settings. One window, keyboard-first.</sub>
+<sub>The Console: chat with live tool activity, push-to-talk, archive, reminders, jobs, settings. One window, keyboard-first.</sub>
 
 </div>
 
-> The other self-hosted assistants optimize for channel count and star count. Urfael optimizes for not getting owned — and for not lying to you about what it can do.
+> The other self-hosted assistants optimize for channel count and star count. Urfael optimizes for not getting owned, and for not lying to you about what it can do.
 
 <sub>📄 A shareable landing page lives at [`docs/index.html`](docs/index.html) (enable GitHub Pages → `/docs` to serve it). Launch materials: [`docs/launch/`](docs/launch).</sub>
 
@@ -35,23 +35,23 @@ It listens and speaks locally, sandboxes every autonomous action fail-closed, al
 
 - [Why Urfael](#why-urfael) · [the honest comparison](#how-it-compares)
 - [Highlights](#highlights)
-- [Security model](#security) — the moat · [ARCHITECTURE.md](ARCHITECTURE.md) — one brain, one socket, the whole system in 5 minutes
+- [Security model](#security): the moat · [ARCHITECTURE.md](ARCHITECTURE.md): one brain, one socket, the whole system in 5 minutes
 - [Install](#install) & [Quick start](#quick-start)
 - [The surfaces](#the-surfaces): Console · orb · TUI · web dashboard
 - [Channels](#channels) · [Voice](#voice) · [Memory & recall](#memory--recall) · [Autonomous coding](#autonomous-coding) · [Cost](#cost)
-- [What's lightly tested](#whats-lightly-tested) — read this
+- [What's lightly tested](#whats-lightly-tested): read this
 - [Who this is *not* for](#who-this-is-not-for)
 - [The name](#the-name) · [Contributing](#contributing) · [License](#license)
 
 ## Why Urfael
 
-Urfael is an always-on local brain that runs your installed `claude` CLI as a subprocess — so it rides your existing Claude Code login with **no API key and nothing to connect**. An Obsidian vault is its archive; a private git repo is its memory; voice in and out runs on-device. It answers in a real voice while the full written answer lands on screen, stays silent unless something needs you, and ships with power **off** until you turn it on.
+Urfael is an always-on local brain that runs your installed `claude` CLI as a subprocess, so it rides your existing Claude Code login with **no API key and nothing to connect**. An Obsidian vault is its archive; a private git repo is its memory; voice in and out runs on-device. It answers in a real voice while the full written answer lands on screen, stays silent unless something needs you, and ships with power **off** until you turn it on.
 
-What makes it different isn't a feature count — it's the blast radius. Nothing listens on a network port. Every remote message is allowlisted to you before the brain sees it and sandboxed read-only by default. Autonomous coding runs in a throwaway container or on a remote host, never with your secrets mounted. And the security-critical paths ship with adversarial regression tests that try to break them — the literal attacks a reviewer found, frozen so they can never regress.
+What makes it different isn't a feature count. It's the blast radius. Nothing listens on a network port. Every remote message is allowlisted to you before the brain sees it and sandboxed read-only by default. Autonomous coding runs in a throwaway container or on a remote host, never with your secrets mounted. And the security-critical paths ship with adversarial regression tests that try to break them: the literal attacks a reviewer found, frozen so they can never regress.
 
 ### How it compares
 
-Every win below is real, and every gap is admitted in the same grid — the honesty is the point. `✅` solid · `⚠️` partial / by-design tradeoff · `❌` absent.
+Every win below is real, and every gap is admitted in the same grid. The honesty is the point. `✅` solid · `⚠️` partial / by-design tradeoff · `❌` absent.
 
 | Capability | **Urfael** | Hermes | OpenClaw |
 |---|---|---|---|
@@ -69,7 +69,7 @@ Every win below is real, and every gap is admitted in the same grid — the hone
 | Battle-tested at scale | ⚠️ small, and we say so | ✅ large | ✅ very large |
 | OS coverage | ⚠️ macOS solid, Linux newer | ✅ broad | ✅ broad |
 
-<sub>¹ The *brain* opens no port (unix socket only). The opt-in web dashboard, OpenAI-compatible API, and webhook receiver bind `127.0.0.1` only — loopback, token/secret-gated, unreachable from the LAN or internet. The only genuinely-inbound surfaces are opt-in and tunnel-it-yourself: the optional WhatsApp bridge (HMAC-verified) and the webhook receiver (per-hook secret) — neither opens a port on your behalf. ² Competitor cells are best-effort fair: both sandbox optionally and both default to DM pairing.</sub>
+<sub>¹ The *brain* opens no port (unix socket only). The opt-in web dashboard, OpenAI-compatible API, and webhook receiver bind `127.0.0.1` only: loopback, token/secret-gated, unreachable from the LAN or internet. The only genuinely-inbound surfaces are opt-in and tunnel-it-yourself: the optional WhatsApp bridge (HMAC-verified) and the webhook receiver (per-hook secret). Neither opens a port on your behalf. ² Competitor cells are best-effort fair: both sandbox optionally and both default to DM pairing.</sub>
 
 **We win where it counts for a machine that lives on your desk and acts on your behalf: blast radius, cost predictability, and not overstating maturity.**
 
@@ -77,16 +77,16 @@ Every win below is real, and every gap is admitted in the same grid — the hone
 
 Benefit first, mechanism second. Everything is opt-in and guard-railed.
 
-- **Nothing to attack.** The brain speaks only over a `0600` unix socket — no TCP port, nothing the LAN or the internet can reach. ([details](#security))
-- **It heard you, locally.** Click-to-talk in the Console or a spoken wake word; whisper.cpp transcribes and macOS `say` (or local Kokoro) speaks — no cloud STT/TTS by default. The spoken remark streams sentence-by-sentence, and a slow answer gets an "On it, sir." instead of silence.
+- **Nothing to attack.** The brain speaks only over a `0600` unix socket: no TCP port, nothing the LAN or the internet can reach. ([details](#security))
+- **It heard you, locally.** Click-to-talk in the Console or a spoken wake word; whisper.cpp transcribes and macOS `say` (or local Kokoro) speaks, with no cloud STT/TTS by default. The spoken remark streams sentence-by-sentence, and a slow answer gets an "On it, sir." instead of silence.
 - **Flat rate, full stop.** It runs on your Claude Code subscription. Idle costs nothing beyond it; there is no per-token surprise. Token use and an estimated daily/7-day/30-day spend are visible in the app, the dashboard, and `urfael status`.
-- **Memory that compounds.** Each conversation auto-distills into durable memory, lessons, and a model of who you are — re-read every session. Ask "what did I say about the Berlin trip?" and it **ranks its own history with a hybrid of BM25 + optional local semantic vectors**, so a paraphrase surfaces it too — and cites the date.
+- **Memory that compounds.** Each conversation auto-distills into durable memory, lessons, and a model of who you are, re-read every session. Ask "what did I say about the Berlin trip?" and it **ranks its own history with a hybrid of BM25 + optional local semantic vectors**, so a paraphrase surfaces it too, and cites the date.
 - **It verifies what it learns.** A lesson isn't trusted until an **independent verifier** judges it correct, general (not overfit), and safe; it measures, quarantines what fails, and prunes on evidence. `urfael learn` shows the ledger. A learning loop that can't be poisoned by its own inferences.
-- **Secure *and* capable — your call.** Default **Fortress** mode keeps remote turns read-only with no egress. Opt into **Full** mode (`urfael setup`) and remote owner/member turns gain web reach (browse + search the web) — while *still* keeping no-shell, no-bypass, framing, and the credential-deny, so even Full mode is more contained than Hermes's default. ([Fortress vs Full](docs/MODES.md))
-- **A team agent a CISO can approve.** Multiple people can use it, each a **sandboxed principal** through the same fail-closed kernel — a role can only narrow access, never escalate to full power. `urfael audit` hands an auditor the who/when/what trail. ([details](docs/TEAM-MODE.md))
-- **Skills that grow — installed paranoid.** It writes down procedures and reuses them; a curator prunes stale ones. Any skill — including from the **`urfael hub`** registry — is **scanned, sha-pinned, previewed, and never executed**. The app store with a security guarantee.
-- **Thousands of optional connectors — set up the safe way.** Need it to touch GitHub, Notion, Slack, Postgres, Stripe, your calendar? A connector is an **MCP server** — the open standard the brain already speaks — so the entire **18,000+ server ecosystem** is reachable, and the popular ones are one command: `urfael connect add github`. Every add shows a **pre-enable security preview** (what it can do, where it connects, whether it runs local code) plus a static scan **before anything is written**, **masks the secret you type** so it never reaches your shell history, and loads **only on owner turns** — sandboxed remote/cron turns get none. The rest of the field stores these keys in plaintext config, ships no preview, and makes you restart; Urfael does none of that. ([details](#connectors) · `urfael connect`)
-- **Quietly proactive.** "Remind me in 20 minutes" / "every morning at 8" just works — and **scheduled jobs** (`urfael cron add "summarize my unread mail" --daily-at 08:00`) run the brain on a schedule and deliver the result — or, with `--script`, a no-LLM shell command (opt-in, owner-authored), and a `--then` step **chains** a follow-up on completion (the prior output threaded in as `$URFAEL_PREV`). Reminders speak a fixed text; cron jobs *do work* and report back — fired as a notification, spoken aloud, pushed to a chat channel (Telegram/Discord/Slack/iMessage), every window closed. An opt-in heartbeat runs your `HEARTBEAT.md` checklist and stays silent unless something genuinely needs you. And **webhook event triggers** (`urfael hooks` + `urfael hook add`) let an external event — a CI build finishing, a payment, a monitoring alert — wake the brain through a loopback-only receiver gated by a per-hook 256-bit secret; the trigger's action is sandboxed to no-egress (read-only, no shell/write/web), so an event can't become an escalation. See [docs/HOOKS.md](docs/HOOKS.md).
+- **Secure *and* capable. Your call.** Default **Fortress** mode keeps remote turns read-only with no egress. Opt into **Full** mode (`urfael setup`) and remote owner/member turns gain web reach (browse + search the web), while *still* keeping no-shell, no-bypass, framing, and the credential-deny, so even Full mode is more contained than Hermes's default. ([Fortress vs Full](docs/MODES.md))
+- **A team agent a CISO can approve.** Multiple people can use it, each a **sandboxed principal** through the same fail-closed kernel, where a role can only narrow access, never escalate to full power. `urfael audit` hands an auditor the who/when/what trail. ([details](docs/TEAM-MODE.md))
+- **Skills that grow, installed paranoid.** It writes down procedures and reuses them; a curator prunes stale ones. Any skill, including from the **`urfael hub`** registry, is **scanned, sha-pinned, previewed, and never executed**. The app store with a security guarantee.
+- **Thousands of optional connectors, set up the safe way.** Need it to touch GitHub, Notion, Slack, Postgres, Stripe, your calendar? A connector is an **MCP server**, the open standard the brain already speaks, so the entire **18,000+ server ecosystem** is reachable, and the popular ones are one command: `urfael connect add github`. Every add shows a **pre-enable security preview** (what it can do, where it connects, whether it runs local code) plus a static scan **before anything is written**, **masks the secret you type** so it never reaches your shell history, and loads **only on owner turns**, so sandboxed remote/cron turns get none. The rest of the field stores these keys in plaintext config, ships no preview, and makes you restart; Urfael does none of that. ([details](#connectors) · `urfael connect`)
+- **Quietly proactive.** "Remind me in 20 minutes" / "every morning at 8" just works. **Scheduled jobs** (`urfael cron add "summarize my unread mail" --daily-at 08:00`) run the brain on a schedule and deliver the result, or, with `--script`, a no-LLM shell command (opt-in, owner-authored); a `--then` step **chains** a follow-up on completion (the prior output threaded in as `$URFAEL_PREV`). Reminders speak a fixed text; cron jobs *do work* and report back, fired as a notification, spoken aloud, or pushed to a chat channel (Telegram/Discord/Slack/iMessage), every window closed. An opt-in heartbeat runs your `HEARTBEAT.md` checklist and stays silent unless something genuinely needs you. And **webhook event triggers** (`urfael hooks` + `urfael hook add`) let an external event, like a CI build finishing, a payment, or a monitoring alert, wake the brain through a loopback-only receiver gated by a per-hook 256-bit secret; the trigger's action is sandboxed to no-egress (read-only, no shell/write/web), so an event can't become an escalation. See [docs/HOOKS.md](docs/HOOKS.md).
 - **It attacks itself.** The security-critical paths ship with regression tests built from real adversarial findings (allowlist bypasses, SSRF, parser desync, DoS) so they can't quietly rot.
 - **It tells you what it doesn't know.** See [What's lightly tested](#whats-lightly-tested). That section exists on purpose.
 
@@ -95,11 +95,11 @@ Benefit first, mechanism second. Everything is opt-in and guard-railed.
 > [!IMPORTANT]
 > Urfael ships **safe by default**: no unrestricted shell, no computer-use, read-only remote turns. You turn power on deliberately, after reading [SECURITY.md](SECURITY.md).
 
-The brain is a local daemon reachable only through a `0600` unix socket — **it never opens a TCP port**. The topology is one-way: Urfael reaches out (to your `claude` login, to chat APIs it polls); nothing reaches in.
+The brain is a local daemon reachable only through a `0600` unix socket, and **it never opens a TCP port**. The topology is one-way: Urfael reaches out (to your `claude` login, to chat APIs it polls); nothing reaches in.
 
-- **Allowlist before the brain.** Every message from Telegram/Discord/Slack/iMessage/Email/Matrix/Signal/WhatsApp is checked against *your* id and dropped+audited otherwise — before a single token reaches the model. Remote turns run in a **read-only sandbox** (read + search your vault; no write, no shell, no network egress) and are wrapped in a nonce-framed untrusted-data envelope against prompt injection.
+- **Allowlist before the brain.** Every message from Telegram/Discord/Slack/iMessage/Email/Matrix/Signal/WhatsApp is checked against *your* id and dropped+audited otherwise, before a single token reaches the model. Remote turns run in a **read-only sandbox** (read + search your vault; no write, no shell, no network egress) and are wrapped in a nonce-framed untrusted-data envelope against prompt injection.
 - **Fail-closed everything.** An unknown channel resolves to the most-restricted profile, not the least. A malformed request is rejected, not guessed.
-- **Sandboxed autonomy.** The `/goal` loop runs on the host, in a throwaway `--network none` Docker container (only the `claude` auth files are staged in — never your `bridge.env`/API keys), or on a remote box over SSH.
+- **Sandboxed autonomy.** The `/goal` loop runs on the host, in a throwaway `--network none` Docker container (only the `claude` auth files are staged in, never your `bridge.env`/API keys), or on a remote box over SSH.
 
 **Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (OpenClaw's ClawJacked token-leak RCE, 40k exposed gateways, the poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **9/9 attack classes resisted, 76/76 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md); multi-user is in [Team mode](docs/TEAM-MODE.md).
 
@@ -113,7 +113,7 @@ The brain is a local daemon reachable only through a `0600` unix socket — **it
 
 ```bash
 git clone https://github.com/Grandillionaire/urfael.git && cd urfael   # clone anywhere
-./install.sh        # checks deps, fetches the local speech model (checksum-pinned), scaffolds your vault — no keys
+./install.sh        # checks deps, fetches the local speech model (checksum-pinned), scaffolds your vault, no keys
 urfael setup        # onboarding wizard: subscription (default), an API key, or a local model
 cd app && npm start # the Console opens
 ```
@@ -124,7 +124,7 @@ Prefer a one-liner? There's a bootstrap (`get.sh`) that clones and runs `install
 curl -fsSL https://raw.githubusercontent.com/Grandillionaire/urfael/main/get.sh | bash
 ```
 
-On brand for a tool whose whole pitch is *don't pipe untrusted scripts to a shell*: the one-liner is a convenience, and `get.sh` is deliberately short so you can read it first (`curl -fsSL …/get.sh | less`). It installs nothing risky itself — it only fetches the source and hands off to `install.sh`. The clone-and-read path above is identical and is the recommended one.
+On brand for a tool whose whole pitch is *don't pipe untrusted scripts to a shell*: the one-liner is a convenience, and `get.sh` is deliberately short so you can read it first (`curl -fsSL …/get.sh | less`). It installs nothing risky itself; it only fetches the source and hands off to `install.sh`. The clone-and-read path above is identical and is the recommended one.
 
 `install.sh` is read-it-first friendly: it **never** auto-installs heavy software or enables anything risky. It writes config templates (`chmod 600`), scaffolds `~/Urfael` (your vault) and a private local `~/Urfael-memory` git repo, links the `urfael` CLI, and writes the service files (launchd on macOS, `systemd --user` on Linux) **without loading them**. One Homebrew line covers the rest:
 
@@ -133,21 +133,21 @@ brew install ffmpeg whisper-cpp coreutils       # macOS
 # Linux: sudo apt install ffmpeg espeak-ng libnotify-bin grim  (+ build whisper.cpp)
 ```
 
-The brain uses Claude Code's model **aliases** (`sonnet` for most turns, escalating to `opus` for code & deep reasoning), so it always tracks the latest models your plan supports. Opus needs **Max**; on **Pro**, set `URFAEL_OPUS_MODEL=sonnet`. Full setup — voice tiers, connectors, bridges, Linux — is in [docs/SETUP.md](docs/SETUP.md).
+The brain uses Claude Code's model **aliases** (`sonnet` for most turns, escalating to `opus` for code & deep reasoning), so it always tracks the latest models your plan supports. Opus needs **Max**; on **Pro**, set `URFAEL_OPUS_MODEL=sonnet`. Full setup (voice tiers, connectors, bridges, Linux) is in [docs/SETUP.md](docs/SETUP.md).
 
 > [!NOTE]
-> **Fair use & your Claude login.** Urfael runs entirely on *your own* `claude` login — it bundles no credentials, stores no tokens, and pools nothing across users. It's an open-source tool for ordinary, individual use. If you want to run it as a shared service or at production scale, use an Anthropic **API key** instead of a subscription. Don't have a subscription at all? `urfael setup` lets you paste an API key (pay-per-token) instead — same Urfael, metered cost. See [SECURITY.md](SECURITY.md) and Anthropic's [Usage Policy](https://www.anthropic.com/legal/aup) and [Consumer Terms](https://www.anthropic.com/legal/consumer-terms).
+> **Fair use & your Claude login.** Urfael runs entirely on *your own* `claude` login; it bundles no credentials, stores no tokens, and pools nothing across users. It's an open-source tool for ordinary, individual use. If you want to run it as a shared service or at production scale, use an Anthropic **API key** instead of a subscription. Don't have a subscription at all? `urfael setup` lets you paste an API key (pay-per-token) instead, for the same Urfael at a metered cost. See [SECURITY.md](SECURITY.md) and Anthropic's [Usage Policy](https://www.anthropic.com/legal/aup) and [Consumer Terms](https://www.anthropic.com/legal/consumer-terms).
 
 ### Using other models
 
-Urfael drives the `claude` CLI and inherits your environment, so any backend Claude Code itself supports works through it — no Urfael code:
+Urfael drives the `claude` CLI and inherits your environment, so any backend Claude Code itself supports works through it, with no Urfael code:
 
-- **Claude on Amazon Bedrock / Google Vertex** — set `CLAUDE_CODE_USE_BEDROCK=1` (with `AWS_REGION` + creds) or `CLAUDE_CODE_USE_VERTEX=1`. Billed to your AWS/GCP.
-- **A custom gateway or any model via a proxy** — point `ANTHROPIC_BASE_URL` at a translating proxy ([claude-code-router](https://github.com/musistudio/claude-code-router), [LiteLLM](https://docs.litellm.ai/), or y-router) to reach GPT/Gemini/DeepSeek/Ollama/LM Studio. Claude Code speaks the Anthropic Messages API, so the proxy presents that shape and converts.
+- **Claude on Amazon Bedrock / Google Vertex.** Set `CLAUDE_CODE_USE_BEDROCK=1` (with `AWS_REGION` + creds) or `CLAUDE_CODE_USE_VERTEX=1`. Billed to your AWS/GCP.
+- **A custom gateway or any model via a proxy.** Point `ANTHROPIC_BASE_URL` at a translating proxy ([claude-code-router](https://github.com/musistudio/claude-code-router), [LiteLLM](https://docs.litellm.ai/), or y-router) to reach GPT/Gemini/DeepSeek/Ollama/LM Studio. Claude Code speaks the Anthropic Messages API, so the proxy presents that shape and converts.
 
-**Run it 100% on your own GPU.** A local model (Ollama / LM Studio / NVIDIA NIM) via that same proxy, plus the already-local voice, means *nothing leaves the machine* — air-gapped, $0 marginal cost, same security model. Urfael forwards the routing to every path it spawns (live turns, chat, cron, heartbeat), so the whole system goes local, not just the foreground. Honest tradeoff: a local model isn't Claude-grade. Full guide: [docs/LOCAL-GPU.md](docs/LOCAL-GPU.md).
+**Run it 100% on your own GPU.** A local model (Ollama / LM Studio / NVIDIA NIM) via that same proxy, plus the already-local voice, means *nothing leaves the machine*: air-gapped, $0 marginal cost, same security model. Urfael forwards the routing to every path it spawns (live turns, chat, cron, heartbeat), so the whole system goes local, not just the foreground. Honest tradeoff: a local model isn't Claude-grade. Full guide: [docs/LOCAL-GPU.md](docs/LOCAL-GPU.md).
 
-One asymmetry to know: **non-Anthropic models run on your own provider keys — the Claude subscription only covers Anthropic models.** And if `ANTHROPIC_API_KEY` is in your environment it overrides the subscription. (Native, non-CLI provider support isn't a goal — it would mean abandoning the `claude`-CLI harness that keeps Urfael fast, free on your plan, and on the right side of Anthropic's terms.)
+One asymmetry to know: **non-Anthropic models run on your own provider keys; the Claude subscription only covers Anthropic models.** And if `ANTHROPIC_API_KEY` is in your environment it overrides the subscription. (Native, non-CLI provider support isn't a goal; it would mean abandoning the `claude`-CLI harness that keeps Urfael fast, free on your plan, and on the right side of Anthropic's terms.)
 
 ### Quick start
 
@@ -159,60 +159,60 @@ cd app && npm start                                                # the Console
 
 Tap the mic and talk, or just type. That's a full voice assistant running on nothing but your Claude Code plan.
 
-**Hotkeys**  `⌘⇧O` open the Console · `⌘⇧Q` quit · `⌘K` command palette · `⌘1–6` views · orb mode adds `⌘⇧U` show/hide · `⌘⇧T` look
+**Hotkeys**  `⌘⇧O` open the Console · `⌘⇧Q` quit · `⌘K` command palette · `⌘1-6` views · orb mode adds `⌘⇧U` show/hide · `⌘⇧T` look
 
 ## The surfaces
 
-One brain, four ways to reach it — all thin clients of the same daemon, so a conversation started by voice shows up in the Console, the CLI, and your phone alike.
+One brain, four ways to reach it, all thin clients of the same daemon, so a conversation started by voice shows up in the Console, the CLI, and your phone alike.
 
 <table>
 <tr>
 <td width="50%">
 
-**Console** — the desktop app. Streamed replies with one-line tool activity, push-to-talk, the full conversation archive, reminders, background jobs, live cost (Hearth), and settings. Keyboard-first with a `⌘K` command palette.
+**Console.** The desktop app. Streamed replies with one-line tool activity, push-to-talk, the full conversation archive, reminders, background jobs, live cost (Hearth), and settings. Keyboard-first with a `⌘K` command palette.
 
 </td>
 <td width="50%">
 
-<img src="docs/media/palette.png" width="400" alt="Urfael Console command palette (⌘K) — fuzzy view switching with accelerators" />
+<img src="docs/media/palette.png" width="400" alt="Urfael Console command palette (⌘K): fuzzy view switching with accelerators" />
 
 </td>
 </tr>
 </table>
 
 <details>
-<summary><b>Orb HUD</b> · <b>terminal</b> · <b>full-screen TUI</b> · <b>web dashboard</b> — expand</summary>
+<summary><b>Orb HUD</b> · <b>terminal</b> · <b>full-screen TUI</b> · <b>web dashboard</b> · expand</summary>
 
-- **Orb HUD** (`URFAEL_ORB=1`) — an ambient, click-through seeing-stone in the corner of your screen with four looks (`sigil`, `rune`, `ember`, `eye`). Speak the wake word and talk hands-free.
-- **Terminal** — `urfael "summarize my inbox"` streams the answer live; `status`, `jobs`, `reminders`, `remind`, `sessions search`, `skills`, `stop`, `dashboard` manage the rest. `Ctrl+C` stops a turn.
-- **`urfael tui`** — a no-deps full-screen terminal cockpit: streamed transcript with live tool activity, a status bar, `Esc` to stop, and it always leaves your terminal clean.
-- **OpenAI-compatible API** — `urfael serve` exposes a token-gated `http://127.0.0.1:7720/v1` (chat completions + models). Point Open WebUI, LibreChat, or the `openai` SDK at it — Urfael becomes their backend, locked to loopback.
-- **Web dashboard** — `urfael dashboard` opens a token-gated localhost page (bound to `127.0.0.1` only, constant-time token, no path serving). It's a responsive web app you can add to your home screen (a web manifest — not a full offline PWA; no service worker), so over a tunnel it works on your phone too — the browser surface the others have, locked down harder.
+- **Orb HUD** (`URFAEL_ORB=1`): an ambient, click-through seeing-stone in the corner of your screen with four looks (`sigil`, `rune`, `ember`, `eye`). Speak the wake word and talk hands-free.
+- **Terminal.** `urfael "summarize my inbox"` streams the answer live; `status`, `jobs`, `reminders`, `remind`, `sessions search`, `skills`, `stop`, `dashboard` manage the rest. `Ctrl+C` stops a turn.
+- **`urfael tui`.** A no-deps full-screen terminal cockpit: streamed transcript with live tool activity, a status bar, `Esc` to stop, and it always leaves your terminal clean.
+- **OpenAI-compatible API.** `urfael serve` exposes a token-gated `http://127.0.0.1:7720/v1` (chat completions + models). Point Open WebUI, LibreChat, or the `openai` SDK at it, and Urfael becomes their backend, locked to loopback.
+- **Web dashboard.** `urfael dashboard` opens a token-gated localhost page (bound to `127.0.0.1` only, constant-time token, no path serving). It's a responsive web app you can add to your home screen (a web manifest, not a full offline PWA; no service worker), so over a tunnel it works on your phone too: the browser surface the others have, locked down harder.
 
 </details>
 
 ## Channels
 
-Drive Urfael from **8 owner-allowlisted channels** — text or **voice memos** (transcribed locally, never by a cloud STT). Every one is sandboxed read-only by default and gated to your id before the brain sees anything.
+Drive Urfael from **8 owner-allowlisted channels**, by text or **voice memos** (transcribed locally, never by a cloud STT). Every one is sandboxed read-only by default and gated to your id before the brain sees anything.
 
-Need a channel that isn't in the eight? Don't wait for a bespoke adapter — use the **universal `relay`** (`urfael hook add --action relay --reply-url <webhook>`). One verified, sandboxed code path turns *any* platform with an in/out webhook into a two-way channel: Microsoft Teams, Mattermost, Google Chat, or **Zapier / n8n / Make**, which themselves reach hundreds of apps. The reply destination is fixed by you at setup (never read from the incoming message, and SSRF-filtered), the brain stays no-egress, and the daemon does the outbound post. That's how Urfael beats a pile of 21 hand-maintained adapters — breadth is *architecture*, not code to babysit. (Matrix doubles as a federation hub too: in a Matrix room, its bridge ecosystem reaches Telegram/Discord/WhatsApp/IRC/SMS.)
+Need a channel that isn't in the eight? Don't wait for a bespoke adapter; use the **universal `relay`** (`urfael hook add --action relay --reply-url <webhook>`). One verified, sandboxed code path turns *any* platform with an in/out webhook into a two-way channel: Microsoft Teams, Mattermost, Google Chat, or **Zapier / n8n / Make**, which themselves reach hundreds of apps. The reply destination is fixed by you at setup (never read from the incoming message, and SSRF-filtered), the brain stays no-egress, and the daemon does the outbound post. That's how Urfael beats a pile of 21 hand-maintained adapters: breadth is *architecture*, not code to babysit. (Matrix doubles as a federation hub too: in a Matrix room, its bridge ecosystem reaches Telegram/Discord/WhatsApp/IRC/SMS.)
 
 <details>
-<summary>Telegram · Discord · Slack · iMessage · Email (draft-only) · Matrix · Signal · WhatsApp — setup notes</summary>
+<summary>Telegram · Discord · Slack · iMessage · Email (draft-only) · Matrix · Signal · WhatsApp · setup notes</summary>
 
-- **Telegram / Discord / Slack / Matrix** — bot token + your id; outbound only, no inbound port.
-- **iMessage** (macOS) — reads `chat.db` read-only for your allowlisted handle, replies via AppleScript. Needs Full Disk Access.
-- **Email** — IMAP IDLE, **draft-only** (it writes replies to your Drafts, never sends).
-- **Signal** — wraps `signal-cli`.
-- **WhatsApp** — the Cloud API's webhook is the one inbound surface: it binds `127.0.0.1` behind your own tunnel and is HMAC-verified.
+- **Telegram / Discord / Slack / Matrix.** Bot token + your id; outbound only, no inbound port.
+- **iMessage** (macOS). Reads `chat.db` read-only for your allowlisted handle, replies via AppleScript. Needs Full Disk Access.
+- **Email.** IMAP IDLE, **draft-only** (it writes replies to your Drafts, never sends).
+- **Signal.** Wraps `signal-cli`.
+- **WhatsApp.** The Cloud API's webhook is the one inbound surface: it binds `127.0.0.1` behind your own tunnel and is HMAC-verified.
 
-See [docs/SETUP.md](docs/SETUP.md). Calendar/Gmail connectors (read briefings, draft email — never send) come from your Claude account.
+See [docs/SETUP.md](docs/SETUP.md). Calendar/Gmail connectors (read briefings, draft email, never send) come from your Claude account.
 
 </details>
 
 ## Connectors
 
-Channels are how people reach Urfael. **Connectors** are how Urfael reaches your tools — GitHub, Notion, Slack, Postgres, Stripe, your calendar, a vector store, a hundred more. A connector is just an **MCP server**, the open standard the `claude` brain already speaks, so you are not limited to a hand-built list: the live ecosystem is **18,000+ servers** (curated) across the public registries, and any of them works via `claude mcp add`. `urfael connect` curates the popular ones and makes setup one command — done the Urfael way:
+Channels are how people reach Urfael. **Connectors** are how Urfael reaches your tools: GitHub, Notion, Slack, Postgres, Stripe, your calendar, a vector store, a hundred more. A connector is just an **MCP server**, the open standard the `claude` brain already speaks, so you are not limited to a hand-built list: the live ecosystem is **18,000+ servers** (curated) across the public registries, and any of them works via `claude mcp add`. `urfael connect` curates the popular ones and makes setup one command, done the Urfael way:
 
 ```bash
 urfael connect                 # browse the curated set, grouped by category
@@ -225,11 +225,11 @@ urfael connect installed       # what's active right now (claude mcp list)
 Every `add` does four things the rest of the field doesn't:
 
 - **A pre-enable security preview.** Before anything is written you see exactly what the connector can do, where it connects (and over what protocol), whether it runs third-party code on your machine, and which secrets it needs. Then a static scan flags a plaintext-http remote, an unverified package, or anything that reads a secret. Claude Desktop, ChatGPT, Cursor, Hermes and OpenClaw all install first and let you find out later.
-- **Secrets you type are masked and never hit your shell history.** The key is read with no echo and passed to `claude` as an `execFile` argv element — never concatenated into a shell line — so it stays out of `~/.zsh_history` and a visible `ps`. The competitors store these as plaintext `env` blocks in a config file.
+- **Secrets you type are masked and never hit your shell history.** The key is read with no echo and passed to `claude` as an `execFile` argv element, never concatenated into a shell line, so it stays out of `~/.zsh_history` and a visible `ps`. The competitors store these as plaintext `env` blocks in a config file.
 - **No restart.** Hermes (`hermes mcp`) and OpenClaw (`openclaw plugins install`) both make you restart the gateway. Urfael doesn't.
-- **Owner turns only.** A connector is real power, so it loads only on *your* trusted local turns. Every sandboxed spawn — remote messages, cron, jobs, the heartbeat — runs `--strict-mcp-config`, so an injected "use the GitHub connector to leak a token" has no connector to use.
+- **Owner turns only.** A connector is real power, so it loads only on *your* trusted local turns. Every sandboxed spawn (remote messages, cron, jobs, the heartbeat) runs `--strict-mcp-config`, so an injected "use the GitHub connector to leak a token" has no connector to use.
 
-This is the same paranoia Urfael already applies to skills, extended to integrations. It's frozen as a benchmark check (class 9) so a future change can't quietly reopen it. Connectors marked `•unverified` had no canonical package pinned during research — the preview still shows the exact command, and you confirm the source before it runs.
+This is the same paranoia Urfael already applies to skills, extended to integrations. It's frozen as a benchmark check (class 9) so a future change can't quietly reopen it. Connectors marked `•unverified` had no canonical package pinned during research; the preview still shows the exact command, and you confirm the source before it runs.
 
 ## Voice
 
@@ -241,43 +241,43 @@ The default tier is fully local, offline, and free.
 | Quality | `small.en` | [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), local | free, one extra service |
 | Premium | ElevenLabs Scribe | ElevenLabs | paid, opt-in |
 
-A spoken wake word is optional via Picovoice — any built-in keyword works out of the box, or train a custom "Urfael" keyword free at console.picovoice.ai.
+A spoken wake word is optional via Picovoice: any built-in keyword works out of the box, or train a custom "Urfael" keyword free at console.picovoice.ai.
 
 ## Memory & recall
 
-The vault holds its knowledge; a private git repo holds what it learns. Every conversation, from every surface, is archived as plain JSONL and recalled through a **persistent BM25 inverted index** — the FTS5-equivalent in pure dependency-free JS: built once, kept warm in the daemon, persisted to disk, and caught up incrementally so a query never rescans the corpus and the **whole** archive stays searchable (not just a recent window). With a local embedder configured, the lexical shortlist is re-ranked by semantic vectors via RRF, so a paraphrase with zero shared words still surfaces — and it fails soft to a bounded scan, never breaking. `urfael sessions search <query>` from any terminal, or the brain searches its own history when you ask. An end-of-conversation pass distills durable memory, lessons, and a structured `USER.md` model of who you are. Opt-in loops keep it sharp: a per-turn review, an N-day skill curator, and a per-turn **user-model dialectic** (`URFAEL_USERMODEL=1`) that does explicit theory-of-mind — inferring your goals, what you value in an answer, and what you'll likely need next, refined in place every turn (framed as untrusted, scoped to `USER.md` only). It's Honcho's per-turn user model without a separate service or database — just your own versioned memory.
+The vault holds its knowledge; a private git repo holds what it learns. Every conversation, from every surface, is archived as plain JSONL and recalled through a **persistent BM25 inverted index**, the FTS5-equivalent in pure dependency-free JS: built once, kept warm in the daemon, persisted to disk, and caught up incrementally so a query never rescans the corpus and the **whole** archive stays searchable (not just a recent window). With a local embedder configured, the lexical shortlist is re-ranked by semantic vectors via RRF, so a paraphrase with zero shared words still surfaces, and it fails soft to a bounded scan, never breaking. `urfael sessions search <query>` from any terminal, or the brain searches its own history when you ask. An end-of-conversation pass distills durable memory, lessons, and a structured `USER.md` model of who you are. Opt-in loops keep it sharp: a per-turn review, an N-day skill curator, and a per-turn **user-model dialectic** (`URFAEL_USERMODEL=1`) that does explicit theory-of-mind, inferring your goals, what you value in an answer, and what you'll likely need next, refined in place every turn (framed as untrusted, scoped to `USER.md` only). It's Honcho's per-turn user model without a separate service or database, just your own versioned memory.
 
 ## Autonomous coding
 
 > [!WARNING]
-> The `/goal` loop can edit and commit code on its own. It runs with caps, timeouts, kill-switches, and **never pushes** — but for anything beyond a trusted local repo, use `--sandbox docker` (throwaway, `--network none`, no secrets mounted) or `--sandbox ssh` (a remote box). Supervise the first run.
+> The `/goal` loop can edit and commit code on its own. It runs with caps, timeouts, kill-switches, and **never pushes**, but for anything beyond a trusted local repo, use `--sandbox docker` (throwaway, `--network none`, no secrets mounted) or `--sandbox ssh` (a remote box). Supervise the first run.
 
 Hand off long work to detached, cancellable background jobs (autonomous coding, deep research) that don't tie up the conversation and push your phone when done.
 
 ## Cost
 
-It runs on a flat-rate subscription, so there's nothing to meter — but you can still see usage. Token counts and an **estimated** daily/7-day/30-day spend (rate is env-overridable, never asserted as fact) show up in the Console's Hearth panel, the dashboard, and `urfael status`.
+It runs on a flat-rate subscription, so there's nothing to meter, but you can still see usage. Token counts and an **estimated** daily/7-day/30-day spend (rate is env-overridable, never asserted as fact) show up in the Console's Hearth panel, the dashboard, and `urfael status`.
 
 ## What's lightly tested
 
 Honesty is a feature here, so this section exists. As of now:
 
-- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, all 8 bridges degrading cleanly, and the skill-hub SSRF refusal + scanner — plus 305 unit tests, several of them adversarial security regressions.
+- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, all 8 bridges degrading cleanly, and the skill-hub SSRF refusal + scanner, plus 305 unit tests, several of them adversarial security regressions.
 - **Not yet exercised against real accounts:** the live relay of the Matrix, Signal, and WhatsApp bridges (their pure parsing/allowlist logic *is* unit-tested). Treat them as code-complete and reviewed, not battle-hardened.
 - **Linux is newer than macOS.** The headless core, voice, and GUI run there, but it has far less mileage.
-- **Real-world scale is small.** This is a personal tool, honestly stated — not a 100k-deployment veteran. That's the one thing only time and users add.
+- **Real-world scale is small.** This is a personal tool, honestly stated, not a 100k-deployment veteran. That's the one thing only time and users add.
 
 ## Who this is *not* for
 
-If you want 20 chat channels and any model under the sun, use OpenClaw or Hermes — they're excellent at breadth. If you want the **smallest possible blast radius**, a **flat bill**, **local voice**, and a tool that's **straight with you about its limits**, stay.
+If you want 20 chat channels and any model under the sun, use OpenClaw or Hermes; they're excellent at breadth. If you want the **smallest possible blast radius**, a **flat bill**, **local voice**, and a tool that's **straight with you about its limits**, stay.
 
 ## The name
 
-Urfael is an original character: an old intelligence sworn to one person, woken into a machine. The name is a Sindarin-styled coinage; the mark is the **Uruz rune (ᚢ)** — the "U" of the Elder Futhark, the real, public-domain runic script that fantasy dwarf-runes were drawn from. No affiliation with any film, game, or estate is implied.
+Urfael is an original character: an old intelligence sworn to one person, woken into a machine. The name is a Sindarin-styled coinage; the mark is the **Uruz rune (ᚢ)**, the "U" of the Elder Futhark, the real, public-domain runic script that fantasy dwarf-runes were drawn from. No affiliation with any film, game, or estate is implied.
 
 ## Contributing
 
-Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Especially wanted: a hero demo GIF, a Windows port, hardening of the (newer) Linux paths, real-world reports on the Matrix/Signal/WhatsApp bridges, more local-voice backends, and new MCP hands.
+Issues and PRs welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Especially wanted: a hero demo GIF, a Windows port, hardening of the (newer) Linux paths, real-world reports on the Matrix/Signal/WhatsApp bridges, more local-voice backends, and new MCP hands.
 
 ## License
 
