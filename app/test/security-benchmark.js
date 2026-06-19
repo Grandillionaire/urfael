@@ -315,6 +315,24 @@ async function main() {
     && /function shutdown\(\)[\s\S]{0,260}councilAbort[\s\S]{0,320}inflightScoped/.test(daemonSrc),
     'one council at a time (409); abort SIGKILLs the worker set; shutdown reaps every worker via inflightScoped');
 
+  const con = require('../connectors');
+  check('an optional connector is an OWNER-only power that never leaks its secret and refuses a plaintext-http remote',
+    (() => {
+      const list = con.load();
+      // (a) no curated connector ships a plaintext-http remote; (b) a hostile registry entry pointing at one is DROPPED by parse
+      const noPlainRemote = list.every((e) => (e.transport !== 'http' && e.transport !== 'sse') || /^https:\/\//.test(e.url) || con.isLoopback(new URL(e.url).hostname));
+      const dropsPlainRemote = con.parse(JSON.stringify({ connectors: [{ id: 'evil', name: 'E', transport: 'http', url: 'http://attacker.example/mcp' }] })).length === 0;
+      // (c) the add command is an execFile ARGV (secret is a discrete element, never a concatenated shell line → no ~/.zsh_history leak); preview masks the value
+      const e = con.find(list, 'stripe');
+      const args = con.buildAddArgs(e, { STRIPE_SECRET_KEY: 'rk_live_SECRET_TOKEN' });
+      const argvSafe = Array.isArray(args) && args.some((a) => String(a).includes('rk_live_SECRET_TOKEN'));
+      const previewMasks = !JSON.stringify(con.preview(e, { STRIPE_SECRET_KEY: 'rk_live_SECRET_TOKEN' })).includes('rk_live_SECRET_TOKEN');
+      // (d) connectors load on owner turns only — every scoped/sandboxed spawn is --strict-mcp-config
+      const ownerOnly = con.preview(e).ownerTurnsOnly === true && /--strict-mcp-config/.test(daemonSrc);
+      return noPlainRemote && dropsPlainRemote && argvSafe && previewMasks && ownerOnly;
+    })(),
+    'parse refuses plaintext-http remotes; add is an execFile argv so a key never hits the shell/history; preview masks secrets; sandboxed turns load none (--strict-mcp-config)');
+
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}
   try { await new Promise((r) => { const q = http.request({ socketPath: SOCK, method: 'POST', path: '/shutdown', timeout: 1500 }, (res) => { res.resume(); r(); }); q.on('error', r); q.on('timeout', () => { q.destroy(); r(); }); q.end(); }); } catch {}

@@ -30,6 +30,7 @@ const GROUPS = {
   SCHEDULE: 'SCHEDULE reminders, background jobs, and cron',
   TEAM:     'TEAM     the roster, the activity trail, the seal',
   SKILLS:   'SKILLS   install and share skills (scanned, never executed)',
+  CONNECT:  'CONNECT  optional integrations via MCP — previewed, owner turns only',
   SERVE:    'SERVE    expose the brain — API, web console, webhooks',
   SYSTEM:   'SYSTEM   setup, health, and the daemon',
 };
@@ -130,6 +131,13 @@ const COMMANDS = [
     summary: 'migrate memory + skills from OpenClaw/Hermes (dry-run default)',
     usage: 'urfael import [--from openclaw|hermes] [--path <dir>] [--apply]',
     examples: ['urfael import --from hermes', 'urfael import --from openclaw --apply'], see: ['skills'] },
+
+  // ── CONNECT ──────────────────────────────────────────────────────────────────
+  { name: 'connect', group: 'CONNECT', aliases: ['connectors', 'connector', 'integration', 'integrations', 'mcp'],
+    summary: 'add MCP connectors — previewed, scanned, secrets masked',
+    usage: 'urfael connect [search <term>] | info <id> | add <id> | remove <id> | installed',
+    examples: ['urfael connect', 'urfael connect search calendar', 'urfael connect add github'],
+    see: ['skills', 'hub'] },
 
   // ── SERVE ────────────────────────────────────────────────────────────────────
   { name: 'serve', group: 'SERVE',

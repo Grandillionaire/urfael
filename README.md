@@ -85,6 +85,7 @@ Benefit first, mechanism second. Everything is opt-in and guard-railed.
 - **Secure *and* capable — your call.** Default **Fortress** mode keeps remote turns read-only with no egress. Opt into **Full** mode (`urfael setup`) and remote owner/member turns gain web reach (browse + search the web) — while *still* keeping no-shell, no-bypass, framing, and the credential-deny, so even Full mode is more contained than Hermes's default. ([Fortress vs Full](docs/MODES.md))
 - **A team agent a CISO can approve.** Multiple people can use it, each a **sandboxed principal** through the same fail-closed kernel — a role can only narrow access, never escalate to full power. `urfael audit` hands an auditor the who/when/what trail. ([details](docs/TEAM-MODE.md))
 - **Skills that grow — installed paranoid.** It writes down procedures and reuses them; a curator prunes stale ones. Any skill — including from the **`urfael hub`** registry — is **scanned, sha-pinned, previewed, and never executed**. The app store with a security guarantee.
+- **Thousands of optional connectors — set up the safe way.** Need it to touch GitHub, Notion, Slack, Postgres, Stripe, your calendar? A connector is an **MCP server** — the open standard the brain already speaks — so the entire **18,000+ server ecosystem** is reachable, and the popular ones are one command: `urfael connect add github`. Every add shows a **pre-enable security preview** (what it can do, where it connects, whether it runs local code) plus a static scan **before anything is written**, **masks the secret you type** so it never reaches your shell history, and loads **only on owner turns** — sandboxed remote/cron turns get none. The rest of the field stores these keys in plaintext config, ships no preview, and makes you restart; Urfael does none of that. ([details](#connectors) · `urfael connect`)
 - **Quietly proactive.** "Remind me in 20 minutes" / "every morning at 8" just works — and **scheduled jobs** (`urfael cron add "summarize my unread mail" --daily-at 08:00`) run the brain on a schedule and deliver the result — or, with `--script`, a no-LLM shell command (opt-in, owner-authored), and a `--then` step **chains** a follow-up on completion (the prior output threaded in as `$URFAEL_PREV`). Reminders speak a fixed text; cron jobs *do work* and report back — fired as a notification, spoken aloud, pushed to a chat channel (Telegram/Discord/Slack/iMessage), every window closed. An opt-in heartbeat runs your `HEARTBEAT.md` checklist and stays silent unless something genuinely needs you. And **webhook event triggers** (`urfael hooks` + `urfael hook add`) let an external event — a CI build finishing, a payment, a monitoring alert — wake the brain through a loopback-only receiver gated by a per-hook 256-bit secret; the trigger's action is sandboxed to no-egress (read-only, no shell/write/web), so an event can't become an escalation. See [docs/HOOKS.md](docs/HOOKS.md).
 - **It attacks itself.** The security-critical paths ship with regression tests built from real adversarial findings (allowlist bypasses, SSRF, parser desync, DoS) so they can't quietly rot.
 - **It tells you what it doesn't know.** See [What's lightly tested](#whats-lightly-tested). That section exists on purpose.
@@ -100,7 +101,7 @@ The brain is a local daemon reachable only through a `0600` unix socket — **it
 - **Fail-closed everything.** An unknown channel resolves to the most-restricted profile, not the least. A malformed request is rejected, not guessed.
 - **Sandboxed autonomy.** The `/goal` loop runs on the host, in a throwaway `--network none` Docker container (only the `claude` auth files are staged in — never your `bridge.env`/API keys), or on a remote box over SSH.
 
-**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (OpenClaw's ClawJacked token-leak RCE, 40k exposed gateways, the poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **9/9 attack classes resisted, 75/75 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md); multi-user is in [Team mode](docs/TEAM-MODE.md).
+**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (OpenClaw's ClawJacked token-leak RCE, 40k exposed gateways, the poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **9/9 attack classes resisted, 76/76 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md); multi-user is in [Team mode](docs/TEAM-MODE.md).
 
 > [!WARNING]
 > Full capability (`URFAEL_YOLO=1`) gives the agent an unrestricted shell that also reads untrusted email and web. Run that mode **only** in a VM, container, or throwaway account.
@@ -209,6 +210,27 @@ See [docs/SETUP.md](docs/SETUP.md). Calendar/Gmail connectors (read briefings, d
 
 </details>
 
+## Connectors
+
+Channels are how people reach Urfael. **Connectors** are how Urfael reaches your tools — GitHub, Notion, Slack, Postgres, Stripe, your calendar, a vector store, a hundred more. A connector is just an **MCP server**, the open standard the `claude` brain already speaks, so you are not limited to a hand-built list: the live ecosystem is **18,000+ servers** (curated) across the public registries, and any of them works via `claude mcp add`. `urfael connect` curates the popular ones and makes setup one command — done the Urfael way:
+
+```bash
+urfael connect                 # browse the curated set, grouped by category
+urfael connect search calendar # find one
+urfael connect info github     # the full pre-enable security preview
+urfael connect add github      # preview → scan → (masked secret prompt) → confirm → live
+urfael connect installed       # what's active right now (claude mcp list)
+```
+
+Every `add` does four things the rest of the field doesn't:
+
+- **A pre-enable security preview.** Before anything is written you see exactly what the connector can do, where it connects (and over what protocol), whether it runs third-party code on your machine, and which secrets it needs. Then a static scan flags a plaintext-http remote, an unverified package, or anything that reads a secret. Claude Desktop, ChatGPT, Cursor, Hermes and OpenClaw all install first and let you find out later.
+- **Secrets you type are masked and never hit your shell history.** The key is read with no echo and passed to `claude` as an `execFile` argv element — never concatenated into a shell line — so it stays out of `~/.zsh_history` and a visible `ps`. The competitors store these as plaintext `env` blocks in a config file.
+- **No restart.** Hermes (`hermes mcp`) and OpenClaw (`openclaw plugins install`) both make you restart the gateway. Urfael doesn't.
+- **Owner turns only.** A connector is real power, so it loads only on *your* trusted local turns. Every sandboxed spawn — remote messages, cron, jobs, the heartbeat — runs `--strict-mcp-config`, so an injected "use the GitHub connector to leak a token" has no connector to use.
+
+This is the same paranoia Urfael already applies to skills, extended to integrations. It's frozen as a benchmark check (class 9) so a future change can't quietly reopen it. Connectors marked `•unverified` had no canonical package pinned during research — the preview still shows the exact command, and you confirm the source before it runs.
+
 ## Voice
 
 The default tier is fully local, offline, and free.
@@ -240,7 +262,7 @@ It runs on a flat-rate subscription, so there's nothing to meter — but you can
 
 Honesty is a feature here, so this section exists. As of now:
 
-- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, all 8 bridges degrading cleanly, and the skill-hub SSRF refusal + scanner — plus 289 unit tests, several of them adversarial security regressions.
+- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, all 8 bridges degrading cleanly, and the skill-hub SSRF refusal + scanner — plus 305 unit tests, several of them adversarial security regressions.
 - **Not yet exercised against real accounts:** the live relay of the Matrix, Signal, and WhatsApp bridges (their pure parsing/allowlist logic *is* unit-tested). Treat them as code-complete and reviewed, not battle-hardened.
 - **Linux is newer than macOS.** The headless core, voice, and GUI run there, but it has far less mileage.
 - **Real-world scale is small.** This is a personal tool, honestly stated — not a 100k-deployment veteran. That's the one thing only time and users add.

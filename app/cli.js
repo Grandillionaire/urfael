@@ -143,6 +143,58 @@ function searchSessions(query) {
 
 function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; }
 
+// ── connector helpers (used by the `connect` dispatch) ──────────────────────────────────────────
+// A masked secret prompt: reads from the TTY in raw mode and NEVER echoes the value, so a key isn't shoulder-
+// surfed and (because the value is later passed to claude as an execFile argv element, not a shell line) never
+// reaches ~/.zsh_history or a visible `ps` line. Resolves '' on a non-TTY (fail-closed: the caller aborts).
+function promptSecret(label) {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    if (!stdin.isTTY) { console.log(dim("(no tty — cannot read a secret safely; aborting)")); return resolve(""); }
+    process.stdout.write(label);
+    stdin.setRawMode(true); stdin.resume(); stdin.setEncoding("utf8");
+    let buf = "";
+    const done = () => { stdin.setRawMode(false); stdin.pause(); stdin.removeListener("data", onData); process.stdout.write("\n"); resolve(buf); };
+    const onData = (chunk) => {
+      for (const ch of String(chunk)) {
+        const code = ch.charCodeAt(0);
+        if (code === 13 || code === 10 || code === 4) return done();          // enter / EOT
+        if (code === 3) { stdin.setRawMode(false); process.stdout.write("\n"); process.exit(130); } // ctrl-c
+        if (code === 127 || code === 8) { buf = buf.slice(0, -1); continue; } // backspace
+        buf += ch;
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+// Minimal TTY yes/no. Fail-closed: defaults to NO on a non-TTY.
+function promptYesNo(question) {
+  return new Promise((resolve) => {
+    if (!process.stdin.isTTY) { console.log(dim('(no tty — refusing by default)')); return resolve(false); }
+    process.stdout.write(question + ' [y/N] ');
+    process.stdin.setEncoding('utf8'); process.stdin.resume();
+    const onData = (d) => { process.stdin.pause(); process.stdin.removeListener('data', onData); resolve(/^\s*y(es)?\s*$/i.test(String(d))); };
+    process.stdin.on('data', onData);
+  });
+}
+// The pre-enable security preview — the move no competitor ships. Pure render of connectors.preview().
+function printConnectorPreview(con, e) {
+  const p = con.preview(e);
+  console.log('');
+  console.log(gold('── connector: ' + e.name) + dim('  (' + e.id + ' · ' + e.category + ')'));
+  if (e.note) console.log(dim('   ' + e.note));
+  console.log(dim('─'.repeat(60)));
+  console.log(dim('   transport ') + (p.runsLocalCode ? gold(e.transport + ' — runs a third-party package on your machine') : (e.transport + ' → ' + (p.endpoint || ''))));
+  console.log(dim('   auth      ') + e.auth + (p.secretsNeeded.length ? dim('  (needs: ' + p.secretsNeeded.join(', ') + ')') : ''));
+  console.log(dim('   scope     ') + gold('owner turns only') + dim(' — sandboxed remote/cron/job turns never load it'));
+  for (const f of p.flags) {
+    const tag = f.level === 'danger' ? gold('[DANGER]') : f.level === 'warn' ? gold('[warn] ') : dim('[info] ');
+    console.log('   ' + tag + ' ' + (f.level === 'info' ? dim(f.why) : f.why));
+  }
+  console.log(dim('─'.repeat(60)));
+  console.log(dim('   command   ') + dim(p.command));
+}
+
 (async () => {
   const [cmd, ...rest] = process.argv.slice(2);
   if (cmd === 'logo') { console.log(banner()); return; }
@@ -269,6 +321,75 @@ function flag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i
       console.log(`  ${mark} ${gold(e.slug.padEnd(22))} ${dim((e.description || e.title).slice(0, 50))}${pin}`);
     }
     console.log(dim('install:  urfael hub install <slug>   ·   each install is scanned + sha-checked + previewed, never executed'));
+    return;
+  }
+
+  // connect: optional MCP connectors, set up the Urfael way. A connector is an MCP server — the open standard the
+  // brain already speaks. `add` shows a pre-enable security preview + a static scan, prompts for any secret WITHOUT
+  // echoing it (and passes it to claude as an execFile argv element, so it never reaches the shell history), and
+  // only writes after you confirm. Connectors load on OWNER turns only — every sandbox spawn is --strict-mcp-config.
+  // Pure CLI, runs BEFORE ensureDaemon. The full ecosystem (thousands of servers) also works via `claude mcp add`.
+  if (cmd === 'connect' || cmd === 'connectors') {
+    const con = require('./connectors');
+    const { VAULT } = require('./setup');
+    const list = con.load();
+    const sub = rest[0];
+
+    // active connectors come from the brain's own config, not our guess
+    if (sub === 'installed' || sub === 'active' || sub === 'doctor') {
+      try { execFileSync('claude', ['mcp', 'list'], { stdio: 'inherit', cwd: VAULT }); }
+      catch { console.error('✗ could not run `claude mcp list` — is the Claude CLI installed and on PATH?'); process.exit(1); }
+      return;
+    }
+    if ((sub === 'info' || sub === 'show') && rest[1]) {
+      const e = con.find(list, rest[1]);
+      if (!e) { console.error('✗ no connector "' + rest[1] + '". Try: urfael connect search <term>'); process.exit(1); }
+      printConnectorPreview(con, e);
+      console.log('\n' + dim('add it:  ') + gold('urfael connect add ' + e.id));
+      return;
+    }
+    if (sub === 'add' && rest[1]) {
+      const e = con.find(list, rest[1]);
+      if (!e) { console.error('✗ no connector "' + rest[1] + '". Try: urfael connect search <term>'); process.exit(1); }
+      printConnectorPreview(con, e);
+      const danger = con.scan(e).flags.some((f) => f.level === 'danger');
+      const secrets = {};
+      for (const f of con.secretsNeeded(e)) {                                  // masked prompt per secret; abort if blank
+        const v = await promptSecret('   ' + f.label + ': ');
+        if (!v) { console.log(dim('aborted — no value entered for ' + f.key)); return; }
+        secrets[f.key] = v;
+      }
+      const ok = await promptYesNo('\nAdd this connector?' + (danger ? gold(' (DANGER flags present!)') : ''));
+      if (!ok) { console.log(dim('aborted — nothing added')); return; }
+      let args; try { args = con.buildAddArgs(e, secrets); } catch (err) { console.error('✗ ' + ((err && err.message) || err)); process.exit(1); }
+      try { execFileSync('claude', args, { stdio: 'inherit', cwd: VAULT }); }  // execFile array → secrets never hit the shell / history
+      catch (err) { console.error('✗ `claude mcp add` failed: ' + ((err && err.message) || err)); process.exit(1); }
+      console.log(gold('✓ connected ') + e.name + dim('  — owner turns only; sandboxed turns never load it'));
+      if (e.auth === 'oauth') console.log(dim('  next time you use it on an owner turn, Claude opens the browser to authorize — no key is stored here.'));
+      return;
+    }
+    if ((sub === 'remove' || sub === 'rm') && rest[1]) {
+      const e = con.find(list, rest[1]) || { id: con.slugify(rest[1]) };
+      try { execFileSync('claude', con.buildRemoveArgs(e), { stdio: 'inherit', cwd: VAULT }); }
+      catch (err) { console.error('✗ remove failed: ' + ((err && err.message) || err)); process.exit(1); }
+      console.log(gold('✓ removed ') + e.id);
+      return;
+    }
+    // default + search: browse the curated registry, grouped by category
+    let entries = list;
+    if (sub === 'search' && rest[1]) entries = con.search(list, rest.slice(1).join(' '));
+    if (!entries.length) { console.log(dim('no connectors matched')); return; }
+    console.log(gold('Connectors') + dim('  ·  optional MCP integrations — previewed + scanned + secrets masked, owner turns only'));
+    for (const [cat, items] of con.categories(entries)) {
+      console.log('\n' + dim(cat));
+      for (const e of items) {
+        const tag = (e.transport === 'http' || e.transport === 'sse') ? (e.auth === 'oauth' ? dim('oauth') : dim('remote')) : dim('local');
+        const v = e.verified ? '' : gold(' •unverified');
+        console.log('  ' + gold(e.id.padEnd(20)) + ' ' + dim((e.note || e.name).slice(0, 44)).padEnd(0) + ' ' + tag + v);
+      }
+    }
+    console.log('\n' + dim('details:  ') + gold('urfael connect info <id>') + dim('   ·   add:  ') + gold('urfael connect add <id>') + dim('   ·   active:  ') + gold('urfael connect installed'));
+    console.log(dim('beyond this curated set, the whole MCP ecosystem (thousands of servers) also works via ') + gold('claude mcp add'));
     return;
   }
 

@@ -15,6 +15,7 @@ const chain = require('../audit-chain');
 const seal = require('../seal');
 const council = require('../council');
 const personas = require('../personas');
+const connectors = require('../connectors');
 
 const ITERS = parseInt(process.env.FUZZ_ITERS || '20000', 10);
 const BUDGET_MS = parseInt(process.env.FUZZ_BUDGET_MS || '250', 10);   // a parser must be ~linear; > this = ReDoS suspect
@@ -74,6 +75,7 @@ const targets = [
   ['hub.meta', (v) => hub.meta(typeof v === 'string' ? v : '', 'fb'), (r) => (r && typeof r.name === 'string' && r.name.length <= 200 && typeof r.desc === 'string') || 'meta bad shape'],
   ['hub.slugify', (v) => hub.slugify(v), (r) => (typeof r === 'string' && /^[a-z0-9-]*$/.test(r) && r.length <= 64) || 'slugify produced an unsafe slug: ' + JSON.stringify(r)],
   ['hub.parseIndex', (v) => hub.parseIndex(typeof v === 'string' ? v : JSON.stringify(v)), (r) => (Array.isArray(r) && r.every((e) => /^[a-z0-9-]+$/.test(e.slug) && /^https:\/\//i.test(e.url))) || 'parseIndex kept an unsafe entry'],
+  ['connectors.parse', (v) => connectors.parse(typeof v === 'string' ? v : JSON.stringify(v)), (r) => (Array.isArray(r) && r.every((e) => /^[a-z0-9-]+$/.test(e.id) && ((e.transport === 'npx' || e.transport === 'uvx') ? !!e.pkg : (/^https:\/\//.test(e.url) || connectors.isLoopback(new URL(e.url).hostname))) && (e.env || []).every((f) => /^[A-Z][A-Z0-9_]*$/.test(f.key)))) || 'connectors.parse kept a malformed/plaintext-remote/flag-smuggling entry'],
   ['chain.verify', (v) => chain.verify(Array.isArray(v) ? v : [String(v)]), (r) => (r && typeof r.ok === 'boolean') || 'verify non-result'],
   ['seal.verify', (v) => seal.verify('not-a-key', String(v), String(v)), (r) => r === false || r === true || 'seal.verify non-boolean'],
   ['council._parsePlan', (v) => council._parsePlan(typeof v === 'string' ? v : JSON.stringify(v), 'task', 3), (r) => (r && Array.isArray(r.subtasks) && r.subtasks.length >= 1 && r.subtasks.length <= 3) || 'plan subtasks out of [1,cap]'],
