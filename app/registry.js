@@ -31,6 +31,7 @@ const GROUPS = {
   TEAM:     'TEAM     the roster, the activity trail, the seal',
   SKILLS:   'SKILLS   install and share skills (scanned, never executed)',
   CONNECT:  'CONNECT  optional integrations via MCP — previewed, owner turns only',
+  PLUGINS:  'PLUGINS  capability-scoped, sandboxed, signed extensions',
   SERVE:    'SERVE    expose the brain — API, web console, webhooks',
   SYSTEM:   'SYSTEM   setup, health, and the daemon',
 };
@@ -138,6 +139,13 @@ const COMMANDS = [
     usage: 'urfael connect [search <term>] | info <id> | add <id> | remove <id> | installed',
     examples: ['urfael connect', 'urfael connect search calendar', 'urfael connect add github'],
     see: ['skills', 'hub'] },
+
+  // ── PLUGINS ──────────────────────────────────────────────────────────────────
+  { name: 'plugin', group: 'PLUGINS', aliases: ['plugins'],
+    summary: 'inspect a plugin: capability grant, safety scan, signature',
+    usage: 'urfael plugin [info <file> | scan <file>]',
+    examples: ['urfael plugin', 'urfael plugin scan ./plugin.json', 'urfael plugin info ./plugin.json'],
+    see: ['connect', 'skills'] },
 
   // ── SERVE ────────────────────────────────────────────────────────────────────
   { name: 'serve', group: 'SERVE',

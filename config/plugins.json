@@ -1,0 +1,6 @@
+{
+  "_comment": "The Urfael plugin registry index (sha-pinned, signed-publisher-ranked sibling of urfael-skills). A plugin is a capability-scoped MCP server: declared capabilities are GRANTED by the owner on a 0600-socket turn and compiled into a Docker --network none cell. Unlike ClawHub, an entry MUST carry an https url AND a 64-hex sha256 pin to be listed (pluginhub.parseIndex drops anything unpinned); install additionally verifies an ed25519 signature against the publisher's TOFU-pinned key. Ranking is by signed-publisher identity + provenance, NEVER by self-reported install counts (the ClawHavoc fake-download lesson). Point URFAEL_PLUGINS_INDEX at your own index.json (same schema).",
+  "_schema": "id, title, description, url(https), sha256(64-hex, MANDATORY), publisher, keyFingerprint(sha256:<16hex>), caps[]",
+  "_status": "Seed registry. v1 ships the loader + capability model + signing + the install/inspect pipeline (urfael plugin scan|info|install|search). Live runtime enablement (the Docker-cell attach + the egress/secret brokers) is the next increment; see docs/PLUGINS.md.",
+  "plugins": []
+}

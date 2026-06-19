@@ -194,6 +194,25 @@ function printConnectorPreview(con, e) {
   console.log(dim('─'.repeat(60)));
   console.log(dim('   command   ') + dim(p.command));
 }
+// The plugin capability preview — the exact grant + sandbox the owner would consent to. Pure render of pluginhub.preview().
+function printPluginPreview(ph, m) {
+  const p = ph.preview(m);
+  console.log('');
+  console.log(gold('── plugin: ' + m.name) + dim('  (' + m.id + ' · ' + p.runtime + ' · v' + m.version + ')'));
+  if (m.description) console.log(dim('   ' + m.description));
+  console.log(dim('─'.repeat(60)));
+  console.log(dim('   tier      ') + (p.requiresDocker ? gold(p.tier) : p.tier));
+  console.log(dim('   scope     ') + gold('owner turns only') + dim(' — never loaded on a sandboxed/remote/cron turn'));
+  console.log(dim('   trust     ') + dim('signed ') + (p.signed ? gold('yes') : gold('NO')) + dim('   sha-pinned ') + (p.shaPinned ? gold('yes') : gold('NO')));
+  if (!p.capabilities.length) console.log(dim('   caps      ') + dim('none — zero-capability, inert until granted'));
+  else {
+    console.log(dim('   caps      ') + dim('requested (each has NO effect until you grant it):'));
+    for (const c of p.capabilities) console.log('     ' + gold(c.kind.padEnd(8)) + ' ' + dim(c.key));
+  }
+  if (p.tools.length) console.log(dim('   tools     ') + dim(p.tools.join(', ')));
+  console.log(dim('─'.repeat(60)));
+  console.log(dim('   sandbox   ') + dim('docker ' + p.cellArgs));
+}
 
 (async () => {
   const [cmd, ...rest] = process.argv.slice(2);
@@ -390,6 +409,41 @@ function printConnectorPreview(con, e) {
     }
     console.log('\n' + dim('details:  ') + gold('urfael connect info <id>') + dim('   ·   add:  ') + gold('urfael connect add <id>') + dim('   ·   active:  ') + gold('urfael connect installed'));
     console.log(dim('beyond this curated set, the whole MCP ecosystem (thousands of servers) also works via ') + gold('claude mcp add'));
+    return;
+  }
+
+  // plugin: capability-scoped, sandboxed, signed extensions. v1 = the verified inspect pipeline (parse + static
+  // scan + the capability preview + the exact --network none cell command). A plugin is loaded as DATA and only
+  // ever runs as an MCP server inside the cell on OWNER turns; it never enters the daemon and never opens a port.
+  // Live runtime enablement (the cell attach + the egress/secret brokers) is the next increment (docs/PLUGINS.md).
+  if (cmd === 'plugin' || cmd === 'plugins') {
+    const ph = require('./pluginhub');
+    const sub = rest[0];
+    if ((sub === 'scan' || sub === 'info' || sub === 'show') && rest[1]) {
+      const m = ph.load(rest[1]);
+      if (!m) { console.error('✗ not a valid plugin manifest (urfael.plugin/v1): ' + rest[1]); process.exit(1); }
+      printPluginPreview(ph, m);
+      if (sub === 'scan') {
+        const { flags } = ph.scanBundle(m);
+        if (!flags.length) console.log(gold('✓ scan clean') + dim(' — no dangerous patterns found (still your call)'));
+        else {
+          const d = flags.filter((f) => f.level === 'danger').length;
+          console.log((d ? gold('⚠ ' + d + ' DANGER') + dim(' + ' + (flags.length - d) + ' warn') : gold('⚠ ' + flags.length + ' warning')) + dim(' flag(s):'));
+          for (const f of flags) console.log('  ' + (f.level === 'danger' ? gold('[DANGER]') : dim('[warn]  ')) + ' ' + f.why + (f.sample ? dim('  «' + f.sample + '»') : ''));
+          if (d) process.exit(1);
+        }
+      } else {
+        console.log(dim('   signature ') + (m.signature ? dim('present — verify against the publisher key at install') : gold('UNSIGNED — a hub install would refuse this')));
+      }
+      return;
+    }
+    console.log(gold('Plugins') + dim('  ·  capability-scoped, sandboxed, signed MCP extensions'));
+    console.log(dim('  A plugin is loaded as DATA, never run inside the daemon, and only ever runs as an MCP server'));
+    console.log(dim('  in a --network none Docker cell on OWNER turns. Zero capability by default: every power is'));
+    console.log(dim('  declared, then granted by you, then compiled into the sandbox. It never opens a port.'));
+    console.log('');
+    console.log(dim('  inspect a manifest:  ') + gold('urfael plugin scan ./plugin.json') + dim('   ·   ') + gold('urfael plugin info ./plugin.json'));
+    console.log(dim('  the design + the v1 / next-increment split:  ') + gold('docs/PLUGINS.md'));
     return;
   }
 

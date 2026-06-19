@@ -1,0 +1,76 @@
+# Urfael Plugins
+
+A plugin is the most powerful way to extend Urfael: it can ship tools the brain can call, reach a scoped set of your files, and talk to allowlisted hosts. Because it is the most powerful surface, it gets the most paranoid handling in the codebase. This is the design, and an honest account of what ships today versus what lands next.
+
+## The thesis: better than in-process plugins, on purpose
+
+OpenClaw and Hermes load plugins as in-process code with broad host power. That is exactly why roughly 20% of the ClawHub registry shipped as malware in 2026: one poisoned plugin runs with the agent's full privileges. Urfael does not copy that model. A Urfael plugin is:
+
+- **Loaded as data, never `require()`d.** Plugin code never enters the daemon's address space, never inherits its environment, and never holds your Claude subscription token.
+- **Run only as a capability-scoped MCP server**, the open tool standard the `claude` brain already speaks, inside the existing `--network none` Docker cell.
+- **Owner turns only.** A plugin's tools attach to a turn through `--mcp-config` on your trusted local turns. Every sandboxed spawn (a remote message, a cron job, the heartbeat) stays `--strict-mcp-config`, so a prompt injection that says "use the plugin to leak a secret" has no plugin to reach.
+- **Signed and sha-pinned.** A registry entry must carry an https url and a 64-hex sha256, and install verifies an ed25519 signature against the publisher's pinned key.
+
+## The two laws that never bend
+
+1. **No inbound port.** A plugin is spawned by the daemon as a stdio MCP server. It never listens. The moat holds.
+2. **Zero capability by default.** An empty manifest grants nothing. Every power is declared, then granted by you, then compiled into the runtime confinement. The manifest is the enforcement spec, not documentation.
+
+## The capability model: declared, granted, effective
+
+Three objects, enforced by the same fail-closed machinery the rest of Urfael uses:
+
+- **Declared**: what the `plugin.json` manifest asks for.
+- **Granted**: the subset you approve on a 0600-socket turn, after a full static scan, an ed25519 verify, and a capability preview. Persisted 0600 with the sha and key fingerprint.
+- **Effective**: computed per invocation as `granted ∩ the active turn's profile`. A capability that is declared but not granted produces no bind mount, no proxy rule, no staged binary, and no injected secret. It simply does not exist at runtime.
+
+A freshly installed plugin sits at the `plugin-zero` floor: no tools, no host reach. That floor is never the `local` (bypass-capable) profile.
+
+### Capability kinds
+
+| Kind | What it grants | How it is enforced |
+|---|---|---|
+| `fs` | read or write a single vault-relative path | a docker `-v` bind mount of exactly that path; a path into a credential store or outside the vault is rejected at validate time by the same deny-oracle the skill scanner uses |
+| `net` | reach exactly the listed FQDNs | the cell is `--network none`; the only egress is a per-plugin forward proxy that allowlists the granted hosts, https only, and re-checks the resolved IP against the private-host guard at connect time |
+| `exec` | run a named host binary | the binary is staged read-only into the cell and invoked with arguments as argv, never concatenated into a shell line |
+| `secret` | use a secret by reference | the plugin never sees the value; a broker injects it into a granted outbound request and masks it everywhere else |
+| `channel` | emit a one-way owner-only notification | reuses the existing no-egress notify path; never inbound |
+| `brain.tools` | expose MCP tools to the model | names are auto-prefixed `mcp_<id>_<tool>`; shipping a tool grants zero code capability by itself |
+
+## The manifest
+
+`plugin.json` (schema `urfael.plugin/v1`), validated by a fail-closed parser: a bad top-level shape is refused, and a single malformed capability entry is dropped rather than failing the whole plugin. Key fields: `id` (kebab), `name`, `version` (semver), `runtime` (`mcp-native` or `node`), `entry` (a stdio argv array, never a shell string), `capabilities` (the table above), `limits` (memory capped at 512 MB), `integrity.sha256`, `publisher.keyFingerprint`, and `signature` (ed25519 over the canonical manifest).
+
+## The six-gate install
+
+`fetch -> static scan -> sha-pin -> signature verify -> capability preview -> consent`. The preview shows exactly what the plugin can do, where it connects, whether it runs local code, which secrets it needs, and the literal `docker run` command that would launch it. Nothing is written until you confirm. `--yes` is refused for anything that trips a scan flag, widens a grant, overwrites, or carries a secret, exec, or net capability.
+
+## Inspect it yourself, today
+
+```bash
+urfael plugin scan ./plugin.json   # parse + static scan + the full capability preview
+urfael plugin info ./plugin.json   # the capability grant + the exact sandbox command
+urfael plugin                      # what the loader does, and this design
+```
+
+`urfael plugin scan` prints the capability grant a plugin would receive (with any unsafe path or host already dropped) and the exact `--network none` cell command, before anything runs. That pre-enable preview is the move no competitor ships.
+
+## What v1 ships, and what is next
+
+This is an honest split. v1 ships the verified core; the live runtime is the next increment.
+
+**Ships now (verified and frozen):**
+- The pure loader (`app/pluginhub.js`): parse and validate, static scan, sha256 integrity, ed25519 signature verify, the declared-to-granted capability diff, the default-deny cell builder, and the capability preview.
+- The inspect CLI (`urfael plugin scan` / `info`).
+- A 10th class in the runnable security benchmark (`npm run security`, now 10/10 classes, 82/82 checks) plus unit and fuzz coverage, so the capability model cannot silently regress.
+
+**Lands next (the runtime, sequenced deliberately):**
+- The daemon enable path: write the per-plugin MCP config, attach it via `--mcp-config` on owner turns only, and spawn or tear down the cell.
+- The egress proxy and the secret broker. These are the new trusted seams, the highest-value target in the system, so they ship only after they clear their own frozen benchmark probes (SSRF on the resolved IP, no secret reaching a non-granted host). Until then, a brain-tools-only plugin (no host reach) is the runnable tier; a plugin requesting net, secret, or exec is installed and previewed but refuses to enable, which is fail-closed by design.
+
+## Honest limits
+
+- A capability-bearing plugin requires Docker. Without it those plugins refuse to enable. There is no in-process fallback, by design.
+- v1 does not run a competitor's plugin code. Portability today is limited to any SKILL.md a plugin ships (through the skill scanner) and any MCP server it declares (through `urfael connect`). Running foreign plugin code inside our sandbox is a later increment.
+- Signing is ed25519 with trust-on-first-use plus a sha pin, which is more than ClawHub had, but not yet a full provenance attestation chain. The first install of a brand-new publisher is a human-judgement moment, surfaced as such.
+- A plugin tool's result can still carry prompt injection back to the brain. Untrusted framing and owner-turns-only bound this; they do not eliminate it. This is a residual risk shared by all MCP tooling.

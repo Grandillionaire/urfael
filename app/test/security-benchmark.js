@@ -333,6 +333,46 @@ async function main() {
     })(),
     'parse refuses plaintext-http remotes; add is an execFile argv so a key never hits the shell/history; preview masks secrets; sandboxed turns load none (--strict-mcp-config)');
 
+  // ──────────────────────────────────────────────────────────────────────────
+  attackClass('Plugin loader — capability-bearing third-party code',
+    'ClawHub shipped ~20% malware as IN-PROCESS plugins with full host power; installing a plugin is the highest-trust action an agent tool takes');
+  const ph = require('../pluginhub');
+  const phSrc = fs.readFileSync(path.join(__dirname, '..', 'pluginhub.js'), 'utf8');
+  const okM = ph.parse({ schema: 'urfael.plugin/v1', id: 'bench', runtime: 'mcp-native', entry: { transport: 'stdio', cmd: ['node', 's.js'] }, capabilities: { fs: [{ mode: 'read', path: 'vault:03_Resources/x' }], secret: [{ ref: 'TOKEN' }], net: [{ host: 'api.example.com' }] } });
+
+  check('zero-capability-by-default: an empty grant yields a --network none, all-caps-dropped, read-only cell with NO bind mounts',
+    (() => { const a = ph.buildCellArgs(okM, {}); const s = a.join(' '); return /--network none/.test(s) && /--cap-drop ALL/.test(s) && /--read-only/.test(s) && !a.includes('-v'); })(),
+    'buildCellArgs(manifest, {}) is default-deny; a DECLARED capability that is not GRANTED produces no mount, no network, no staged binary');
+
+  check('credential-store deny holds: a manifest requesting fs into ~/.claude / a secret store / a vault escape is DROPPED at validate time',
+    (() => { const m = ph.parse({ schema: 'urfael.plugin/v1', id: 'evil', runtime: 'mcp-native', entry: { transport: 'stdio', cmd: ['x'] }, capabilities: { fs: [{ mode: 'read', path: 'vault:~/.claude/.credentials.json' }, { mode: 'read', path: 'vault:../.ssh/id_rsa' }, { mode: 'read', path: 'vault:.env' }] } }); return m && m.caps.fs.length === 0; })(),
+    'the skillhub SECRET_PATH deny-oracle + a vault-escape check reject the path before it can ever become a bind mount');
+
+  check('no in-process plugin execution: the loader NEVER eval()s or dynamically require()s a plugin entry; plugin code only ever appears as a child argv',
+    !/\beval\s*\(/.test(phSrc) && !/require\s*\(\s*[A-Za-z_$]/.test(phSrc) && !/--mcp-config[\s\S]{0,200}plugin/.test(daemonSrc),
+    'pluginhub builds docker/stdio argv as DATA; plugin code never enters the daemon address space, never inherits its env, never holds the subscription token');
+
+  check('a host-reaching plugin is docker-confined and its secret is never in the launch config; a pure brain-tools plugin needs no host reach',
+    (() => { const host = ph.buildMcpConfig(okM, { fs: okM.caps.fs, secret: okM.caps.secret }); const v = JSON.stringify(host); return host.mcpServers.bench.command === 'docker' && !v.includes('TOKEN_VALUE') && JSON.stringify(host.mcpServers.bench.env) === '{}'; })(),
+    'buildMcpConfig wraps host-reaching plugins in the --network none cell; secrets are broker-injected per-call, never placed in the plugin env/config');
+
+  check('signature + sha-pin are mandatory and tamper-evident: a wrong key, an unsigned manifest, or a mutated bundle is refused',
+    (() => {
+      const kp = sealMod.generateKeypair();
+      const m = ph.parse({ schema: 'urfael.plugin/v1', id: 'signed', runtime: 'mcp-native', entry: { transport: 'stdio', cmd: ['x'] }, publisher: { keyFingerprint: sealMod.fingerprint(kp.publicPem) } });
+      m.signature = sealMod.sign(kp.privatePem, ph.canonicalManifest(m));
+      const good = ph.verifySignature(m, kp.publicPem).ok === true;
+      const wrongKey = ph.verifySignature(m, sealMod.generateKeypair().publicPem).ok === false;
+      const unsigned = ph.verifySignature(ph.parse({ schema: 'urfael.plugin/v1', id: 'u', runtime: 'mcp-native', entry: { transport: 'stdio', cmd: ['x'] } }), kp.publicPem).ok === false;
+      const mutated = ph.verifyIntegrity(Buffer.from('abc'), ph.sha256(Buffer.from('abd'))).ok === false;
+      return good && wrongKey && unsigned && mutated;
+    })(),
+    'ed25519 TOFU + sha256 pin (more than ClawHub had); a widened/swapped payload fails verifySignature/verifyIntegrity before preview');
+
+  check('plugin tools never reach a sandboxed turn, and the zero-capability floor is never "local"',
+    /--strict-mcp-config/.test(daemonSrc) && lib.resolveProfile('plugin-zero').name === 'plugin-zero' && JSON.stringify(lib.resolveProfile('plugin-zero').allowedTools) === '[]' && lib.resolveProfile('plugin-zero').permissionMode !== null,
+    'plugin tools attach via --mcp-config on OWNER turns only; every scoped/cron/remote spawn stays --strict-mcp-config; plugin-zero grants nothing and is never the local bypass profile');
+
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}
   try { await new Promise((r) => { const q = http.request({ socketPath: SOCK, method: 'POST', path: '/shutdown', timeout: 1500 }, (res) => { res.resume(); r(); }); q.on('error', r); q.on('timeout', () => { q.destroy(); r(); }); q.end(); }); } catch {}

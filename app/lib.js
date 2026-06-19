@@ -99,6 +99,17 @@ const PROFILES = {
     allowedTools: ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'],
     trustFraming: true,
   },
+  // PLUGIN MODE — the capability FLOOR a freshly-installed plugin sits at: zero power. No brain tools, no host
+  // reach (net/fs marked none, enforced by pluginhub.buildCellArgs producing --network none + no mounts). It is a
+  // marker the plugin loader resolves to when a grant is empty or coerced; it is NEVER a remote-turn profile and is
+  // never reachable by a channel. Like 'local' it is opt-in by the loader, but unlike 'local' it grants nothing.
+  'plugin-zero': {
+    permissionMode: 'acceptEdits',
+    allowedTools: [],
+    trustFraming: true,
+    net: 'none',
+    fs: 'none',
+  },
 };
 // FAIL-CLOSED: only an exact STRING profile name can select a non-default profile. A non-string
 // (array/object/number) must not be able to key-coerce its way to 'local' (e.g. ["local"] -> "local"),
