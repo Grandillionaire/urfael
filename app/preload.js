@@ -1,4 +1,7 @@
 'use strict';
+// preload.js — the renderer↔main bridge. Exposes a single frozen `window.urfael` surface over
+// contextBridge: every renderer capability is an explicit ipcRenderer.invoke/send/on here (no raw
+// ipcRenderer, no Node) so the orb/console can only reach the main process through this allowlist.
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('urfael', {
