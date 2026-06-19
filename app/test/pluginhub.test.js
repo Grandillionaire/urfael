@@ -81,6 +81,21 @@ test('buildCellArgs with an EMPTY grant is default-deny: --network none, all cap
   assert.ok(!a.includes('-v'), 'no bind mount with an empty grant');
 });
 
+test('buildCellArgs threads the broker socket ONLY for a net/secret grant, keeps --network none, never opens a port', () => {
+  const m = ph.parse(baseManifest({ capabilities: { net: [{ host: 'api.example.com' }], secret: [{ ref: 'K' }] } }));
+  const withSock = ph.buildCellArgs(m, { net: m.caps.net, secret: m.caps.secret }, { brokerSock: '/j/plugin-sockets/x.sock' });
+  const s = withSock.join(' ');
+  assert.match(s, /--network none/, 'cell stays --network none even with egress');
+  assert.ok(!/-p\b|--publish|bridge|--network host/.test(s), 'never a published/bridged/host network');
+  assert.match(s, /-v \/j\/plugin-sockets\/x\.sock:\/run\/urfael\/broker\.sock/, 'the broker socket is the only egress mount');
+  // without opts.brokerSock, no broker mount (the daemon supplies it at enable time)
+  assert.ok(!ph.buildCellArgs(m, { net: m.caps.net }, {}).join(' ').includes('/run/urfael/broker.sock'));
+  // an fs-only grant needs the cell but NOT the broker socket
+  const fsm = ph.parse(baseManifest({ capabilities: { fs: [{ mode: 'read', path: 'vault:x' }] } }));
+  assert.equal(ph.hostNeedsBroker(fsm.caps), false);
+  assert.ok(!ph.buildCellArgs(fsm, { fs: fsm.caps.fs }, { brokerSock: '/j/s.sock' }).join(' ').includes('broker.sock'));
+});
+
 test('buildCellArgs with an fs:read grant mounts EXACTLY that path read-only and nothing else', () => {
   const m = ph.parse(baseManifest({ capabilities: { fs: [{ mode: 'read', path: 'vault:03_Resources/data' }] } }));
   const a = ph.buildCellArgs(m, { fs: m.caps.fs });

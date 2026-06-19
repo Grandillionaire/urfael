@@ -209,6 +209,11 @@ function hasHostGrant(grant) {
   const g = grant || {};
   return !!((g.fs && g.fs.length) || (g.net && g.net.length) || (g.exec && g.exec.length) || (g.secret && g.secret.length));
 }
+// needs the BROKER transport (a mounted unix socket) = net or secret. fs/exec alone need only the cell mount.
+function hostNeedsBroker(grant) {
+  const g = grant || {};
+  return !!((g.net && g.net.length) || (g.secret && g.secret.length));
+}
 function vaultHostPath(rel) { return path.join(VAULT, String(rel || '').replace(/^vault:/, '')); }
 
 // ── buildCellArgs: the `docker run …` ARGV (array, never a shell string). DEFAULT-DENY: an empty grant yields a
@@ -225,6 +230,9 @@ function buildCellArgs(manifest, grant = {}, opts = {}) {
     if (!rel) continue;                                                       // belt-and-suspenders: re-validate at build time
     args.push('-v', vaultHostPath(rel) + ':/vault/' + rel + ':' + (f.mode === 'write' ? 'rw' : 'ro'));
   }
+  // a net/secret grant gets ONE more thing: the per-plugin 0600 broker socket, read-write, as its sole egress.
+  // The cell still has --network none — this unix socket is the only way out, and the daemon brokerd vets every call.
+  if (opts.brokerSock && hostNeedsBroker(grant)) args.push('-v', opts.brokerSock + ':/run/urfael/broker.sock');
   args.push(opts.image || 'urfael-plugin:latest');
   for (const a of (manifest && manifest.entry && manifest.entry.cmd) || []) args.push(a);
   return args;
@@ -302,6 +310,6 @@ function find(list, id) { const k = slugify(id); return (list || []).find((e) =>
 module.exports = {
   VAULT, PLUGINS_DIR, SCHEMA, CAP_KINDS, MEM_CAP_MB,
   slugify, safeVaultRel, parse, load, scanBundle, sha256, verifyIntegrity, canonicalManifest, verifySignature,
-  declaredCaps, grantDiff, hasHostGrant, buildCellArgs, buildMcpConfig, pluginTools, redact, preview,
+  declaredCaps, grantDiff, hasHostGrant, hostNeedsBroker, buildCellArgs, buildMcpConfig, pluginTools, redact, preview,
   grantFromManifest, parseIndex, search, find,
 };

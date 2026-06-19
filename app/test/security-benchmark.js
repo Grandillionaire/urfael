@@ -391,9 +391,16 @@ async function main() {
     })(),
     'authorizeEgress re-checks the RESOLVED ip (DNS-rebind defense) and fails closed without a resolution; a secret is injected ONLY for a granted host and masked in logs');
 
-  check('the plugin attach is safe-by-default and owner-only: --mcp-config is added to the WARM session (empty when none); host-reaching grants fail closed',
-    /pluginMcpArgs\(\)/.test(daemonSrc) && /currentPluginConfig \? \['--mcp-config'[\s\S]{0,40}: \[\]/.test(daemonSrc) && /enablePlugin[\s\S]{0,800}hasHostGrant[\s\S]{0,160}host-reaching tiers/.test(daemonSrc),
-    'pluginMcpArgs() is [] with nothing enabled (byte-identical warm spawn); enablePlugin refuses any host-reaching grant until the cell+broker land; scoped/cron/remote spawns keep --strict-mcp-config');
+  check('the plugin attach is safe-by-default and owner-only: --mcp-config is added to the WARM session (empty when none)',
+    /pluginMcpArgs\(\)/.test(daemonSrc) && /currentPluginConfig \? \['--mcp-config'[\s\S]{0,40}: \[\]/.test(daemonSrc) && /hasHostGrant\(caps\) && !hasDocker\(\)/.test(daemonSrc),
+    'pluginMcpArgs() is [] with nothing enabled (byte-identical warm spawn); a host-reaching grant needs Docker to enable (fail-closed if absent); scoped/cron/remote spawns keep --strict-mcp-config');
+
+  const pbdSrc = fs.readFileSync(path.join(APP, 'plugin-brokerd.js'), 'utf8');
+  check('the plugin egress transport opens NO TCP port, delegates every decision to the FROZEN broker, never auto-follows a redirect, and keeps the cell --network none',
+    !/\.listen\(\s*\d/.test(pbdSrc) && !/--publish|EXPOSE/.test(pbdSrc)
+      && /broker\.prepareRequest/.test(pbdSrc) && /isPrivateHost\(String\(ip\)\)/.test(pbdSrc) && /redirected/.test(pbdSrc) && !/maxRedirects|followRedirect/.test(pbdSrc)
+      && (() => { const m = ph.parse({ schema: 'urfael.plugin/v1', id: 'netp', runtime: 'mcp-native', entry: { transport: 'stdio', cmd: ['x'] }, capabilities: { net: [{ host: 'api.example.com' }], secret: [{ ref: 'K' }] } }); const a = ph.buildCellArgs(m, { net: m.caps.net, secret: m.caps.secret }, { brokerSock: '/j/x.sock' }).join(' '); return /--network none/.test(a) && /\/run\/urfael\/broker\.sock/.test(a) && !/--publish|-p /.test(a) && !ph.buildCellArgs(m, { net: m.caps.net }, {}).join(' ').includes('broker.sock'); })(),
+    'plugin-brokerd listens only on a 0600 unix socket (no TCP port); the allow/secret decision stays in plugin-broker.js; a 3xx is returned not followed; a net grant adds exactly one -v broker socket and the cell stays --network none');
 
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}

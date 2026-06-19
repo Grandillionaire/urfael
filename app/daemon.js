@@ -1352,29 +1352,55 @@ let chain = Promise.resolve();
 // server, no host reach); fs needs the cell mount and net/secret need the broker transport (next increment), so
 // enablePlugin fails closed for any host-reaching grant — the broker LOGIC is already built + frozen (plugin-broker.js).
 const pluginhub = require('./pluginhub');
+const pluginbrokerd = require('./plugin-brokerd');
 const PLUGIN_CONFIG = path.join(JDIR, 'plugins.mcp.json');
-const enabledPlugins = new Map();   // id -> { manifest, grant, bundleDir }
+const PLUGIN_SOCKDIR = path.join(JDIR, 'plugin-sockets');
+const SECRETS_FILE = path.join(JDIR, 'secrets.json');
+const enabledPlugins = new Map();   // id -> { manifest, grant, bundleDir, sockPath }
+const brokerds = new Map();         // id -> brokerd handle (net/secret plugins only)
+let secretStore = {};               // REF -> value, 0600 from SECRETS_FILE; NEVER in any spawn env or argv
 let currentPluginConfig = null;     // path to the merged config, or null when none enabled
+let _dockerOk = null;
 const pluginGrantPath = (id) => path.join(pluginhub.PLUGINS_DIR, id, 'grant.json');
 const pluginManifestPath = (id) => path.join(pluginhub.PLUGINS_DIR, id, 'plugin.json');
+function hasDocker() { if (_dockerOk === null) { try { require('child_process').execFileSync('docker', ['--version'], { stdio: 'ignore' }); _dockerOk = true; } catch { _dockerOk = false; } } return _dockerOk; }
+function loadSecretStore() { try { const j = JSON.parse(fs.readFileSync(SECRETS_FILE, 'utf8')); secretStore = (j && typeof j === 'object' && !Array.isArray(j)) ? j : {}; } catch { secretStore = {}; } }
+function saveSecret(ref, value) {   // owner-only via the 0600 socket; never a GET that returns a value
+  if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(String(ref))) return false;
+  secretStore[String(ref)] = String(value);
+  try { fs.mkdirSync(JDIR, { recursive: true }); const tmp = SECRETS_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(secretStore, null, 2), { mode: 0o600 }); fs.renameSync(tmp, SECRETS_FILE); fs.chmodSync(SECRETS_FILE, 0o600); return true; } catch { return false; }
+}
+// start/stop the per-plugin egress brokerd (a 0600 unix socket — NOT a TCP port) for a net/secret grant.
+function startPluginBrokerd(id, grant) {
+  stopPluginBrokerd(id);
+  if (!pluginhub.hostNeedsBroker(grant.caps || {})) return '';
+  const sockPath = path.join(PLUGIN_SOCKDIR, id + '-' + require('crypto').randomBytes(8).toString('hex') + '.sock');
+  try { brokerds.set(id, pluginbrokerd.startBrokerd({ sockPath, grant: grant.caps || {}, store: secretStore, log: (m) => logEvent({ ev: 'plugin_egress', id, m: String(m).slice(0, 200) }) })); }
+  catch { return ''; }
+  return sockPath;
+}
+function stopPluginBrokerd(id) { const h = brokerds.get(id); if (h) { try { h.stop(); } catch {} brokerds.delete(id); } }
+function stopAllBrokerds() { for (const h of brokerds.values()) { try { h.stop(); } catch {} } brokerds.clear(); }
 
-function loadEnabledPlugins() {            // boot: re-enable every plugin whose grant.json says enabled. Fail-soft.
-  enabledPlugins.clear();
+function loadEnabledPlugins() {            // boot: re-arm every enabled plugin (start its brokerd first). Fail-soft.
+  enabledPlugins.clear(); stopAllBrokerds(); loadSecretStore();
   let ids = [];
   try { ids = fs.readdirSync(pluginhub.PLUGINS_DIR, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch { writeMergedPluginConfig(); return; }
   for (const id of ids) {
     let grant; try { grant = JSON.parse(fs.readFileSync(pluginGrantPath(id), 'utf8')); } catch { continue; }
     if (!grant || grant.enabled !== true) continue;
     const manifest = pluginhub.load(pluginManifestPath(id));
-    if (!manifest || manifest.id !== id || pluginhub.hasHostGrant(grant.caps || {})) continue;   // only the brain-tools tier auto-loads
-    enabledPlugins.set(id, { manifest, grant, bundleDir: path.join(pluginhub.PLUGINS_DIR, id) });
+    if (!manifest || manifest.id !== id) continue;
+    if (pluginhub.hasHostGrant(grant.caps || {}) && !hasDocker()) continue;   // host-reaching needs Docker; skip cleanly if absent
+    const sockPath = startPluginBrokerd(id, grant);                            // '' unless net/secret
+    enabledPlugins.set(id, { manifest, grant, bundleDir: path.join(pluginhub.PLUGINS_DIR, id), sockPath });
   }
   writeMergedPluginConfig();
 }
 function writeMergedPluginConfig() {       // merge every enabled plugin's MCP server into one config the warm sessions load
   if (!enabledPlugins.size) { currentPluginConfig = null; try { fs.rmSync(PLUGIN_CONFIG, { force: true }); } catch {} return; }
   const merged = { mcpServers: {} };
-  for (const { manifest, grant, bundleDir } of enabledPlugins.values()) Object.assign(merged.mcpServers, pluginhub.buildMcpConfig(manifest, grant.caps || {}, { bundleDir }).mcpServers);
+  for (const { manifest, grant, bundleDir, sockPath } of enabledPlugins.values()) Object.assign(merged.mcpServers, pluginhub.buildMcpConfig(manifest, grant.caps || {}, { bundleDir, brokerSock: sockPath }).mcpServers);
   try { fs.mkdirSync(JDIR, { recursive: true }); const tmp = PLUGIN_CONFIG + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(merged, null, 2), { mode: 0o600 }); fs.renameSync(tmp, PLUGIN_CONFIG); currentPluginConfig = PLUGIN_CONFIG; }
   catch { currentPluginConfig = null; }
 }
@@ -1386,15 +1412,20 @@ function enablePlugin(id) {
   if (!manifest || manifest.id !== id) return { ok: false, error: 'no installed plugin: ' + id };
   if (pluginhub.scanBundle(manifest).flags.some((f) => f.level === 'danger')) return { ok: false, error: 'static scan flagged DANGER — refusing to enable' };
   let grant; try { grant = JSON.parse(fs.readFileSync(pluginGrantPath(id), 'utf8')); } catch { return { ok: false, error: 'no grant for ' + id + ' — run `urfael plugin install` first' }; }
-  if (pluginhub.hasHostGrant(grant.caps || {})) return { ok: false, error: 'host-reaching tiers (fs/net/secret/exec) land with the cell + broker transport; brain-tools plugins run today', tier: 'host-pending' };
+  const caps = grant.caps || {};
+  for (const sref of (caps.secret || [])) if (!secretStore[sref.ref]) return { ok: false, error: 'missing secret ' + sref.ref + ' — set it first: urfael plugin secret ' + sref.ref, tier: 'needs-secret' };
+  if (pluginhub.hasHostGrant(caps) && !hasDocker()) return { ok: false, error: 'this plugin needs Docker (host-reaching capabilities run in a --network none cell); install Docker to enable it', tier: 'needs-docker' };
+  const sockPath = startPluginBrokerd(id, grant);                            // '' unless net/secret; a 0600 unix socket, no TCP port
   grant.enabled = true;
-  try { fs.writeFileSync(pluginGrantPath(id), JSON.stringify(grant, null, 2), { mode: 0o600 }); } catch (e) { return { ok: false, error: 'grant write failed: ' + ((e && e.message) || e) }; }
-  enabledPlugins.set(id, { manifest, grant, bundleDir: path.join(pluginhub.PLUGINS_DIR, id) });
+  try { fs.writeFileSync(pluginGrantPath(id), JSON.stringify(grant, null, 2), { mode: 0o600 }); } catch (e) { stopPluginBrokerd(id); return { ok: false, error: 'grant write failed: ' + ((e && e.message) || e) }; }
+  enabledPlugins.set(id, { manifest, grant, bundleDir: path.join(pluginhub.PLUGINS_DIR, id), sockPath });
   writeMergedPluginConfig(); respawnForPlugins();
-  logEvent({ ev: 'plugin_enable', id, tools: pluginhub.pluginTools(manifest).length });
-  return { ok: true, tier: 'mcp-tools', tools: pluginhub.pluginTools(manifest) };
+  const tier = pluginhub.hostNeedsBroker(caps) ? 'docker-cell+broker' : (pluginhub.hasHostGrant(caps) ? 'docker-cell' : 'mcp-tools');
+  logEvent({ ev: 'plugin_enable', id, tier, tools: pluginhub.pluginTools(manifest).length });
+  return { ok: true, tier, tools: pluginhub.pluginTools(manifest) };
 }
 function disablePlugin(id) {
+  stopPluginBrokerd(String(id));
   let grant; try { grant = JSON.parse(fs.readFileSync(pluginGrantPath(String(id)), 'utf8')); grant.enabled = false; fs.writeFileSync(pluginGrantPath(id), JSON.stringify(grant, null, 2), { mode: 0o600 }); } catch {}
   const had = enabledPlugins.delete(String(id));
   writeMergedPluginConfig(); respawnForPlugins();
@@ -1537,6 +1568,18 @@ const server = http.createServer(async (req, res) => {
     const r = mm[2] === 'enable' ? enablePlugin(mm[1]) : disablePlugin(mm[1]);
     res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(r));
+  } else if (req.method === 'POST' && /^\/secret\/[A-Z][A-Z0-9_]{0,63}$/.test(req.url || '')) {
+    // POST /secret/<REF> {value} — set a plugin secret by reference (owner-only; the socket is 0600). The value is
+    // stored 0600 and used ONLY by a brokerd to inject into a granted host's request; there is NO GET that returns it.
+    const ref = req.url.slice('/secret/'.length);
+    let body = ''; req.on('data', (d) => { body += d; if (body.length > 1e5) req.destroy(); });
+    req.on('end', () => {
+      let v = ''; try { v = String((JSON.parse(body || '{}') || {}).value || ''); } catch {}
+      if (!v) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'no value' })); return; }
+      const ok = saveSecret(ref, v);
+      logEvent({ ev: 'plugin_secret_set', ref });   // the REF name only — never the value
+      res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok }));
+    });
   } else if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, warm: [...sessions.keys()] }));
@@ -1792,5 +1835,5 @@ const probe = http.request({ socketPath: SOCK, method: 'GET', path: '/health', t
 probe.on('error', listen);
 probe.on('timeout', () => { probe.destroy(); listen(); });
 probe.end();
-function shutdown() { try { persistRecallIndex(); } catch {} if (councilAbort) { try { councilAbort(); } catch {} } for (const s of sessions.values()) { try { s.proc && s.proc.kill('SIGKILL'); } catch {} } for (const p of inflightScoped) { try { p.kill('SIGKILL'); } catch {} } try { fs.unlinkSync(SOCK); } catch {} process.exit(0); }
+function shutdown() { try { persistRecallIndex(); } catch {} if (councilAbort) { try { councilAbort(); } catch {} } try { stopAllBrokerds(); } catch {} for (const s of sessions.values()) { try { s.proc && s.proc.kill('SIGKILL'); } catch {} } for (const p of inflightScoped) { try { p.kill('SIGKILL'); } catch {} } try { fs.unlinkSync(SOCK); } catch {} process.exit(0); }
 process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);

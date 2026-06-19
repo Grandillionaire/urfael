@@ -460,6 +460,18 @@ function printPluginPreview(ph, m) {
       if (m.hostReaching) console.log(dim('  note: requests host capabilities (fs/net/secret); brain-tools plugins enable today, host-reaching tiers land with the cell + broker.'));
       return;
     }
+    // secret — set a plugin secret BY REFERENCE (masked; stored 0600; used only by a brokerd to inject into a granted host)
+    if (sub === 'secret' && rest[1]) {
+      const ref = String(rest[1]);
+      if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(ref)) { console.error('✗ a secret ref is UPPER_SNAKE (e.g. STRIPE_KEY)'); process.exit(1); }
+      const v = await promptSecret('   ' + ref + ': ');
+      if (!v) { console.log(dim('aborted — no value entered')); return; }
+      if (!await ensureDaemon()) { console.error('✗ daemon unreachable'); process.exit(1); }
+      const r = await req('POST', '/secret/' + ref, { value: v }).catch(() => ({ ok: false }));
+      if (!r || !r.ok) { console.error('✗ failed to store secret'); process.exit(1); }
+      console.log(gold('✓ stored ') + ref + dim('  (0600; a plugin uses it by reference only and never sees the value)'));
+      return;
+    }
     // enable / disable / list — via the daemon (re-verifies, attaches/detaches the plugin's MCP server on the warm sessions)
     if ((sub === 'enable' || sub === 'disable') && rest[1]) {
       if (!await ensureDaemon()) { console.error('✗ daemon unreachable'); process.exit(1); }
