@@ -650,6 +650,57 @@ function printPluginPreview(ph, m) {
   if (cmd === 'model') {
     // show or pin the model. The same switch works verbally in chat ("switch to opus", "back to auto").
     const sub = (rest[0] || '').toLowerCase();
+
+    // ── first-class PROVIDER management: pick any model backend (your own key/hardware via a proxy). ──
+    if (sub === 'providers' || sub === 'provider') {
+      const prov = require('./providers'); const setup = require('./setup');
+      const list = prov.load(); const env = setup.readEnv();
+      const activeId = env.CLAUDE_CODE_USE_BEDROCK ? 'claude-bedrock' : env.CLAUDE_CODE_USE_VERTEX ? 'claude-vertex'
+        : !env.ANTHROPIC_BASE_URL ? 'claude' : ((list.find((x) => x.baseUrl === env.ANTHROPIC_BASE_URL) || {}).id || '');
+      if (rest.includes('--json')) { console.log(JSON.stringify({ active: activeId, providers: list.map((x) => ({ id: x.id, label: x.label, kind: x.kind, models: x.models.length, verified: x.verified, hasKey: !!(x.authEnv && env[x.authEnv]) })) }, null, 2)); return; }
+      console.log(gold('Providers') + dim('  ·  the flat-rate Claude subscription is the default; others run on YOUR key/hardware'));
+      list.forEach((x, i) => console.log('  ' + (x.id === activeId ? gold('●') : dim('○')) + ' ' + dim(String(i + 1).padStart(2)) + ' ' + gold(x.id.padEnd(16)) + ' ' + dim((x.note || x.label).slice(0, 46)) + (x.verified ? '' : gold(' •unverified'))));
+      console.log('\n' + dim('● active  ○ available   ·   switch:  ') + gold('urfael model use <id>') + dim('   ·   probe:  ') + gold('urfael model test <id>'));
+      return;
+    }
+    if (sub === 'use' && rest[1]) {
+      const prov = require('./providers'); const setup = require('./setup');
+      const list = prov.load(); const arg = rest[1];
+      const e = /^\d+$/.test(arg) ? list[parseInt(arg, 10) - 1] : prov.find(list, arg);
+      if (!e) { console.error('✗ no provider "' + arg + '". Try: urfael model providers'); process.exit(1); }
+      const pv = prov.preview(e);
+      console.log('');
+      console.log(gold('── provider: ' + e.label) + dim('  (' + e.id + ' · ' + e.kind + ')'));
+      console.log(dim('   target    ') + pv.target);
+      console.log(dim('   tiers     ') + dim('opus→') + pv.big + dim('   sonnet→') + pv.small);
+      if (pv.proxyHint) console.log(dim('   proxy     ') + gold(pv.proxyHint));
+      if (e.note) console.log(dim('   note      ') + dim(e.note));
+      if (!pv.verified) console.log('   ' + gold('•unverified') + dim(' — confirm the base URL + model ids above before relying on it'));
+      const secrets = {}; const need = prov.secretNeeded(e);
+      if (need) { const v = await promptSecret('   ' + need.label + ': '); if (!v) { console.log(dim('aborted — no key entered')); return; } secrets[e.authEnv] = v; }
+      const ok = await promptYesNo('\nSwitch to ' + e.label + '? (writes provider.env 0600 + restarts the daemon)');
+      if (!ok) { console.log(dim('aborted — nothing changed')); return; }
+      let delta; try { delta = prov.resolveEnv(e, secrets[e.authEnv], { big: flag(rest, '--big'), small: flag(rest, '--small') }); } catch (err) { console.error('✗ ' + ((err && err.message) || err)); process.exit(1); }
+      const cur = setup.readEnv(); for (const k of delta.clear) delete cur[k]; Object.assign(cur, delta.set);
+      try { setup.writeEnv(cur); } catch (err) { console.error('✗ write failed: ' + ((err && err.message) || err)); process.exit(1); }
+      await req('POST', '/shutdown').catch(() => {});           // restart so the daemon re-sources provider.env
+      await new Promise((r) => setTimeout(r, 700)); await ensureDaemon();
+      console.log(gold('✓ now on ' + e.label) + dim('  — `urfael model opus/sonnet` pins the tier within this provider'));
+      if (e.proxy !== 'none') console.log(dim('  proxy reminder: ') + gold(pv.proxyHint || 'start your proxy first'));
+      return;
+    }
+    if (sub === 'test' && rest[1]) {
+      const prov = require('./providers'); const setup = require('./setup');
+      const e = prov.find(prov.load(), rest[1]); if (!e) { console.error('✗ no provider "' + rest[1] + '"'); process.exit(1); }
+      const env = setup.readEnv();
+      let delta; try { delta = prov.resolveEnv(e, env[e.authEnv], {}); } catch (err) { console.error('✗ ' + err.message + ' — set it first: urfael model use ' + e.id); process.exit(1); }
+      const probeEnv = { ...process.env }; for (const k of delta.clear) delete probeEnv[k]; Object.assign(probeEnv, delta.set);
+      console.log(dim('probing ' + e.label + ' …'));
+      try { const o = execFileSync('claude', ['-p', 'reply with exactly: ok'], { env: probeEnv, timeout: 60000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); console.log(gold('✓ reachable') + dim('  — replied: ' + o.slice(0, 40))); }
+      catch (err) { console.error('✗ unreachable' + (e.proxy !== 'none' ? dim('  — is your proxy running? ' + (e.proxyHint || '')) : '') + dim('  (' + String((err && err.message) || err).slice(0, 70) + ')')); process.exit(1); }
+      return;
+    }
+
     if (sub) {
       const spec = /^(auto|reset|unpin|automatic)$/.test(sub) ? { action: 'auto' } : (sub === 'opus' || sub === 'sonnet') ? { model: sub } : null;
       if (!spec) { console.error('usage: urfael model [opus | sonnet | auto]'); process.exit(1); }

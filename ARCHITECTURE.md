@@ -43,7 +43,7 @@ boots the real daemon and dashboard and attacks them, printing **10/10 attack cl
 
 **Why `daemon.js` is large and that is fine:** it is the *conductor*, not the orchestra. It owns I/O, process
 lifecycle, and routing; every decision worth testing is delegated to a pure satellite module that takes data
-and returns data with no daemon, no socket, no `claude`. That is why 354 unit tests run in ~0.5s with zero
+and returns data with no daemon, no socket, no `claude`. That is why 367 unit tests run in ~0.5s with zero
 credentials, and why the security benchmark re-uses the exact same functions the daemon calls.
 
 ## The moat, in five files (read these first)
@@ -124,7 +124,7 @@ The full version, with the residual risks Urfael does **not** cover, is in [docs
 
 Honesty is the product, so the tests are too:
 
-- **354 fast unit tests** (`npm test` → `node --test test/*.test.js`) — pure modules, no credentials, ~0.5s.
+- **367 fast unit tests** (`npm test` → `node --test test/*.test.js`) — pure modules, no credentials, ~0.5s.
   They exercise the load-bearing logic directly: fail-closed profile resolution, `intersectTools`, the persona
   anchor / `SAFETY_CLAUSE` invariants, the hash-chain verifier, the seal, the cron/hook/script normalizers,
   BM25 recall, did-you-mean, and the registry drift guard. Several are frozen adversarial regressions.

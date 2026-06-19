@@ -663,6 +663,16 @@ function parseModelDirective(text) {
    || test('(?:let (?:you|it)|you) (?:decide|choose|pick)(?: the)? model(?: yourself)?')
    || test('(?:decide|choose|pick) (?:the )?model yourself')) return { action: 'auto' };
 
+  // PROVIDER switch — "use openrouter", "run on ollama", "switch to the local model", "go back to my subscription".
+  // Anchored + alias-mapped so a real task ("summarize the openrouter docs", "what does ollama cost") is NOT hijacked.
+  const PROV = { claude: 'claude', subscription: 'claude', 'my subscription': 'claude', anthropic: 'claude',
+    ollama: 'ollama', local: 'ollama', 'the local model': 'ollama', 'local model': 'ollama',
+    openrouter: 'openrouter', 'open router': 'openrouter', deepseek: 'deepseek', 'deep seek': 'deepseek',
+    lmstudio: 'lmstudio', 'lm studio': 'lmstudio', vllm: 'vllm', bedrock: 'claude-bedrock', vertex: 'claude-vertex' };
+  const PNAMES = Object.keys(PROV).sort((a, b) => b.length - a.length).map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const pm = t.match(new RegExp('^(?:' + USE + '|' + SWITCH + CONN + '|(?:go )?back to(?: my)?)(?: on| to| with)?\\s+(?:the\\s+)?(' + PNAMES + ')(?:\\s+(?:model|provider))?$', 'i'));
+  if (pm) return { action: 'provider', id: PROV[pm[1].toLowerCase()] };
+
   // PIN opus / sonnet
   if (test(SWITCH + CONN + ' ' + OPUS) || test(USE + ' ' + OPUS) || test(OPUS)) return { action: 'pin', model: 'opus' };
   if (test(SWITCH + CONN + ' ' + SONNET) || test(USE + ' ' + SONNET) || test(SONNET)) return { action: 'pin', model: 'sonnet' };

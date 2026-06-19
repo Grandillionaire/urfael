@@ -24,6 +24,22 @@ test('restores auto-routing / unpins', () => {
     assert.deepEqual(p(s), { action: 'auto' }, s);
 });
 
+test('switches the model PROVIDER from natural phrasings', () => {
+  const cases = { 'use openrouter': 'openrouter', 'run on ollama': 'ollama', 'switch to the local model': 'ollama',
+    'go back to my subscription': 'claude', 'use deepseek': 'deepseek', 'switch to bedrock': 'claude-bedrock',
+    'use claude': 'claude', 'run on lm studio': 'lmstudio', 'use vertex': 'claude-vertex' };
+  for (const [s, id] of Object.entries(cases)) assert.deepEqual(p(s), { action: 'provider', id }, s);
+});
+
+test('NEVER hijacks a real task that merely mentions a provider', () => {
+  for (const s of ['summarize the openrouter docs', 'what does ollama cost', 'is deepseek any good',
+                   'use a calmer tone', 'explain how vertex ai pricing works', 'compare claude and ollama'])
+    assert.ok(!(p(s) && p(s).action === 'provider'), 'hijacked: ' + s);
+  // a tier pin is still a pin, not a provider switch
+  assert.deepEqual(p('use the fast model'), { action: 'pin', model: 'sonnet' });
+  assert.deepEqual(p('switch to opus'), { action: 'pin', model: 'opus' });
+});
+
 test('reports the current model on a status question', () => {
   for (const s of ['what model are you using', 'which model is this', 'what model are you on',
                    'what model', 'whats the current model', 'which model are we on'])

@@ -396,6 +396,10 @@ function applyModelDirective(dir) {
   } else if (dir.action === 'auto') {
     setPin(null); softTurns = 0;
     text = 'Auto-routing restored, sir — Opus for the hard problems, Sonnet for the rest.';
+  } else if (dir.action === 'provider') {
+    // a provider switch is a config write + a daemon restart (and may need a key), so it is done from the CLI, not
+    // mid-conversation. Recognising the phrase here keeps it from being run as a task; the CLI does the real switch.
+    text = 'Switching providers is a setup change, sir — run `urfael model use ' + String(dir.id || '').replace(/[^a-z0-9-]/g, '') + '` and I will come back on it.';
   } else {
     setPin(dir.model); convoModel = MODELS[dir.model]; softTurns = 0;
     text = tierName(MODELS[dir.model]) + ' it is, sir. I will stay on ' + tierName(MODELS[dir.model]) + ' until you tell me to switch back.';

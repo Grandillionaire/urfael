@@ -108,7 +108,7 @@ deliberate non-goal). Verdict: **Urfael matches or beats Hermes on every *real* 
 ## Model layer
 | | OpenClaw | Hermes | Urfael |
 |---|---|---|---|
-| Providers | many | 300+ via portals | Claude only — **by design** (flat-rate subscription, zero keys) |
+| Providers | many | 300+ via portals | ✦ **first-class provider management** (`urfael model providers` / `use <id>` / `test <id>`): the flat-rate Claude subscription is the default + the thesis, AND a curated registry (`config/providers.json`, twin of connectors) switches the brain to OpenRouter/DeepSeek/Ollama/LM Studio/vLLM/Bedrock/Vertex/your-proxy in one command, on **your own key/hardware** (masked prompt, 0600, never shell history). One write point, forwarded to every spawn (a frozen drift-guard proves it); tier-pin composes within a provider; NL "use ollama" / "back to my subscription" is recognized (anti-hijack tested). Honest: reach is not hosting (no proprietary-model padding), a local model is not Claude-grade, and v1 reaches proxies rather than supervising them |
 | Routing | fallback chains | manual + aux models | ✓ sticky Sonnet↔Opus auto-escalation **+ explicit per-turn override** (`/opus …` / `/sonnet …`, stripped before the brain) + env overrides |
 | Usage visibility | ✓ | /usage + quotas | ✓ tokens/turn telemetry + Hearth + CLI status + an **enforced self-imposed budget** (`URFAEL_BUDGET_TURNS`/`_TOKENS` rolling window; warn 80%, hard-stop at 100% under `URFAEL_BUDGET_HARD=1`) in honest turns+tokens. Parity: it can't read the provider's real subscription quota, and enforcement is double-opt-in |
 
