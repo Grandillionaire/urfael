@@ -436,6 +436,19 @@ async function main() {
     })(),
     'plugin-importcore has no eval/child_process/dynamic require; an in-process foreign plugin is refused (not stubbed); an emitted draft round-trips through pluginhub.parse with no fs/exec/private-net cap and is unsigned (the owner re-walks the six-gate)');
 
+  const vbSrc = fs.readFileSync(path.join(APP, 'bridge', 'voice-bridge.js'), 'utf8');
+  const vl = require('../bridge/voice-lib');
+  check('the PSTN voice bridge binds LOOPBACK only, verifies the Twilio signature BEFORE the brain, allowlists the caller, and XML-escapes untrusted speech',
+    (() => {
+      const loopbackOnly = /HOST = '127\.0\.0\.1'/.test(vbSrc) && /server\.listen\(PORT, HOST/.test(vbSrc) && !/0\.0\.0\.0/.test(vbSrc) && !/listen\(PORT\)(?!,)/.test(vbSrc);   // never a public bind
+      const verifyBeforeBrain = /if \(!sigOk\([\s\S]{0,120}forbid\(res\); return;/.test(vbSrc) && /sigOk[\s\S]{0,800}resolvePrincipal\('phone'/.test(vbSrc) && /resolvePrincipal\('phone'[\s\S]{0,200}voice_drop[\s\S]{0,140}return/.test(vbSrc);
+      const libm = require(path.join(APP, 'lib.js'));
+      const allowlistFc = libm.resolvePrincipal({ phone: [{ id: '15551234567', role: 'owner' }] }, 'phone', '19998887777') === null;   // a stranger calling is dropped
+      const escaped = !vl.buildVoiceTwiML('reply', { text: 'x</Say><Hangup/>' }).includes('</Say><Hangup/></Gather>') && vl.parseTwilioVoice({ From: '+1555' }) === null;   // injected markup escaped; bad webhook → null
+      return loopbackOnly && verifyBeforeBrain && allowlistFc && escaped;
+    })(),
+    'voice-bridge binds 127.0.0.1 only (no public port — the user fronts it with their own tunnel, like WhatsApp); sigOk (HMAC-SHA1, timing-safe) runs BEFORE parse + resolvePrincipal + askDaemon; a non-enrolled caller is dropped+audited; the brain reply is XML-escaped into TwiML');
+
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}
   try { await new Promise((r) => { const q = http.request({ socketPath: SOCK, method: 'POST', path: '/shutdown', timeout: 1500 }, (res) => { res.resume(); r(); }); q.on('error', r); q.on('timeout', () => { q.destroy(); r(); }); q.end(); }); } catch {}
