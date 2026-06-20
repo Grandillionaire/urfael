@@ -449,6 +449,18 @@ async function main() {
     })(),
     'voice-bridge binds 127.0.0.1 only (no public port — the user fronts it with their own tunnel, like WhatsApp); sigOk (HMAC-SHA1, timing-safe) runs BEFORE parse + resolvePrincipal + askDaemon; a non-enrolled caller is dropped+audited; the brain reply is XML-escaped into TwiML');
 
+  const tvtt = require('../teams-vtt');
+  check('the Teams transcript pipeline opens NO inbound port (outbound Graph poll), parses VTT as DATA only, and quotes YAML-special fields so an untrusted transcript can not break the note',
+    (() => {
+      const trSrc = fs.readFileSync(path.join(APP, 'teams-transcript.js'), 'utf8');
+      const noListen = !/createServer|\.listen\(/.test(trSrc);   // outbound-only runner
+      const dataOnly = !/\beval\s*\(/.test(tvtt.parseVtt.toString()) && Array.isArray(tvtt.parseVtt('WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v X>hi</v>'));
+      const note = tvtt.buildNote({ organizer: 'a: b, c', title: 'x' }, []);   // a YAML-special field is quoted
+      const safe = /organizer: "a: b, c"/.test(note) && note.startsWith('![[urfael-logo.svg|90]]');
+      return noListen && dataOnly && safe;
+    })(),
+    'teams-transcript is an outbound Graph poll (no .listen()); teams-vtt parses WebVTT to data and never executes; buildNote quotes YAML-special fields, so a hostile meeting title/name can not break the frontmatter');
+
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}
   try { await new Promise((r) => { const q = http.request({ socketPath: SOCK, method: 'POST', path: '/shutdown', timeout: 1500 }, (res) => { res.resume(); r(); }); q.on('error', r); q.on('timeout', () => { q.destroy(); r(); }); q.end(); }); } catch {}
