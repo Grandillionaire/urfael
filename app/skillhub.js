@@ -83,9 +83,26 @@ function boundLines(t, maxLine) {
   if (t.length <= maxLine) return t;
   return t.split('\n').map((l) => (l.length > maxLine ? l.slice(0, maxLine) : l)).join('\n');
 }
-function scan(text) {
+// Decode the obfuscation runs in a string (\xNN escapes, String.fromCharCode/chr sequences, and base64 blobs that
+// sit next to a base64 decoder) so scan() can be re-run on the PLAINTEXT a single encoding layer was hiding. This
+// is the differentiator no competitor closes: they flag the PRESENCE of encoding; we read what's inside. Hard-
+// bounded (≤6 fragments, ≤4KB each, ≤16KB total) so it can never be a decode-bomb, and base64 is only decoded when
+// a decoder is actually present so we don't unpack benign embedded data.
+function decodePayloads(s) {
+  const out = []; let budget = 16384;
+  const push = (d) => { if (d && d.length && out.length < 6 && budget > 0) { const t = d.slice(0, 4096); out.push(t); budget -= t.length; } };
+  for (const mm of s.match(/(?:\\x[0-9a-fA-F]{2}){4,}/g) || []) { try { push(mm.replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))); } catch {} }
+  for (const mm of s.match(/(?:(?:String\.fromCharCode|chr)\s*\(?\s*\d{1,3}\s*[,)]\s*){4,}/g) || []) { try { push((mm.match(/\d{1,3}/g) || []).map((n) => String.fromCharCode(+n)).join('')); } catch {} }
+  if (/\batob\s*\(|Buffer\.from\s*\([^)\n]{0,200}base64|\bbase64\b[^\n|]{0,40}(?:-d|--decode|-D)/i.test(s)) {
+    for (const mm of s.match(/[A-Za-z0-9+/]{24,}={0,2}/g) || []) { try { const d = Buffer.from(mm, 'base64').toString('utf8'); if (/[\x20-\x7e]{4,}/.test(d) && (d.match(/�/g) || []).length < d.length / 4) push(d); } catch {} }
+  }
+  return out;
+}
+
+function scan(text, depth = 0, opts = {}) {
   const flags = [];
-  const add = (level, why, sample) => flags.push({ level, why, sample: (sample || '').replace(/\s+/g, ' ').trim().slice(0, 120) });
+  const caps = { network: false, fsWrite: false, shellExec: false, secretRead: false, persistence: false, pkgInstall: false, clipboard: false };
+  const add = (level, why, sample, cap) => { flags.push({ level, why, sample: (sample || '').replace(/\s+/g, ' ').trim().slice(0, 120) }); if (cap) caps[cap] = true; };
   const s = boundLines(String(text || ''), 2000);                    // linear-bounded: every line ≤ 2KB before scanning
 
   // 1) embedded shell that runs a remote download — the classic dropper, plus its common evasions
@@ -143,7 +160,82 @@ function scan(text) {
   if ((m = s.match(hidden))) add('danger', 'hidden/zero-width, bidi-override or tag unicode (could mask payload)', 'U+' + s.codePointAt(s.search(hidden)).toString(16).toUpperCase());
   if (/[^\x00-\x7F]/.test(s)) { const c = (s.match(/[^\x00-\x7F]/g) || []).length; if (c > 40) add('warn', 'unusually high non-ASCII char count (' + c + ') - homoglyph risk', ''); }
 
-  return { flags };
+  // ===== EXTENDED COVERAGE — closes the gaps competitor scanners share. Every heuristic is per-line bounded. =====
+  // reverse shells (no prior rule caught /dev/tcp or nc -e)
+  if ((m = s.match(/\/dev\/(?:tcp|udp)\/[\w.$-]+\/\d{1,5}|\b(?:bash|sh|zsh)\b[^\n]{0,40}-i\b[^\n]{0,40}(?:>&|0>&1|<&)/i))) { add('danger', 'reverse shell (/dev/tcp socket or interactive-shell fd redirection)', m[0], 'shellExec'); caps.network = true; }
+  if ((m = s.match(/\bnc(?:at)?\b[^\n]{0,40}\s-e\b|\bmkfifo\b[^\n]{0,60}\|\s*(?:ba|z)?sh\b|\bpty\.spawn\s*\(|import\s+socket\s*,\s*subprocess|\bsocat\b[^\n]{0,60}exec:[^\n]{0,20}(?:bash|sh)/i))) { add('danger', 'reverse shell (nc -e / mkfifo / pty.spawn / socat exec)', m[0], 'shellExec'); caps.network = true; }
+  if ((m = s.match(/!`[^`]*\b(?:socat|nc|ncat|bash|sh|zsh|python3?|perl|ruby|node|osascript|powershell|curl|wget)\b[^`]*`/i))) add('danger', 'Claude-Code dynamic exec (!`...`) wrapping a shell binary', m[0], 'shellExec');
+  if ((m = s.match(/\bchmod\b[^\n]{0,40}\+x\b[^\n]{0,40}(?:&&|;|\|\|)[^\n]{0,40}(?:\.\/|\bbash\b|\bsh\b|\bpython3?\b|\bnode\b)|\bchmod\b[^\n]{0,20}\+x\b[^\n]{0,40}(?:\/tmp\/|\/var\/tmp\/|~\/)/i))) add('danger', 'two-step dropper (chmod +x then run, or +x on a temp path)', m[0], 'shellExec');
+  if ((m = s.match(/\b(?:python3?|node|perl|ruby|php|bash|sh|zsh)\b[^\n|]{0,40}(?:<<-?\s*['"]?[A-Z_]{2,}\b|<\s*\/dev\/stdin\b)/i))) add('warn', 'interpreter fed by a heredoc / stdin', m[0], 'shellExec');
+
+  // persistence / autostart — fires OUTSIDE the never-execute guarantee at next boot/session
+  if ((m = s.match(/(?:>>?|\btee\b|\bcat\b[^\n]{0,40}>>?)[^\n]{0,40}(?:~|\$HOME|\/home\/[\w.-]+|\/Users\/[\w.-]+)?\/?\.(?:bashrc|zshrc|bash_profile|zprofile|profile|zshenv|bash_login|config\/fish\/config\.fish)\b/i))) { add('danger', 'persistence: writes a shell rc/login file', m[0], 'persistence'); caps.fsWrite = true; }
+  if ((m = s.match(/\bcrontab\b\s+-|\/etc\/cron|\bsystemctl\b\s+(?:--user\s+)?(?:enable|start)\b|\/etc\/init\.d\/|\bLaunch(?:Agents|Daemons)\b|\blaunchctl\b\s+(?:load|bootstrap|enable)|com\.apple\.loginitems|\.git\/hooks\/(?:pre-commit|post-checkout|post-merge|pre-push)/i))) add('danger', 'persistence: cron/launchd/systemd/login-item/git-hook autostart', m[0], 'persistence');
+  if ((m = s.match(/(?:>>?|\b(?:tee|cp|mv|echo|printf|cat|append|write)\b)[^\n]{0,80}(?:CLAUDE\.md|MEMORY\.md|SOUL\.md|AGENTS?\.md|\.cursorrules|\.claude\/(?:settings(?:\.local)?\.json|hooks|agents|commands)|\.github\/copilot-instructions)/i))) { add('danger', 'persistence: writes an agent identity/config file (re-injects instructions every session)', m[0], 'persistence'); caps.fsWrite = true; }
+
+  // non-HTTP exfil + credential/config theft (these also feed the secret-read AND sends-out INTENT rule)
+  if ((m = s.match(/\b(?:dig|nslookup|host|drill|kdig)\b[^\n]{0,80}(?:\$\(|`|\$\{?[A-Za-z_])[^\n]{0,80}\.[a-z0-9-]+\.[a-z]{2,}/i))) { add('danger', 'DNS-tunnel exfiltration (resolver query with a shell-substituted hostname)', m[0], 'network'); sendsOut = true; }
+  if ((m = s.match(/\b(?:append|add|attach|concat\w*|include)\b[^\n]{0,40}\b(?:process\.env|\$\{?[A-Z_]*(?:KEY|TOKEN|SECRET)|env(?:ironment)?\s*var\w*|api[ _-]?keys?|credentials?)\b[^\n]{0,40}\b(?:url|query|endpoint|request|link|param\w*)\b/i))) { add('danger', 'instruction to attach a secret/env var to an outbound URL (prose exfil)', m[0], 'secretRead'); sensitiveRead = true; sendsOut = true; }
+  if ((m = s.match(/JSON\.stringify\s*\(\s*process\.env|Object\.(?:keys|entries|assign)\s*\(\s*process\.env|\bos\.environ(?:\.copy\(\))?\b|\b(?:printenv|env|set)\b[^\n|]{0,40}\|[^\n]{0,40}?(?:curl|wget|nc|base64)/i))) { add('warn', 'serializes the whole environment (credential-harvest source)', m[0], 'secretRead'); sensitiveRead = true; }
+  if ((m = s.match(/\b(?:trufflehog|gitleaks|git-secrets)\b|\b(?:env|printenv|set)\b\s*\|\s*(?:grep|egrep|rg|awk)[^\n]{0,40}\b(?:KEY|TOKEN|SECRET|PASS|CRED|AWS|GITHUB|NPM)\b/i))) { add('warn', 'bulk credential-sweep tooling', m[0], 'secretRead'); sensitiveRead = true; }
+  if ((m = s.match(/\b(?:ANTHROPIC_BASE_URL|OPENAI_BASE_URL|OPENAI_API_BASE|ANTHROPIC_AUTH_TOKEN|[A-Z_]*_BASE_URL)\b\s*[=:]\s*["']?(https?:\/\/[^\s"']+)/i)) && !/^https?:\/\/(?:api\.anthropic\.com|api\.openai\.com)\b/i.test(m[1])) add('danger', 'overrides the LLM provider base URL / auth token (routes prompts + traffic through a proxy)', m[0], 'network');
+  if ((m = s.match(/\bgit\s+config\b[^\n]{0,80}\b(?:http\.proxy|https\.proxy|credential\.helper|url\.[^\n]{0,40}\.insteadof|core\.hookspath|core\.sshcommand)\b|\b(?:LD_PRELOAD|DYLD_INSERT_LIBRARIES|NODE_OPTIONS|GIT_SSH_COMMAND|http_proxy|https_proxy|ALL_PROXY)\s*=\s*\S/i))) add('danger', 'hijacks git/process traffic (proxy / credential-helper / LD_PRELOAD / NODE_OPTIONS)', m[0]);
+  if ((m = s.match(/\bosascript\b[^\n]{0,80}display dialog[^\n]{0,80}(?:hidden answer|password)|\bsecurity\b[^\n]{0,40}\b(?:find-generic-password|dump-keychain|unlock-keychain)\b|\bchainbreaker\b/i))) { add('danger', 'macOS password phishing / keychain extraction', m[0], 'secretRead'); sensitiveRead = true; }
+
+  // obfuscation / evasion (paired with decode-and-rescan below)
+  if ((m = s.match(/\b(?:eval|exec(?:Sync)?|spawn(?:Sync)?|Function)\s*\(\s*(?:[\w.$]{0,40}\(\s*)?(?:atob|unescape|decodeURIComponent)\s*\(|Buffer\.from\s*\([^)\n]{0,200}?,\s*['"]base64['"]\s*\)[^\n]{0,80}?\.toString\s*\(/i))) add('danger', 'decode-then-execute (base64/escape decoder feeding eval/Function/exec)', m[0], 'shellExec');
+  if ((m = s.match(/(?:\\x[0-9a-fA-F]{2}){4,}|(?:\\[0-3][0-7]{2}){4,}|(?:\\u(?:[0-9a-fA-F]{4}|\{[0-9a-fA-F]+\})){4,}|(?:(?:String\.fromCharCode|chr)\s*\(?\s*\d{2,3}\s*[,)]\s*){4,}/))) add('danger', '4+ consecutive byte-escapes / char-code assembly (obfuscated payload)', m[0]);
+  if ((m = s.match(/(?:[a-z]['"`]\s*\+\s*['"`][a-z]){2,}/i))) add('warn', 'string-split concatenation (obfuscation)', m[0]);
+  if ((m = s.match(/\b(?:import|require)\s*\(\s*[`'"]https?:\/\/[^`'")\n]{1,300}/i))) add('danger', 'imports/requires a remote URL module (pulls unseen attacker code at run time)', m[0], 'network');
+
+  // cross-platform LOLBins, miners, anti-forensics
+  if ((m = s.match(/\bpowershell(?:\.exe)?\b[^\n]{0,80}(?:-e(?:nc(?:odedcommand)?)?\s+[A-Za-z0-9+\/]{40,}={0,2}|-ep?\s*bypass|-executionpolicy\s+bypass|(?:IEX|Invoke-Expression)\b[^\n]{0,80}(?:DownloadString|Invoke-(?:WebRequest|RestMethod)))|\bcertutil\b[^\n]{0,40}-decode/i))) add('danger', 'PowerShell encoded / IEX-downloader / certutil stager', m[0], 'shellExec');
+  if ((m = s.match(/\b(?:xmrig|minerd|cpuminer|ccminer|ethminer|nbminer|lolminer|phoenixminer|coinhive|cryptonight|randomx)\b|\bstratum(?:\+(?:tcp|ssl))?:\/\/|--donate-level\b/i))) add('danger', 'cryptocurrency miner (binary / stratum pool / donate-level)', m[0]);
+  if ((m = s.match(/\bhistory\s+-c\b|\b(?:rm|truncate)[^\n]{0,40}\.(?:bash|zsh)_history\b|\bunset\s+HISTFILE\b|export\s+HISTFILE=\/dev\/null|\b(?:pkill|killall|kill\s+-9)\b[^\n]{0,40}(?:Little\s*Snitch|LuLu|santad?|crowdstrike|falcon|wdav|defender|osquery|auditd)|\b(?:spctl\s+--master-disable|csrutil\s+disable|ufw\s+disable|setenforce\s+0)\b/i))) add('danger', 'anti-forensics / disables a security agent, Gatekeeper, SIP, or firewall', m[0]);
+
+  // resource/clipboard + conditional evasion (WARN, escalates in combination below)
+  if ((m = s.match(/\b(?:pbpaste|pbcopy|xclip|xsel|wl-(?:paste|copy)|clip\.exe|Get-Clipboard|Set-Clipboard|clipboardy|navigator\.clipboard\.(?:readText|writeText))\b/i))) add('warn', 'clipboard access (crypto-address swap?)', m[0], 'clipboard');
+  if ((m = s.match(/\b(?:date\s+\+|new Date\(\)|Date\.now\(\)|time\.time\(\)|datetime\.(?:now|utcnow)|\$\(date\b)[^\n]{0,60}(?:[<>]=?|-(?:gt|lt|ge|le)\b|getTime\(\)|>\s*\d{8}|20\d{2}[-\/]?[01]\d)/i))) add('warn', 'time-gated logic (possible time bomb)', m[0]);
+  if ((m = s.match(/\bioreg\b[^\n]{0,40}(?:VirtualBox|VMware|QEMU)|hv_vmm_present|sysctl[^\n]{0,20}kern\.hv|\/\.dockerenv|systemd-detect-virt|VBoxGuest/i))) add('warn', 'VM/sandbox-detection probe (payload may hide from analysis)', m[0]);
+
+  // manifest / frontmatter-scoped (structural location reduces false positives vs. prose that merely mentions these)
+  const fmEnd = s.startsWith('---') ? s.indexOf('\n---', 3) : -1;
+  if (fmEnd > 0 && (m = s.slice(0, fmEnd).match(/^\s*(?:allowed[-_]?tools|permission[-_]?mode|permissions?)\s*:\s*.*(?:Bash\s*\(\s*\*|Write\s*\(\s*\*|Edit\s*\(\s*\*|\bbypass(?:Permissions)?\b|acceptEdits)/im))) add('danger', 'frontmatter pre-authorizes broad tool access (no prompt)', m[0]);
+  if (/"scripts"\s*:\s*\{/.test(s) && (m = s.match(/"(?:pre|post)?(?:install|prepare|prepublish|publish)"\s*:\s*"[^"\n]{0,300}?(?:curl|wget|fetch|node\s+-e|bash|sh\b|python|eval|base64|\.\/)/i))) add('danger', 'package manifest install-script shells out (postinstall attack)', m[0], 'pkgInstall');
+  if ((m = s.match(/\b(?:npm|yarn|pnpm|pip3?|uv|cargo|gem)\b[^\n]{0,80}\s--(?:registry|index-url|extra-index-url|default-index)[=\s]+https?:\/\/(?!(?:registry\.npmjs\.org|pypi\.org|files\.pythonhosted\.org|crates\.io)\b)[^\s]+/i))) add('danger', 'installs from a non-canonical package registry (dependency-confusion / backdoor)', m[0], 'pkgInstall');
+
+  // broadened hardcoded-secret + opaque-payload formats
+  if ((m = s.match(/-----BEGIN (?:RSA |EC |OPENSSH |PGP |DSA )?PRIVATE KEY-----/))) add('danger', 'hardcoded private key (PEM block)', m[0]);
+  else if ((m = s.match(/\bAIza[0-9A-Za-z_\-]{35}\b|\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,64}\b|\bglpat-[0-9A-Za-z_\-]{20}\b|\bnpm_[0-9A-Za-z]{36}\b|\bsk-ant-api03-[0-9A-Za-z_\-]{80,120}\b|https:\/\/hooks\.slack\.com\/services\/[A-Z0-9]{8,12}\/[A-Z0-9]{8,12}\/[A-Za-z0-9]{20,30}/))) add('warn', 'looks like a hardcoded provider key/token/webhook', m[0]);
+  if ((m = s.match(/\bunzip\b[^\n]{0,40}-P\s*\S|\b7z[ar]?\b\s+x?[^\n]{0,40}-p\S|\bopenssl\s+enc\s+-d\b|\bgpg\b[^\n]{0,40}(?:--passphrase|-d)\b/i))) add('warn', 'password-protected / encrypted archive extraction (contents uninspectable)', m[0]);
+
+  // INTENT (generalized): a secret SOURCE + an outbound SINK anywhere in the body is an exfil procedure
+  if (sensitiveRead && sendsOut && !flags.some((f) => /credential-exfiltration procedure/.test(f.why))) add('danger', 'reads a secret AND sends data out — a credential-exfiltration procedure', '');
+
+  // ESCALATIONS: weak signals become DANGER in combination
+  const has = (re) => flags.some((f) => re.test(f.why));
+  if (has(/clipboard/) && (sendsOut || /\b0x[a-fA-F0-9]{40}\b|\bbc1[a-z0-9]{20,60}\b/.test(s))) add('danger', 'clipboard access combined with network egress or a crypto address (wallet-swap)', '');
+  if (has(/time bomb|sandbox-detection/) && has(/dropper|reverse shell|exfiltrat|decode-then-execute|miner/)) add('danger', 'a payload is gated behind time/anti-analysis logic (conditional malware)', '');
+
+  // DECODE-AND-RESCAN — read what one encoding layer was hiding, then re-run the FULL scanner on it (the move no
+  // competitor makes; they flag the presence of encoding, we read inside it). Depth- and byte-bounded → no decode-bomb.
+  if (depth < 2) {
+    for (const dec of decodePayloads(s)) {
+      for (const f of scan(dec, depth + 1, opts).flags) if (f.level === 'danger') add('danger', 'inside an encoded/obfuscated payload: ' + f.why, f.sample);
+    }
+  }
+
+  // capability summary + severity score + structured verdict (pure folds over the flags)
+  if (sendsOut || has(/network call|exfil|reverse shell|remote URL|base URL|DNS-tunnel/i)) caps.network = true;
+  if (sensitiveRead || has(/secret|credential|\.ssh|keychain|private key/i)) caps.secretRead = true;
+  if (has(/dropper|interpreter|eval|reverse shell|shells out|decode-then-execute|powershell|miner/i)) caps.shellExec = true;
+  if (has(/rm -rf|raw disk|writes a shell|writes an agent|world-writable/i)) caps.fsWrite = true;
+  const dangers = flags.filter((f) => f.level === 'danger').length;
+  const warns = flags.length - dangers;
+  const score = dangers * 10 + warns * 3;
+  const verdict = (dangers > 0 || score >= 9) ? 'block' : score >= 3 ? 'review' : 'clean';
+  const capabilities = Object.keys(caps).filter((k) => caps[k]);
+  return { flags, score, verdict, capabilities };
 }
 
 // Fetch a single .md over https (no redirects to other hosts blindly; capped). Resolves
