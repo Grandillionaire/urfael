@@ -423,6 +423,19 @@ async function main() {
     })(),
     'QQ dials wss outbound + replies via REST; SimpleX dials a loopback CLI; neither .listen()s. Both run resolvePrincipal and drop+audit a non-allowlisted sender before askDaemon; the parsers guard the self-loop');
 
+  const importcore = require('../plugin-importcore');
+  check('the foreign-plugin importer reads manifests as DATA only (never executes), refuses in-process code, and can only emit a draft the native loader accepts with no fs/exec/private-net cap',
+    (() => {
+      const icSrc = fs.readFileSync(path.join(APP, 'plugin-importcore.js'), 'utf8');
+      const noExec = !/\beval\s*\(/.test(icSrc) && !/child_process|execFile|spawnSync|\.exec\(/.test(icSrc) && !/require\s*\(\s*[A-Za-z_$]/.test(icSrc);   // no eval, no child process, no dynamic require of foreign code
+      const refused = (() => { const r = importcore.mapToManifest(importcore.parseOpenClaw('{"id":"x","contracts":{"tools":[{"name":"t"}]}}', '{}', '{}')); return r.manifest === null && r.refusals.length > 0; })();   // in-process tools, no server → REFUSED not stubbed
+      const m = importcore.mapToManifest(importcore.parseOpenClaw('{"id":"y","contracts":{"tools":[{"name":"t"}],"webFetchProviders":[{"host":"127.0.0.1"}]},"secretProviderIntegrations":[{"env":"K"}],"mcp":{"servers":{"s":{"command":"node","args":["x.js"]}}}}', '{}', '{}')).manifest;
+      const rp = ph.parse(JSON.stringify(m));
+      const safe = !!rp && rp.caps.fs.length === 0 && rp.caps.exec.length === 0 && rp.caps.net.length === 0 && !m.signature;   // round-trips; no fs/exec; loopback host dropped; unsigned
+      return noExec && refused && safe;
+    })(),
+    'plugin-importcore has no eval/child_process/dynamic require; an in-process foreign plugin is refused (not stubbed); an emitted draft round-trips through pluginhub.parse with no fs/exec/private-net cap and is unsigned (the owner re-walks the six-gate)');
+
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}
   try { await new Promise((r) => { const q = http.request({ socketPath: SOCK, method: 'POST', path: '/shutdown', timeout: 1500 }, (res) => { res.resume(); r(); }); q.on('error', r); q.on('timeout', () => { q.destroy(); r(); }); q.end(); }); } catch {}

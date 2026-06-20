@@ -28,7 +28,7 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: install
         run: npm ci || npm install
-      - name: unit tests (377, pure — no credentials)
+      - name: unit tests (389, pure — no credentials)
         run: npm test
       - name: fuzz the input boundaries (small budget for CI)
         run: npm run fuzz

@@ -460,6 +460,13 @@ function printPluginPreview(ph, m) {
       if (m.hostReaching) console.log(dim('  note: requests host capabilities (fs/net/secret); brain-tools plugins enable today, host-reaching tiers land with the cell + broker.'));
       return;
     }
+    // import — bring an OpenClaw/Hermes plugin onto Urfael safely: read its manifest as DATA, scan, map to a
+    // capability-scoped draft (or refuse with a reason), dry-run by default. Never executes foreign code.
+    if (sub === 'import' && rest[1]) {
+      const r = await require('./plugin-import').run({ from: flag(rest, '--from'), path: rest[1], apply: rest.includes('--apply'), force: rest.includes('--force') });
+      if (r && r.error) process.exit(1);
+      return;
+    }
     // secret — set a plugin secret BY REFERENCE (masked; stored 0600; used only by a brokerd to inject into a granted host)
     if (sub === 'secret' && rest[1]) {
       const ref = String(rest[1]);
