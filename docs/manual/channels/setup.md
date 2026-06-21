@@ -95,6 +95,29 @@ Be honest with yourself about maturity. The README says it and so does this page
 - Code-complete and reviewed, but not yet exercised against real accounts: the live relay of Matrix, Signal, and WhatsApp. Their parsing and allowlist logic is unit-tested; the network path is not battle-hardened. Treat them accordingly.
 - Newer still: `qq`, `simplex`, and `phone` are real channel names the roster validates, with less mileage again. WhatsApp and phone are also the only inbound surfaces, so they carry more surface area; see the overview.
 
+## Native webhook channels
+
+Eight more channels run on one loopback-only receiver, `app/bridge/webhook-bridge.js`, started like the hooks receiver. It binds `127.0.0.1` only and opens no port on the daemon, so to accept events from a platform you point your own tunnel (cloudflared, ngrok) at it and give the platform the URL `https://your-tunnel/wh/<channel>`.
+
+```bash
+node app/bridge/webhook-bridge.js     # loopback only; tunnel to it for external events
+```
+
+Each channel has a tiny pure adapter in `app/bridge/webhook-lib.js` that verifies the platform's real signature (timing-safe) and extracts the sender and text. Authorization is not the adapter's job: the bridge runs the same fail-closed allowlist as every other channel before the brain. Set the channel's secret in `bridge.env` and add yourself with `urfael team add <channel> <your-id>`:
+
+| Channel | Secret in `bridge.env` | Verification | Owner id env |
+|---|---|---|---|
+| `mattermost` | `MATTERMOST_TOKEN` | outgoing-webhook token | `MATTERMOST_OWNER_USER_ID` |
+| `googlechat` | `GOOGLECHAT_TOKEN` | shared token (JWT-cert mode is the cert step) | `GOOGLECHAT_OWNER_NAME` |
+| `sms` | `TWILIO_AUTH_TOKEN` | Twilio HMAC-SHA1 request signature | `SMS_OWNER_NUMBER` |
+| `dingtalk` | `DINGTALK_SECRET` | HMAC-SHA256 sign + timestamp freshness | `DINGTALK_OWNER_STAFF_ID` |
+| `homeassistant` | `HOMEASSISTANT_TOKEN` | bearer/shared token | `HOMEASSISTANT_OWNER` |
+| `bluebubbles` | `BLUEBUBBLES_PASSWORD` | shared password | `BLUEBUBBLES_OWNER_HANDLE` |
+| `feishu` | `FEISHU_VERIFY_TOKEN` | verification token (encrypt mode is the cert step) | `FEISHU_OWNER_OPEN_ID` |
+| `wecom` | `WECOM_TOKEN` | sorted-SHA1 message signature | `WECOM_OWNER_USER` |
+
+Mattermost, Google Chat, SMS, DingTalk, and Home Assistant answer in the HTTP response. BlueBubbles, Feishu, and WeCom send their reply back through the platform's own API, which is the live-certification step. Behind a tunnel, set `URFAEL_WEBHOOK_PUBLIC_URL` so the Twilio signature check sees the same URL the platform signed. These adapters are unit-tested and the allowlist is frozen as a benchmark check; each platform's live round-trip is the remaining certification.
+
 ## Pairing: a single-use guest code
 
 When you cannot share a token or chat id ahead of time, mint a code instead:

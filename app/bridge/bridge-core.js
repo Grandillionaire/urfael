@@ -17,7 +17,7 @@ const AUDIT = path.join(JDIR, 'bridge-audit.log');
 
 // TEAM MODE — the roster: per-channel allowlist of principals (id/name/role). team.json is the source of truth
 // when present; otherwise the legacy single-owner env id is the lone owner (so existing setups are unchanged).
-const OWNER_ENV = { telegram: 'TELEGRAM_OWNER_CHAT_ID', discord: 'DISCORD_OWNER_USER_ID', slack: 'SLACK_OWNER_USER_ID', imessage: 'IMESSAGE_OWNER_HANDLE', matrix: 'MATRIX_OWNER_USER_ID', signal: 'SIGNAL_OWNER_UUID', whatsapp: 'WHATSAPP_OWNER_NUMBER', qq: 'QQ_OWNER_OPENID', simplex: 'SIMPLEX_OWNER_CONTACT_ID', phone: 'PHONE_OWNER_NUMBER' };
+const OWNER_ENV = { telegram: 'TELEGRAM_OWNER_CHAT_ID', discord: 'DISCORD_OWNER_USER_ID', slack: 'SLACK_OWNER_USER_ID', imessage: 'IMESSAGE_OWNER_HANDLE', matrix: 'MATRIX_OWNER_USER_ID', signal: 'SIGNAL_OWNER_UUID', whatsapp: 'WHATSAPP_OWNER_NUMBER', qq: 'QQ_OWNER_OPENID', simplex: 'SIMPLEX_OWNER_CONTACT_ID', phone: 'PHONE_OWNER_NUMBER', mattermost: 'MATTERMOST_OWNER_USER_ID', googlechat: 'GOOGLECHAT_OWNER_NAME', sms: 'SMS_OWNER_NUMBER', dingtalk: 'DINGTALK_OWNER_STAFF_ID', homeassistant: 'HOMEASSISTANT_OWNER', bluebubbles: 'BLUEBUBBLES_OWNER_HANDLE', feishu: 'FEISHU_OWNER_OPEN_ID', wecom: 'WECOM_OWNER_USER' };
 function loadRoster() {
   const cfg = loadEnv();
   const envOwners = {};

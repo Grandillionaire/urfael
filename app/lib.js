@@ -170,7 +170,7 @@ function resolvePrincipal(roster, channel, senderId) {
 }
 
 // The channels a roster can have (used to validate `urfael team add`).
-const TEAM_CHANNELS = ['telegram', 'discord', 'slack', 'imessage', 'email', 'matrix', 'signal', 'whatsapp', 'qq', 'simplex', 'phone'];
+const TEAM_CHANNELS = ['telegram', 'discord', 'slack', 'imessage', 'email', 'matrix', 'signal', 'whatsapp', 'qq', 'simplex', 'phone', 'mattermost', 'googlechat', 'sms', 'dingtalk', 'homeassistant', 'bluebubbles', 'feishu', 'wecom'];
 
 // Pure parser for a SimpleX `newChatItems` response from the local simplex-chat control WS → {contactId, text} | null.
 // Fail-closed/defensive: null for the wrong type, a group (only Direct is bridged), a self-loop (outbound/snd

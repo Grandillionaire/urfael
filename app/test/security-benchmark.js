@@ -171,6 +171,21 @@ async function main() {
   const forged = eb.parseFetch(['* 1 FETCH (BODY[HEADER.FIELDS (FROM)] {26}', 'From: attacker@evil.com', '', ' BODY[TEXT] {30}', 'From: owner@allowed.com', ')']);
   check('a forged "From:" in the body can\'t spoof the allowlist', eb.addrOf(forged.from) === 'attacker@evil.com', 'allowlist reads the header block only');
 
+  // the native webhook channels VERIFY the signature fail-closed and ALLOWLIST the sender before the brain (the
+  // adapter can only ever extract a sender id + text; authorization is the bridge's one fail-closed gate, uniformly).
+  check('a native webhook channel verifies the signature fail-closed + allowlists the sender before the brain',
+    (() => {
+      const wh = require(path.join(APP, 'bridge', 'webhook-lib.js'));
+      const noSecret = wh.CHANNELS.length >= 8 && wh.CHANNELS.every((ch) => wh.dispatch(ch, { cfg: {}, body: {}, headers: {}, query: {} }).ok === false);  // unset secret → reject
+      const forgedSig = wh.dispatch('mattermost', { cfg: { MATTERMOST_TOKEN: 's3cr3t' }, body: { token: 'WRONG', user_id: 'u', text: 'hi' }, headers: {}, query: {} }).reason === 'bad-signature';
+      const yieldsOnlyIdText = (() => { const r = wh.dispatch('mattermost', { cfg: { MATTERMOST_TOKEN: 's' }, body: { token: 's', user_id: 'u', text: 'hi' }, headers: {}, query: {} }); return r.ok && Object.keys(r).sort().join() === 'ok,senderId,text'; })();  // an adapter can't grant access
+      const src = fs.readFileSync(path.join(APP, 'bridge', 'webhook-bridge.js'), 'utf8');
+      const ai = src.indexOf('resolvePrincipal'), bi = src.indexOf('askDaemon');
+      const allowlistBeforeBrain = ai > 0 && bi > 0 && ai < bi && /if \(!principal\)/.test(src) && /webhook_drop/.test(src) && /HOST = '127\.0\.0\.1'/.test(src);  // loopback only, drop unknown, before the brain
+      return noSecret && forgedSig && yieldsOnlyIdText && allowlistBeforeBrain;
+    })(),
+    '8 native channels on one loopback-only receiver; webhook-lib verifies (timing-safe) + extracts only {senderId,text}, the bridge runs the single fail-closed allowlist (resolvePrincipal → drop) before askDaemon, no daemon port opened');
+
   // ── 4. POISONED SKILL / SUPPLY CHAIN ──────────────────────────────────────
   attackClass('Poisoned skill / supply-chain malware',
     'OpenClaw ClawHub: ~20% of skills were malicious (Atomic macOS Stealer; SSH-key/token/cookie exfil; typosquatting).');
@@ -389,7 +404,7 @@ async function main() {
     (() => { const host = ph.buildMcpConfig(okM, { fs: okM.caps.fs, secret: okM.caps.secret }); const v = JSON.stringify(host); return host.mcpServers.bench.command === 'docker' && !v.includes('TOKEN_VALUE') && JSON.stringify(host.mcpServers.bench.env) === '{}'; })(),
     'buildMcpConfig wraps host-reaching plugins in the --network none cell; secrets are broker-injected per-call, never placed in the plugin env/config');
 
-  check('signature + sha-pin are mandatory and tamper-evident: a wrong key, an unsigned manifest, or a mutated bundle is refused',
+  check('the signature + integrity primitives reject a wrong key / unsigned / mutated manifest, AND the enable gate refuses a manifest edited after consent',
     (() => {
       const kp = sealMod.generateKeypair();
       const m = ph.parse({ schema: 'urfael.plugin/v1', id: 'signed', runtime: 'mcp-native', entry: { transport: 'stdio', cmd: ['x'] }, publisher: { keyFingerprint: sealMod.fingerprint(kp.publicPem) } });
@@ -398,9 +413,14 @@ async function main() {
       const wrongKey = ph.verifySignature(m, sealMod.generateKeypair().publicPem).ok === false;
       const unsigned = ph.verifySignature(ph.parse({ schema: 'urfael.plugin/v1', id: 'u', runtime: 'mcp-native', entry: { transport: 'stdio', cmd: ['x'] } }), kp.publicPem).ok === false;
       const mutated = ph.verifyIntegrity(Buffer.from('abc'), ph.sha256(Buffer.from('abd'))).ok === false;
-      return good && wrongKey && unsigned && mutated;
+      // WIRED today: the enable gate pins the consented manifest's sha and refuses an edited one (install→enable TOCTOU).
+      const pinned = ph.parse({ schema: 'urfael.plugin/v1', id: 'pin', runtime: 'mcp-native', entry: { transport: 'stdio', cmd: ['x'] } });
+      const grant = { manifestSha: ph.sha256(Buffer.from(JSON.stringify(pinned))) };
+      const edited = ph.parse({ schema: 'urfael.plugin/v1', id: 'pin', runtime: 'mcp-native', entry: { transport: 'stdio', cmd: ['x', '--widened'] } });
+      const enableGate = ph.integrityOk(pinned, grant).ok === true && ph.integrityOk(edited, grant).ok === false && ph.integrityOk(pinned, {}).ok === false;
+      return good && wrongKey && unsigned && mutated && enableGate;
     })(),
-    'ed25519 TOFU + sha256 pin (more than ClawHub had); a widened/swapped payload fails verifySignature/verifyIntegrity before preview');
+    'ed25519 TOFU + sha256 primitives (more than ClawHub had); manifest integrity is ENFORCED at the enable gate; full publisher-key signature verification at install is the documented next increment (docs/PLUGINS.md)');
 
   check('plugin tools never reach a sandboxed turn, and the zero-capability floor is never "local"',
     /--strict-mcp-config/.test(daemonSrc) && lib.resolveProfile('plugin-zero').name === 'plugin-zero' && JSON.stringify(lib.resolveProfile('plugin-zero').allowedTools) === '[]' && lib.resolveProfile('plugin-zero').permissionMode !== null,
