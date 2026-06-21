@@ -164,6 +164,19 @@ function verifyIntegrity(bundleBytes, expectedSha) {
   return { ok, got, expected: String(expectedSha || '').toLowerCase() };
 }
 
+// integrityOk(manifest, grant) — the enable-time integrity gate. At install the owner consents to an exact manifest
+// and `grant.manifestSha` pins its bytes (sha256 of the canonical-parsed manifest). Before re-arming the plugin we
+// recompute that sha and refuse if it changed — so an edit to plugin.json AFTER consent (widening caps, swapping
+// entry.cmd) can NOT silently take effect. FAIL-CLOSED: a missing/non-string pin is itself a refusal (re-install to
+// re-consent), never a skip. This is the one signature/integrity guarantee wired into the live path today; full
+// publisher-key ed25519 verification at install is the documented next increment (docs/PLUGINS.md).
+function integrityOk(manifest, grant) {
+  const pin = (grant && typeof grant.manifestSha === 'string') ? grant.manifestSha.toLowerCase() : '';
+  if (!pin || !manifest) return { ok: false, reason: 'no integrity pin on the grant — re-install to consent' };
+  const got = sha256(Buffer.from(JSON.stringify(manifest)));
+  return { ok: got === pin, reason: got === pin ? 'ok' : 'manifest changed since you consented (sha mismatch)', got, pinned: pin };
+}
+
 // canonical manifest bytes for signing/verifying: deterministic JSON of the manifest MINUS the signature field.
 function canonicalManifest(manifest) {
   const clone = JSON.parse(JSON.stringify(manifest || {}));
@@ -263,11 +276,16 @@ function redact(s, secrets = []) {
 // ── the pre-enable preview — what the owner consents to. Pure data; cli.js renders it. Never contains a secret value.
 function preview(manifest, grant) {
   const g = grant || grantFromManifest(manifest);                            // default proposed grant = everything declared
-  const tier = hasHostGrant(g) ? 'docker-cell (host-reaching)' : (manifest && manifest.caps.brain.tools.length ? 'mcp-tools-only (no host reach)' : 'inert');
+  // A brain-tools-only plugin (no host grant) is NOT wrapped in the Docker cell — its MCP server is spawned as a
+  // plain local child (it has no GRANTED fs/net/secret, but the server PROCESS itself runs with your privileges,
+  // like any program you launch). The cell only confines a host-reaching grant. Label that honestly so "no host
+  // reach" can not be read as "sandboxed".
+  const unconfined = !hasHostGrant(g) && !!(manifest && manifest.caps.brain.tools.length);
+  const tier = hasHostGrant(g) ? 'docker-cell (host-reaching)' : (unconfined ? 'mcp-tools-only (server runs as a local process, NOT sandboxed)' : 'inert');
   return {
     id: manifest && manifest.id, name: manifest && manifest.name,
     runtime: manifest && manifest.runtime,
-    tier,
+    tier, unconfined,
     ownerTurnsOnly: true,
     requiresDocker: hasHostGrant(g),
     capabilities: declaredCaps(manifest),
@@ -309,7 +327,7 @@ function find(list, id) { const k = slugify(id); return (list || []).find((e) =>
 
 module.exports = {
   VAULT, PLUGINS_DIR, SCHEMA, CAP_KINDS, MEM_CAP_MB,
-  slugify, safeVaultRel, parse, load, scanBundle, sha256, verifyIntegrity, canonicalManifest, verifySignature,
+  slugify, safeVaultRel, parse, load, scanBundle, sha256, verifyIntegrity, integrityOk, canonicalManifest, verifySignature,
   declaredCaps, grantDiff, hasHostGrant, hostNeedsBroker, buildCellArgs, buildMcpConfig, pluginTools, redact, preview,
   grantFromManifest, parseIndex, search, find,
 };

@@ -135,6 +135,16 @@ test('verifyIntegrity rejects a one-byte-mutated bundle, accepts the pinned byte
   assert.equal(ph.verifyIntegrity(bytes, '').ok, false);                      // no pin = refuse
 });
 
+test('integrityOk is the enable gate: accepts the consented manifest, refuses one edited after consent, fail-closed on a missing pin', () => {
+  const m = ph.parse(baseManifest({ capabilities: { brain: { tools: [{ name: 't' }] } } }));
+  const grant = { manifestSha: ph.sha256(Buffer.from(JSON.stringify(m))) };
+  assert.equal(ph.integrityOk(m, grant).ok, true);                            // unchanged since install → ok
+  const edited = ph.parse(baseManifest({ entry: { transport: 'stdio', cmd: ['node', 'evil.js'] }, capabilities: { brain: { tools: [{ name: 't' }] } } }));
+  assert.equal(ph.integrityOk(edited, grant).ok, false);                      // entry.cmd swapped after consent → refused
+  assert.equal(ph.integrityOk(m, {}).ok, false);                              // no pin at all → fail-closed
+  assert.equal(ph.integrityOk(m, { manifestSha: 'deadbeef' }).ok, false);     // wrong pin → refused
+});
+
 test('verifySignature: accepts the pinned ed25519 key, rejects a wrong key and a tampered manifest', () => {
   const kp = seal.generateKeypair();
   const m = ph.parse(baseManifest({ publisher: { id: 'me', keyFingerprint: seal.fingerprint(kp.publicPem) } }));

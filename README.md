@@ -19,6 +19,12 @@ It listens and speaks locally, sandboxes every autonomous action fail-closed, al
 
 <br/>
 
+<img src="docs/media/demo.gif" width="820" alt="Urfael resisting the attack classes that compromised other agents: npm run security boots the real daemon and prints 10/10 attack classes, 92/92 checks passed" />
+
+<sub><code>npm run security</code> boots the real daemon and runs the actual attack classes that owned other agents in the wild. It lands on 10/10 classes, 92/92 checks. The proof is a command you run, not a claim you read.</sub>
+
+<br/><br/>
+
 <img src="docs/media/console.png" width="820" alt="The Urfael Console, a gold-on-dark desktop app: sidebar of views, runic identity, voice and type input" />
 
 <sub>The Console: chat with live tool activity, push-to-talk, archive, reminders, jobs, settings. One window, keyboard-first.</sub>
@@ -27,7 +33,7 @@ It listens and speaks locally, sandboxes every autonomous action fail-closed, al
 
 > The other self-hosted assistants optimize for channel count and star count. Urfael optimizes for not getting owned, and for not lying to you about what it can do.
 
-<sub>📖 **The full manual** is a navigable, searchable docs site at [`docs/manual/`](docs/manual/) (install, quickstart, every feature, all 11 channels, the security model, and an auto-generated [CLI reference](docs/manual/reference/cli.md)). Machine-readable index at [`docs/llms.txt`](docs/llms.txt). 📄 The shareable landing page lives at [`docs/index.html`](docs/index.html) (enable GitHub Pages → `/docs` to serve both). Launch materials: [`docs/launch/`](docs/launch).</sub>
+<sub>📖 **The full manual** is a navigable, searchable docs site at [`docs/manual/`](docs/manual/) (install, quickstart, every feature, all 11 channels, the security model, and an auto-generated [CLI reference](docs/manual/reference/cli.md)). Machine-readable index at [`docs/llms.txt`](docs/llms.txt). 📄 The shareable landing page lives at [`docs/index.html`](docs/index.html) (enable GitHub Pages → `/docs` to serve both).</sub>
 
 ---
 

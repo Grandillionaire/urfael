@@ -150,7 +150,7 @@ async function main() {
 
   sect('── CLI ─────────────────────────────────────────');
   ok('urfael health', /"ok":true/.test(cli('health').out));
-  ok('urfael status', /Urfael/.test(cli('status').out) && /model/.test(cli('status').out));
+  ok('urfael status', (() => { const o = cli('status').out; return /Urfael/.test(o) && /warm:/.test(o); })());   // the Hearth panel shows the model on the "warm:" row
   ok('urfael reminders', !/Error/.test(cli('reminders').out));
   const cr = cli('remind', 'cli reminder', '--in', '120'); ok('urfael remind', /reminder/.test(cr.out));
   ok('urfael jobs', !/Error/i.test(cli('jobs').out));

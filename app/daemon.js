@@ -1451,6 +1451,7 @@ function loadEnabledPlugins() {            // boot: re-arm every enabled plugin 
     if (!grant || grant.enabled !== true) continue;
     const manifest = pluginhub.load(pluginManifestPath(id));
     if (!manifest || manifest.id !== id) continue;
+    if (!pluginhub.integrityOk(manifest, grant).ok) { logEvent({ ev: 'plugin_integrity_skip', id }); continue; }   // manifest changed since consent → fail-soft skip at boot
     if (pluginhub.hasHostGrant(grant.caps || {}) && !hasDocker()) continue;   // host-reaching needs Docker; skip cleanly if absent
     const sockPath = startPluginBrokerd(id, grant);                            // '' unless net/secret
     enabledPlugins.set(id, { manifest, grant, bundleDir: path.join(pluginhub.PLUGINS_DIR, id), sockPath });
@@ -1472,6 +1473,8 @@ function enablePlugin(id) {
   if (!manifest || manifest.id !== id) return { ok: false, error: 'no installed plugin: ' + id };
   if (pluginhub.scanBundle(manifest).flags.some((f) => f.level === 'danger')) return { ok: false, error: 'static scan flagged DANGER — refusing to enable' };
   let grant; try { grant = JSON.parse(fs.readFileSync(pluginGrantPath(id), 'utf8')); } catch { return { ok: false, error: 'no grant for ' + id + ' — run `urfael plugin install` first' }; }
+  const integ = pluginhub.integrityOk(manifest, grant);                       // refuse a manifest edited after you consented (install→enable TOCTOU)
+  if (!integ.ok) return { ok: false, error: integ.reason + ' — re-run `urfael plugin install` to review + re-consent', tier: 'integrity' };
   const caps = grant.caps || {};
   for (const sref of (caps.secret || [])) if (!secretStore[sref.ref]) return { ok: false, error: 'missing secret ' + sref.ref + ' — set it first: urfael plugin secret ' + sref.ref, tier: 'needs-secret' };
   if (pluginhub.hasHostGrant(caps) && !hasDocker()) return { ok: false, error: 'this plugin needs Docker (host-reaching capabilities run in a --network none cell); install Docker to enable it', tier: 'needs-docker' };

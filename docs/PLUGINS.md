@@ -9,7 +9,7 @@ OpenClaw and Hermes load plugins as in-process code with broad host power. That 
 - **Loaded as data, never `require()`d.** Plugin code never enters the daemon's address space, never inherits its environment, and never holds your Claude subscription token.
 - **Run only as a capability-scoped MCP server**, the open tool standard the `claude` brain already speaks, inside the existing `--network none` Docker cell.
 - **Owner turns only.** A plugin's tools attach to a turn through `--mcp-config` on your trusted local turns. Every sandboxed spawn (a remote message, a cron job, the heartbeat) stays `--strict-mcp-config`, so a prompt injection that says "use the plugin to leak a secret" has no plugin to reach.
-- **Signed and sha-pinned.** A registry entry must carry an https url and a 64-hex sha256, and install verifies an ed25519 signature against the publisher's pinned key.
+- **Sha-pinned and signature-aware.** A registry entry must carry an https url and a 64-hex sha256. At install the manifest you consent to is sha-pinned into its grant, and the enable gate refuses a manifest edited after consent (an install-to-enable swap). The ed25519 signature-verify primitive ships and is tested; wiring full publisher-key verification into install is the documented next increment, not a property the running install path enforces today.
 
 ## The two laws that never bend
 
@@ -43,7 +43,7 @@ A freshly installed plugin sits at the `plugin-zero` floor: no tools, no host re
 
 ## The six-gate install
 
-`fetch -> static scan -> sha-pin -> signature verify -> capability preview -> consent`. The preview shows exactly what the plugin can do, where it connects, whether it runs local code, which secrets it needs, and the literal `docker run` command that would launch it. Nothing is written until you confirm. `--yes` is refused for anything that trips a scan flag, widens a grant, overwrites, or carries a secret, exec, or net capability.
+What install enforces today: `static scan -> capability preview -> consent -> write (with the manifest sha-pinned into the grant)`. The preview shows exactly what the plugin can do, where it connects, whether it runs local code (and whether that code is sandboxed), which secrets it needs, and the literal `docker run` command that would launch it. Nothing is written until you confirm. At `enable`, the pinned sha is re-checked, so a manifest edited after you consented is refused. `--yes` is refused for anything that trips a scan flag, widens a grant, overwrites, or carries a secret, exec, or net capability. The two gates not yet wired into install — fetching by registry sha-pin and verifying the publisher's ed25519 signature — are the next increment; their primitives ship and are tested (`npm test`), and the first install of a new publisher is a human-judgement moment, surfaced as such.
 
 ## The lifecycle
 
