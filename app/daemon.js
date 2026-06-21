@@ -31,6 +31,7 @@ const personas = require('./personas');
 const recall = require('./recall');
 const ridx = require('./recall-index');         // persistent BM25 inverted index — recall AT SCALE (FTS5-equivalent)
 const embed = require('./embed');               // optional local-first embeddings client (semantic recall)
+const memctx = require('./memctx');             // ACTIVE RECALL: per-turn relevant-memory preamble (pure assembler)
 const jobstore = require('./jobstore');
 const council = require('./council');
 const runner = require('./runner');
@@ -433,7 +434,8 @@ const brain = {
     sendThinking({ reset: true, model, turnId });
     const t0 = Date.now();
     const session = getSession(model);
-    const reply = await session.ask(text, { speak: true, turnId });
+    const mem = activeRecall(text);                                   // proactively surface relevant memory for THIS turn
+    const reply = await session.ask(mem.promptText, { speak: true, turnId });
     const ms = Date.now() - t0;
     const u = session.lastUsage || {};
     logEvent({ ev: 'turn', model, in: text.length, out: (reply || '').length, ms, tokIn: u.input_tokens || 0, tokOut: u.output_tokens || 0, tokCache: u.cache_read_input_tokens || 0 });
@@ -441,7 +443,7 @@ const brain = {
       transcript.push({ user: text, urfael: reply });
       recordSession({ t: new Date().toISOString(), channel: 'local', model, user: text, urfael: reply, ms });
       // only a normally-completed turn warrants a per-turn review — never aborts/timeouts/spawn failures
-      if (reply && reply !== '(timed out)' && reply !== '(restarted — try again)' && reply !== '(brain spawn failed — is claude installed?)') { reviewTurn(text, reply); modelUser(text, reply); }
+      if (reply && reply !== '(timed out)' && reply !== '(restarted — try again)' && reply !== '(brain spawn failed — is claude installed?)') { reviewTurn(text, reply); modelUser(text, reply); reinforceSurfaced(mem.surfaced); }
     }
     return { text: reply, model, ms, aborted: reply === '(stopped)',
       usage: { input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read_input_tokens: u.cache_read_input_tokens || 0 } };
@@ -699,6 +701,33 @@ function refreshRecallIndex() {
 function persistRecallIndex() {
   if (!recallIndex || !recallIndexDirty) return;
   try { const tmp = INDEX_FILE + '.tmp'; fs.writeFileSync(tmp, ridx.serialize(recallIndex)); fs.renameSync(tmp, INDEX_FILE); recallIndexDirty = false; } catch {}
+}
+
+// ---- ACTIVE RECALL: proactively surface relevant memory into the OWNER turn ---------------------------
+// Before the brain answers, retrieve the most relevant past turns (fast BM25 over the whole archive) + the
+// trusted lessons that bear on THIS message, and prepend a bounded, fenced "recalled memory" block. The brain
+// gets the right memory without having to decide to search — the per-turn recall Hermes/OpenClaw don't do.
+// OFF only if URFAEL_ACTIVE_RECALL=0. Fail-soft: ANY hiccup returns the original text, so a turn never breaks.
+const ACTIVE_RECALL_ON = process.env.URFAEL_ACTIVE_RECALL !== '0';
+function activeRecall(text) {
+  if (!ACTIVE_RECALL_ON) return { promptText: text, surfaced: [] };
+  try {
+    const q = String(text == null ? '' : text);
+    if (q.trim().length < 3) return { promptText: text, surfaced: [] };
+    const idx = refreshRecallIndex();
+    const turns = ridx.entriesFor(idx, ridx.query(idx, q, 8));           // whole-archive BM25, fast (no embed on the hot path)
+    const lessons = learn.trusted(learn.load(MEMORY_DIR));               // verified, strongest-first
+    const ctx = memctx.buildContext({ query: q, turns, lessons });
+    if (!ctx.block) return { promptText: text, surfaced: [] };
+    logEvent({ ev: 'active_recall', turns: ctx.surfacedTurns.length, lessons: ctx.surfacedLessons.length, chars: ctx.block.length });
+    return { promptText: memctx.prepend(ctx.block, q), surfaced: ctx.surfacedLessons };
+  } catch { return { promptText: text, surfaced: [] }; }
+}
+// Reinforce what active recall surfaced (the testing effect): bump each lesson's `surfaced` so consolidation can
+// retire one that keeps surfacing yet never helps. Only writes when something was surfaced. Never throws.
+function reinforceSurfaced(ids) {
+  if (!Array.isArray(ids) || !ids.length) return;
+  try { let items = learn.load(MEMORY_DIR); for (const id of ids) items = learn.surface(items, id, Date.now()); learn.save(MEMORY_DIR, items); } catch {}
 }
 
 // ---- semantic recall: optional vector sidecar (only when an embedder is configured) -------------------

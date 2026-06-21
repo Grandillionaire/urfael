@@ -120,6 +120,18 @@ function applyVerdict(items, itemId, verdict, now) {
   return list;
 }
 
+// Surface signal: active recall injected this item into a turn's context (it was shown to the brain, relevant to
+// the message). Bumps `surfaced` + lastUsed. This is the evidence consolidate() uses to retire a lesson that keeps
+// surfacing but never helps (surfaced>=3, helped=0, corrected>=1 -> useless). Unknown id -> unchanged. Never throws.
+function surface(items, itemId, now) {
+  const list = Array.isArray(items) ? items : [];
+  const item = list.find((it) => it && it.id === itemId);
+  if (!item) return list;
+  item.surfaced = (Number(item.surfaced) || 0) + 1;
+  item.lastUsed = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  return list;
+}
+
 // Positive usage signal: the item surfaced and the answer landed. Bumps helped + lastUsed, recomputes.
 function reinforce(items, itemId, now) {
   const list = Array.isArray(items) ? items : [];
@@ -198,5 +210,5 @@ function stats(items) {
 
 module.exports = {
   LEDGER_FILE, load, save, norm, id, upsert, initialConfidence, applyVerdict,
-  reinforce, markCorrected, recompute, consolidate, trusted, stats,
+  surface, reinforce, markCorrected, recompute, consolidate, trusted, stats,
 };
