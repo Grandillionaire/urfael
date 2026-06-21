@@ -434,7 +434,7 @@ const brain = {
     sendThinking({ reset: true, model, turnId });
     const t0 = Date.now();
     const session = getSession(model);
-    const mem = activeRecall(text);                                   // proactively surface relevant memory for THIS turn
+    const mem = await activeRecall(text);                             // proactively surface relevant memory for THIS turn
     const reply = await session.ask(mem.promptText, { speak: true, turnId });
     const ms = Date.now() - t0;
     const u = session.lastUsage || {};
@@ -704,22 +704,49 @@ function persistRecallIndex() {
 }
 
 // ---- ACTIVE RECALL: proactively surface relevant memory into the OWNER turn ---------------------------
-// Before the brain answers, retrieve the most relevant past turns (fast BM25 over the whole archive) + the
-// trusted lessons that bear on THIS message, and prepend a bounded, fenced "recalled memory" block. The brain
-// gets the right memory without having to decide to search — the per-turn recall Hermes/OpenClaw don't do.
-// OFF only if URFAEL_ACTIVE_RECALL=0. Fail-soft: ANY hiccup returns the original text, so a turn never breaks.
+// Before the brain answers, retrieve the most relevant past turns + the trusted lessons that bear on THIS message,
+// and prepend a bounded, fenced "recalled memory" block. The brain gets the right memory without having to decide
+// to search — the per-turn recall Hermes/OpenClaw don't do. Retrieval is HYBRID when a local embedder is configured:
+// a BM25 shortlist over the whole archive, re-ranked semantically (RRF) using CACHED entry vectors + a single,
+// time-boxed query embedding — so a paraphrase with no shared words surfaces too, without slowing the turn. With no
+// embedder it is pure BM25 (identical cost). Recent in-conversation lines are excluded so recall brings cross-session
+// memory, not an echo. OFF only if URFAEL_ACTIVE_RECALL=0. Fail-soft: ANY hiccup returns the original text.
 const ACTIVE_RECALL_ON = process.env.URFAEL_ACTIVE_RECALL !== '0';
-function activeRecall(text) {
+const RECALL_EMBED_TIMEOUT_MS = 500;            // a per-turn query embedding is time-boxed; on timeout we keep BM25 order
+let _vecCacheHot = null, _vecCacheAt = 0;
+function hotVecStore() {                         // cache the vector sidecar briefly so the hot path never re-reads it per turn
+  const now = Date.now();
+  if (_vecCacheHot && (now - _vecCacheAt) < 30000) return _vecCacheHot;
+  _vecCacheHot = loadVecStore(); _vecCacheAt = now; return _vecCacheHot;
+}
+function embedQueryTimed(q) {                    // ONE small query embedding, time-boxed; null on miss/timeout/disabled
+  if (!embed.enabled()) return Promise.resolve(null);
+  return Promise.race([
+    embed.embed([q]).then((v) => (v && v[0]) || null).catch(() => null),
+    new Promise((r) => setTimeout(() => r(null), RECALL_EMBED_TIMEOUT_MS)),
+  ]);
+}
+async function activeRecall(text) {
   if (!ACTIVE_RECALL_ON) return { promptText: text, surfaced: [] };
   try {
     const q = String(text == null ? '' : text);
     if (q.trim().length < 3) return { promptText: text, surfaced: [] };
     const idx = refreshRecallIndex();
-    const turns = ridx.entriesFor(idx, ridx.query(idx, q, 8));           // whole-archive BM25, fast (no embed on the hot path)
-    const lessons = learn.trusted(learn.load(MEMORY_DIR));               // verified, strongest-first
-    const ctx = memctx.buildContext({ query: q, turns, lessons });
+    let turns = ridx.entriesFor(idx, ridx.query(idx, q, embed.enabled() ? 16 : 8));   // wider shortlist when we can re-rank
+    if (embed.enabled() && turns.length) {
+      const qv = await embedQueryTimed(q);                              // semantic re-rank: query-only embed (cheap), cached entry vecs
+      if (qv) {
+        const store = hotVecStore();
+        const entryVecs = turns.map((e) => store.get(vecKey(e)) || null);
+        turns = recall.rankHybrid(turns, q, { k: 8, queryVec: qv, entryVecs });
+        for (const e of turns) { const v = store.get(vecKey(e)); if (v && recall.cosine(qv, v) >= 0.5) e.semantic = true; }   // a real vector match survives memctx's content gate even with no shared words
+      } else turns = turns.slice(0, 8);                                 // embed timed out/failed → keep BM25 order (fail-soft)
+    } else turns = turns.slice(0, 8);
+    const lessons = learn.trusted(learn.load(MEMORY_DIR));              // verified, strongest-first (confidence = salience)
+    const exclude = transcript.slice(-6).map((t) => t && t.user).filter(Boolean);     // don't echo the live conversation
+    const ctx = memctx.buildContext({ query: q, turns, lessons, exclude });
     if (!ctx.block) return { promptText: text, surfaced: [] };
-    logEvent({ ev: 'active_recall', turns: ctx.surfacedTurns.length, lessons: ctx.surfacedLessons.length, chars: ctx.block.length });
+    logEvent({ ev: 'active_recall', turns: ctx.surfacedTurns.length, lessons: ctx.surfacedLessons.length, chars: ctx.block.length, semantic: embed.enabled() });
     return { promptText: memctx.prepend(ctx.block, q), surfaced: ctx.surfacedLessons };
   } catch { return { promptText: text, surfaced: [] }; }
 }

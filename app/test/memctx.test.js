@@ -58,6 +58,37 @@ test('lessons rank by relevance then confidence and respect minLessonRel', () =>
   assert.ok(!r.surfacedLessons.includes('off-topic'));
 });
 
+// ── content gate: a conversational query can't drag in turns that only share stopwords ──
+test('the relevance gate keeps topical turns and drops stopword-only matches', () => {
+  const r = memctx.buildContext({
+    query: 'remind me where the railway token is',                    // content terms: railway, token
+    turns: [
+      { t: 't1', user: 'where is the railway token kept', urfael: 'in the config dir', score: 9 },   // shares railway/token
+      { t: 't2', user: 'what is the weather today', urfael: 'sunny', score: 4 },                      // only "is/the" → noise
+    ],
+    lessons: [],
+  });
+  assert.match(r.block, /railway token/);
+  assert.doesNotMatch(r.block, /weather|sunny/);
+  assert.equal(r.surfacedTurns.length, 1);
+});
+
+// ── a true vector match (semantic flag) bypasses the content gate even with zero shared words ──
+test('a turn flagged semantic surfaces despite sharing no content words', () => {
+  const r = memctx.buildContext({
+    query: 'deploy the voicebot',
+    turns: [{ t: 't', user: 'ship the talking robot to prod', urfael: 'pushed', score: 1, semantic: true }],
+    lessons: [],
+  });
+  assert.match(r.block, /talking robot/);
+});
+
+// ── exclude: a line already in the live conversation is not recalled back ──
+test('exclude suppresses an in-conversation echo', () => {
+  const turns = [{ t: 't', user: 'where is the railway token', urfael: 'in config', score: 9 }];
+  assert.equal(memctx.buildContext({ query: 'railway token', turns, lessons: [], exclude: ['where is the railway token'] }).block, '');
+});
+
 // ── prepend: block + message, or just the message ──
 test('prepend joins the block before the message, and is a no-op when empty', () => {
   assert.equal(memctx.prepend('', 'hello'), 'hello');
