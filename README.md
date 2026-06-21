@@ -27,7 +27,7 @@ It listens and speaks locally, sandboxes every autonomous action fail-closed, al
 
 > The other self-hosted assistants optimize for channel count and star count. Urfael optimizes for not getting owned, and for not lying to you about what it can do.
 
-<sub>📄 A shareable landing page lives at [`docs/index.html`](docs/index.html) (enable GitHub Pages → `/docs` to serve it). Launch materials: [`docs/launch/`](docs/launch).</sub>
+<sub>📖 **The full manual** is a navigable, searchable docs site at [`docs/manual/`](docs/manual/) (install, quickstart, every feature, all 11 channels, the security model, and an auto-generated [CLI reference](docs/manual/reference/cli.md)). Machine-readable index at [`docs/llms.txt`](docs/llms.txt). 📄 The shareable landing page lives at [`docs/index.html`](docs/index.html) (enable GitHub Pages → `/docs` to serve both). Launch materials: [`docs/launch/`](docs/launch).</sub>
 
 ---
 

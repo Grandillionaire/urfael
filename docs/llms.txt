@@ -1,0 +1,52 @@
+# Urfael
+
+> A personal, voice-capable AI you run on your own machine, on the flat-rate Claude subscription you already pay for. No inbound network port, no per-token meter. Security-first: the brain listens only on a 0600 unix socket, remote messages are allowlisted before the brain and sandboxed read-only, and the security-critical paths ship with adversarial regression tests.
+
+This is the documentation index. The human-readable manual is at https://urfael.vercel.app/manual/#/. Each link below is the raw markdown.
+
+## Getting started
+- [Introduction](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/README.md): A personal, voice-capable AI you run on your own machine, on the flat-rate Claude subscription you already pay for. No API key to start, no inbound network port
+- [Installation](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/start/install.md): Urfael is an always-on local brain that runs your installed claude CLI as a subprocess. There is no API key and nothing to connect: if claude works in your term
+- [Quickstart](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/start/quickstart.md): This page gets you from a fresh install to a real answer in about five minutes. It assumes you have already cloned the repo and run ./install.sh. If you have no
+- [Learning path](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/start/learning-path.md): A route from first run to power user. Each step is small. Do them in order, or skip ahead once a step feels routine. This page is a map, not a deep dive: every 
+
+## Using Urfael
+- [The CLI](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/using/cli.md): urfael is a thin client. It talks to the daemon over a unix socket and shares the same brain, memory, and warm sessions as the rest of the system. The whole com
+- [The surfaces](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/using/surfaces.md): One brain, several ways to reach it. Every surface is a thin client of the same local daemon, talking to it over the 0600 unix socket. So a conversation you sta
+- [Configuration](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/using/configuration.md): Urfael has two layers of configuration, and you rarely touch more than a few values.
+
+## Features
+- [Overview](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/overview.md): This is the map. Each entry is one honest sentence and a link to the page that goes deep. Everything below ships off by default unless noted, and you turn power
+- [Memory & active recall](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/memory.md): Urfael remembers across sessions. Every turn is archived, the whole archive is indexed for ranked search, and the most relevant past turns plus trusted lessons 
+- [Skills](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/skills.md): A skill is a procedure Urfael writes down and reuses. When it solves something with a non-obvious path, the brain saves the steps as a short markdown file under
+- [Connectors (MCP)](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/connectors.md): Channels are how people reach Urfael. Connectors are how Urfael reaches your tools: GitHub, Notion, Slack, Postgres, Stripe, your calendar, a vector store, more
+- [Plugins](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/plugins.md): A plugin is the most capable way to extend Urfael. It can ship tools the brain calls, read or write a scoped set of your vault files, and reach an allowlisted s
+- [Voice](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/voice.md): Urfael listens and speaks on your own machine. whisper.cpp turns your speech into text, macOS say (or a local Kokoro server) turns Urfael's reply into audio, an
+- [Personas](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/personas.md): A persona changes how Urfael talks, nothing else. It is a voice overlay: a stance that gets appended to the system prompt when a session spawns. The tools, the 
+- [Automation](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/automation.md): Urfael can act without you asking. Four mechanisms cover it: reminders that speak a fixed text, scheduled jobs that run the brain and report back, background jo
+- [Models & providers](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/models.md): The brain is your installed claude CLI. Urfael does not host weights and runs no inference of its own. Every model choice is really a choice of which backend th
+
+## Channels
+- [Overview](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/channels/overview.md): A channel is a way for a person to reach Urfael from somewhere other than the machine it runs on. Urfael knows eleven of them:
+- [Setup, channel by channel](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/channels/setup.md): This page is the practical wiring. Where the tokens go, how you put yourself (and teammates) on the allowlist, and how a one-off pairing code works. For the why
+
+## Security
+- [The security model](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/security/model.md): Self-hosted agents got owned in 2026 because they listened where attackers could reach them and ran untrusted content with real power. Urfael inverts both. This
+- [Fortress vs Full](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/security/modes.md): Urfael ships two modes and you pick one per your risk tolerance. The default is the locked-down one.
+- [Team mode](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/security/team.md): Team mode lets several people share one Urfael. Each person is a sandboxed principal forced through the same fail-closed kernel. Adding a teammate can only add 
+- [Threat model & benchmark](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/security/threat-model.md): Most "secure" claims in this space are adjectives. Urfael ships a command instead:
+
+## Guides
+- [Run on your own GPU](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/guides/local-gpu.md): By default Urfael runs on your Claude subscription. It can also run entirely on your own hardware: a local model for the brain, a local model for the embedder. 
+- [Drive it from your editor (ACP)](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/guides/acp.md): urfael acp lets an editor drive Urfael as its backend brain over the Agent Client Protocol, the JSON-RPC surface that Zed, JetBrains, Neovim, and the VS Code AC
+- [Autonomous coding](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/guides/coding.md): Urfael can take a coding goal and work toward it on its own: edit files, run a check, iterate, repeat until done. This is the /goal loop. It is opt-in, it is th
+
+## Developer
+- [Architecture](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/developer/architecture.md): Urfael is one local Node daemon that drives your installed claude CLI and speaks to every surface over a single UNIX socket. There is no TCP port on the brain. 
+- [Contributing](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/developer/contributing.md): Urfael is a personal AI assistant on Claude Code. Issues, ideas, and pull requests are welcome. This page summarises what to run before you open a PR and the co
+
+## Reference
+- [CLI commands](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/reference/cli.md): Every command Urfael ships, generated straight from the source of truth so it always matches the binary. Run urfael help for the same list in your terminal, or 
+- [Configuration reference](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/reference/config.md): Every knob Urfael reads is a URFAEL_* environment variable. There is no config file format to learn. Set a variable in your shell, in the service unit, or let u
+- [FAQ](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/reference/faq.md): The questions people actually ask before they install. Short answers, grounded in what the code does.
+- [Troubleshooting](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/reference/troubleshooting.md): Most problems have a one-command answer. Start with urfael doctor, fix what it flags, and only dig deeper if a symptom survives that.

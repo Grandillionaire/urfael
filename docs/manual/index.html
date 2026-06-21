@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Urfael Manual</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0" />
+  <meta name="description" content="The Urfael manual: install, quickstart, features, channels, security, and the full CLI reference for the security-first personal AI you run on your own machine." />
+  <link rel="icon" href="../media/urfael-logo.svg" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify@4/themes/vue.css" />
+  <style>
+    /* Urfael: gold on dark. Overrides docsify's vue theme to match the brand. */
+    :root {
+      --gold: #d8a657; --gold-soft: #e9c787; --bg: #0e0b07; --bg-soft: #161109; --ink: #e7ddca; --ink-dim: #a99a7c;
+      --theme-color: var(--gold);
+    }
+    body { background: var(--bg); color: var(--ink); }
+    .sidebar { background: var(--bg-soft); border-right: 1px solid #2a2114; }
+    .sidebar a, .app-name-link { color: var(--ink) !important; }
+    .sidebar-nav li.active > a, .sidebar a:hover { color: var(--gold) !important; }
+    .sidebar-nav > ul > li > a { font-weight: 600; }
+    .markdown-section a { color: var(--gold); }
+    .markdown-section h1, .markdown-section h2 { color: var(--gold-soft); }
+    .markdown-section h2 { border-bottom: 1px solid #2a2114; padding-bottom: .3em; }
+    .markdown-section tr { background: transparent; border-top: 1px solid #2a2114; }
+    .markdown-section th, .markdown-section td { border: 1px solid #2a2114; }
+    .markdown-section code { background: #1d1609; color: var(--gold-soft); }
+    .markdown-section pre, .markdown-section pre > code { background: #120d06 !important; }
+    .markdown-section blockquote { border-left: 4px solid var(--gold); color: var(--ink-dim); background: #14100a; }
+    .app-name-link img { height: 34px; }
+    .search input { background: #120d06; color: var(--ink); border: 1px solid #2a2114; }
+    .search .results-panel { background: var(--bg-soft); }
+    .cover.show { background: radial-gradient(circle at 30% 20%, #1c150b, #0e0b07) !important; }
+    .cover-main > p > a { border-color: var(--gold); color: var(--gold); }
+    .cover-main > p > a:last-child { background: var(--gold); color: #0e0b07; }
+  </style>
+</head>
+<body>
+  <div id="app">Loading the Urfael manual…</div>
+  <script>
+    window.$docsify = {
+      name: '<img src="../media/urfael-logo.svg" alt="Urfael" /> Urfael',
+      nameLink: '#/',
+      repo: 'https://github.com/Grandillionaire/urfael',
+      loadSidebar: true,
+      loadNavbar: true,
+      coverpage: true,
+      onlyCover: false,
+      subMaxLevel: 2,
+      auto2top: true,
+      relativePath: false,
+      maxLevel: 3,
+      notFoundPage: true,
+      search: {
+        depth: 6,
+        placeholder: 'Search the manual…',
+        noData: 'Nothing found. Try the CLI reference or the FAQ.',
+        pathNamespaces: ['/start', '/using', '/features', '/channels', '/security', '/guides', '/developer', '/reference'],
+      },
+      pagination: { crossChapter: true, crossChapterText: true },
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-copy-code@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-pagination@2/dist/docsify-pagination.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+</body>
+</html>
