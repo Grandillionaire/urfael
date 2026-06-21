@@ -26,6 +26,7 @@ This is the documentation index. The human-readable manual is at https://urfael.
 - [Automation](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/automation.md): Urfael can act without you asking. Four mechanisms cover it: reminders that speak a fixed text, scheduled jobs that run the brain and report back, background jo
 - [Models & providers](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/models.md): The brain is your installed claude CLI. Urfael does not host weights and runs no inference of its own. Every model choice is really a choice of which backend th
 - [Training data export](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/datasets.md): Urfael turns your own archived runs into clean training datasets, locally and owner-only. This is the same idea as exporting agent trajectories for fine-tuning 
+- [A2UI safe canvas](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/a2ui.md): A2UI lets the brain emit interactive UI, a card with a table and buttons, a progress bar, a form, instead of only text. The agent writes a fenced block:
 
 ## Channels
 - [Overview](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/channels/overview.md): A channel is a way for a person to reach Urfael from somewhere other than the machine it runs on. Urfael knows eleven of them:
@@ -38,6 +39,7 @@ This is the documentation index. The human-readable manual is at https://urfael.
 - [Threat model & benchmark](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/security/threat-model.md): Most "secure" claims in this space are adjectives. Urfael ships a command instead:
 
 ## Guides
+- [Run on Android (Termux)](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/guides/android-termux.md): Urfael's daemon and CLI are plain Node, so they run under Termux on Android. A portability layer (app/platform.js) detects the host and adapts the platform-spec
 - [Run on your own GPU](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/guides/local-gpu.md): By default Urfael runs on your Claude subscription. It can also run entirely on your own hardware: a local model for the brain, a local model for the embedder. 
 - [Drive it from your editor (ACP)](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/guides/acp.md): urfael acp lets an editor drive Urfael as its backend brain over the Agent Client Protocol, the JSON-RPC surface that Zed, JetBrains, Neovim, and the VS Code AC
 - [Autonomous coding](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/guides/coding.md): Urfael can take a coding goal and work toward it on its own: edit files, run a check, iterate, repeat until done. This is the /goal loop. It is opt-in, it is th

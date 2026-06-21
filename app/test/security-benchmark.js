@@ -202,6 +202,21 @@ async function main() {
     })(),
     'only an enrolled speaker is transcribed + reaches the brain; a stranger in the VC is acoustically present but powerless; the bot ignores its own audio; STT is local whisper');
 
+  // an A2UI canvas the agent emits (which a poisoned input could influence) is sanitized to an allowlisted schema, so
+  // a generative UI can NOT execute code the way a canvas that renders raw agent HTML can.
+  check('an agent A2UI canvas can NOT become an XSS / click-to-exec vector (allowlisted, sanitized schema)',
+    (() => {
+      const a2 = require(path.join(APP, 'a2ui.js'));
+      const f = (j) => '```a2ui\n' + j + '\n```';
+      const noScript = a2.parse(f('{"type":"script","text":"alert(1)"}')).blocks.length === 0 && a2.parse(f('{"type":"html","text":"<img onerror=alert(1)>"}')).blocks.length === 0;
+      const noBadHref = a2.parse(f('{"type":"link","text":"x","href":"javascript:alert(1)"}')).blocks.length === 0 && a2.parse(f('{"type":"link","text":"x","href":"https://ok.com/x"}')).blocks[0].href === 'https://ok.com/x';
+      const btn = a2.parse(f('{"type":"button","label":"Go","action":"do.x","onclick":"evil()","href":"javascript:1"}')).blocks[0];
+      const noHandler = Object.keys(btn).sort().join() === 'action,label,type' && !/[()'"\s]/.test(btn.action);
+      const bounded = a2.parse(f(JSON.stringify(Array.from({ length: 200 }, () => ({ type: 'text', text: 'x' }))))).blocks.length <= 40;
+      return noScript && noBadHref && noHandler && bounded;
+    })(),
+    'A2UI validates to an allowlisted, length-bounded schema: no script/html/iframe types, https-only hrefs, a button carries only a bare command id (no onclick/url), so the renderer never gets executable agent output');
+
   // ── 4. POISONED SKILL / SUPPLY CHAIN ──────────────────────────────────────
   attackClass('Poisoned skill / supply-chain malware',
     'OpenClaw ClawHub: ~20% of skills were malicious (Atomic macOS Stealer; SSH-key/token/cookie exfil; typosquatting).');

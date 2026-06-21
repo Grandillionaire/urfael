@@ -22,6 +22,7 @@
   - [Automation](features/automation.md)
   - [Models & providers](features/models.md)
   - [Training data export](features/datasets.md)
+  - [A2UI safe canvas](features/a2ui.md)
 
 - Channels
   - [Overview](channels/overview.md)
@@ -34,6 +35,7 @@
   - [Threat model & benchmark](security/threat-model.md)
 
 - Guides
+  - [Run on Android (Termux)](guides/android-termux.md)
   - [Run on your own GPU](guides/local-gpu.md)
   - [Drive it from your editor (ACP)](guides/acp.md)
   - [Autonomous coding](guides/coding.md)
