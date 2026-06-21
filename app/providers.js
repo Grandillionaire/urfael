@@ -26,6 +26,9 @@ const MANAGED_SET = new Set(MANAGED);
 
 function registryPath() { return process.env.URFAEL_PROVIDERS_INDEX || path.join(__dirname, '..', 'config', 'providers.json'); }
 function slugify(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48); }
+// routing tiers: an INDICATIVE 1..5 hint (cost 1=cheapest..5=premium · speed 1=slow..5=fastest · quality 1=weak..
+// 5=Claude-grade). 0 = unknown. Pure metadata that drives app/router.js; never an env var, so the drift guard is safe.
+function clampTier(v) { const n = parseInt(v, 10); return Number.isFinite(n) && n >= 1 && n <= 5 ? n : 0; }
 
 // parse + validate. Fail-soft: drops any malformed / plain-http-remote / flag-smuggling-authEnv row, never throws.
 function parse(text) {
@@ -47,7 +50,7 @@ function parse(text) {
     const models = [];
     for (const m of (Array.isArray(e.models) ? e.models : [])) {
       if (!m || typeof m !== 'object' || !m.id) continue;
-      models.push({ id: String(m.id).slice(0, 80), role: m.role === 'small' ? 'small' : 'big', ctx: Number(m.ctx) || 0, tools: m.tools !== false });
+      models.push({ id: String(m.id).slice(0, 80), role: m.role === 'small' ? 'small' : 'big', ctx: Number(m.ctx) || 0, tools: m.tools !== false, cost: clampTier(m.cost), speed: clampTier(m.speed), quality: clampTier(m.quality) });
     }
     out.push({
       id, label: String(e.label || id).slice(0, 60), kind, baseUrl, authKind, proxy, authEnv,
@@ -55,6 +58,7 @@ function parse(text) {
       authLabel: String(e.authLabel || (authEnv || 'API key')).slice(0, 80), localToken: String(e.localToken || '').slice(0, 40),
       proxyHint: String(e.proxyHint || '').slice(0, 200), note: String(e.note || '').replace(/\s+/g, ' ').slice(0, 200),
       models, verified: e.verified === true,
+      cost: clampTier(e.cost), speed: clampTier(e.speed), quality: clampTier(e.quality), flatRate: e.flatRate === true,
     });
   }
   return out;

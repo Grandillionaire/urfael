@@ -766,9 +766,29 @@ function printPluginPreview(ph, m) {
       return;
     }
 
+    // ── cost/speed/quality-aware ROUTING: recommend the best provider for a priority (Pareto-aware, explainable). ──
+    if (sub === 'route') {
+      const prov = require('./providers'); const router = require('./router');
+      const list = prov.load();
+      const priority = (flag(rest, '--for') || 'balanced').toLowerCase();
+      if (!router.PRIORITIES.includes(priority)) { console.error('✗ --for must be one of: ' + router.PRIORITIES.join(' | ')); process.exit(1); }
+      const res = router.route(list, { priority, role: flag(rest, '--role'), needsTools: rest.includes('--tools'), minCtx: Number(flag(rest, '--ctx')) || 0 });
+      console.log('');
+      if (!res.pick) { console.log(dim(res.why)); return; }
+      console.log(gold('Recommended for ' + priority) + dim('   (best of ' + res.considered + ' candidates)'));
+      console.log('  ' + gold('● ' + res.pick.label) + dim('  (' + res.pick.providerId + ')'));
+      console.log(dim('   ' + res.why));
+      console.log('');
+      console.log(dim('  The honest tradeoffs on the Pareto frontier (cost/speed/quality, 1-5):'));
+      for (const c of res.frontier.slice(0, 8)) console.log('    ' + dim('·') + ' ' + gold(c.providerId.padEnd(14)) + dim('cost ' + (c.cost || '?') + '  speed ' + (c.speed || '?') + '  quality ' + (c.quality || '?') + (c.local ? '  · local' : '') + (c.flatRate ? '  · flat-rate' : '')));
+      console.log('');
+      console.log(dim('  switch:  ') + gold('urfael model use ' + res.pick.providerId) + dim('   ·   tiers are indicative, not benchmarks'));
+      return;
+    }
+
     if (sub) {
       const spec = /^(auto|reset|unpin|automatic)$/.test(sub) ? { action: 'auto' } : (sub === 'opus' || sub === 'sonnet') ? { model: sub } : null;
-      if (!spec) { console.error('usage: urfael model [opus | sonnet | auto]'); process.exit(1); }
+      if (!spec) { console.error('usage: urfael model [opus | sonnet | auto | route --for cost|speed|quality|privacy]'); process.exit(1); }
       const r = await req('POST', '/model', spec);
       if (r && r.error) { console.error('✗ ' + r.error); process.exit(1); }
       console.log(gold('✓ ' + (r.text || 'done')));

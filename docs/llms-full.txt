@@ -993,14 +993,29 @@ The same switch works verbally in chat ("switch to opus", "go back to auto"). Op
 The Claude flat-rate subscription is the default provider (`id=claude`) and the thesis of the project: native cloud, no API key, $0 marginal cost. You can switch the backend to a non-Anthropic or local model through a translating proxy. Urfael does this by managing the routing environment variables that the `claude` CLI already reads (mainly `ANTHROPIC_BASE_URL` and an auth token), not by hosting anything.
 
 ```bash
-urfael model providers   # list the curated registry, marking the active one
-urfael model use <id>    # preview, then switch (writes provider.env 0600, restarts the daemon)
-urfael model test <id>   # probe a provider with a one-line prompt before relying on it
+urfael model providers              # list the curated registry, marking the active one
+urfael model use <id>               # preview, then switch (writes provider.env 0600, restarts the daemon)
+urfael model test <id>              # probe a provider with a one-line prompt before relying on it
+urfael model route --for cost       # recommend the best provider for a priority (see Routing below)
 ```
 
 `urfael model use` shows a preview first: the target endpoint, the model each tier maps to, the proxy hint, and any secret it needs. A `key`-auth provider prompts for the secret with no echo. Nothing is written until you confirm. The switch then writes `provider.env` (mode `0600`) and restarts the daemon so every spawn re-sources it. Live turns, chat, cron, and the heartbeat all move to the new backend, not just the foreground.
 
-The curated registry ships in [config/providers.json](https://github.com/Grandillionaire/urfael/blob/main/config/providers.json): Claude (native, Bedrock, Vertex), OpenRouter, DeepSeek, Ollama, LM Studio, vLLM, claude-code-router, and LiteLLM. Point `URFAEL_PROVIDERS_INDEX` at your own JSON (same schema) to replace it.
+The curated registry ships in [config/providers.json](https://github.com/Grandillionaire/urfael/blob/main/config/providers.json) with **30 named providers**: Claude (native, Bedrock, Vertex), OpenAI, Azure, Gemini, xAI Grok, GitHub Copilot, OpenRouter, DeepSeek, Mistral, Groq, Cerebras, Fireworks, Together, Perplexity, NVIDIA NIM, Novita, Hugging Face, Qwen, Kimi, GLM, MiniMax, the local servers (Ollama, LM Studio, vLLM, llama.cpp, Jan), and the proxies (claude-code-router, LiteLLM). OpenRouter alone reaches 300+ models on one key, so the total reach matches the broadest agents, while staying honest that reach is not hosting. Point `URFAEL_PROVIDERS_INDEX` at your own JSON (same schema) to replace it.
+
+## Routing: the right provider for the job
+
+`urfael model route` recommends a provider for a priority, then shows the honest tradeoffs.
+
+```bash
+urfael model route --for cost       # cheapest that still works
+urfael model route --for speed      # highest throughput
+urfael model route --for quality    # most capable
+urfael model route --for privacy    # best local model, nothing leaves the machine
+urfael model route --for balanced --ctx 100000 --tools
+```
+
+Each registry row carries indicative 1-5 tiers for cost, speed, and quality. The router is **Pareto-aware**: instead of sorting on one axis like a price list, it returns the whole non-dominated frontier (the genuine tradeoffs), then picks the best for your priority and explains why. It stays honest: it flags when a tier is unknown, notes that a local model is weaker, and reminds you that the flat-rate Claude subscription is `$0` marginal for a subscriber and may be cheaper in practice than any per-token provider. The tiers are indicative, not benchmarks. Routing **recommends**; it never switches on its own, because a switch needs your key and a restart. Run the `urfael model use <id>` it prints to actually move.
 
 ### Most non-Claude backends need a proxy
 
@@ -2379,13 +2394,14 @@ pin a tier (opus/sonnet/auto) or switch the model provider.
 ```bash
 urfael model [opus | sonnet | auto]
   | providers | use <id> [--big M --small M] | test <id>
+  | route --for cost|speed|quality|privacy|balanced [--ctx N] [--tools]
 ```
 
 Examples:
 
 ```bash
-urfael model
 urfael model providers
+urfael model route --for cost
 urfael model use ollama
 ```
 

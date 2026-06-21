@@ -600,13 +600,14 @@ pin a tier (opus/sonnet/auto) or switch the model provider.
 ```bash
 urfael model [opus | sonnet | auto]
   | providers | use <id> [--big M --small M] | test <id>
+  | route --for cost|speed|quality|privacy|balanced [--ctx N] [--tools]
 ```
 
 Examples:
 
 ```bash
-urfael model
 urfael model providers
+urfael model route --for cost
 urfael model use ollama
 ```
 
