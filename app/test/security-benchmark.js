@@ -186,6 +186,22 @@ async function main() {
     })(),
     '8 native channels on one loopback-only receiver; webhook-lib verifies (timing-safe) + extracts only {senderId,text}, the bridge runs the single fail-closed allowlist (resolvePrincipal → drop) before askDaemon, no daemon port opened');
 
+  // Discord voice channel: anyone can be in the call, but only an ENROLLED speaker's audio is transcribed + reaches
+  // the brain. A stranger is acoustically present and powerless; the bot ignores its own audio. STT is local whisper.
+  check('a Discord voice-channel speaker not on the roster can NOT command the agent (allowlist before the brain)',
+    (() => {
+      const v = require(path.join(APP, 'bridge', 'discord-voice-lib.js'));
+      const roster = { discord: [{ id: 'owner1', role: 'owner' }] };
+      const stranger = v.speakerGate(roster, 'rando', { botUserId: 'bot' }).allowed === false;
+      const selfIgnored = v.speakerGate(roster, 'bot', { botUserId: 'bot' }).reason === 'self';
+      const ownerOk = v.speakerGate(roster, 'owner1', {}).allowed === true;
+      const src = fs.readFileSync(path.join(APP, 'bridge', 'discord-voice-bridge.js'), 'utf8');
+      const gi = src.indexOf('vlib.speakerGate('), bi = src.indexOf('core.askDaemon(');   // CALL sites (the header comment names askDaemon too)
+      const gateFirst = gi > 0 && bi > 0 && gi < bi && /if \(!gate\.allowed\)/.test(src) && /transcribeLocal/.test(src);
+      return stranger && selfIgnored && ownerOk && gateFirst;
+    })(),
+    'only an enrolled speaker is transcribed + reaches the brain; a stranger in the VC is acoustically present but powerless; the bot ignores its own audio; STT is local whisper');
+
   // ── 4. POISONED SKILL / SUPPLY CHAIN ──────────────────────────────────────
   attackClass('Poisoned skill / supply-chain malware',
     'OpenClaw ClawHub: ~20% of skills were malicious (Atomic macOS Stealer; SSH-key/token/cookie exfil; typosquatting).');

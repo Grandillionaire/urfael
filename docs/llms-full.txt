@@ -796,6 +796,18 @@ It needs a Picovoice access key in `PICOVOICE_ACCESS_KEY`. With no key set, wake
 
 macOS is the primary, best-tested target: `say` ships with the OS. On Linux, TTS uses `espeak-ng` (preferred) or `espeak`, which sounds plainer than `say` and ignores macOS-style voice names; the Linux paths have far less mileage. The voice synthesis path is exercised end-to-end by the test harness (`npm run e2e`), but real-world Linux audio has seen fewer hours than macOS.
 
+## Discord voice channels
+
+Urfael can join a Discord voice channel and talk: the bot listens, transcribes with the same local whisper, answers, and speaks the reply into the channel. It reuses the local pipeline end to end, so nothing audio-related leaves the machine, unlike voice modes that ship your text to a cloud TTS to be synthesized.
+
+```bash
+node app/bridge/discord-voice-bridge.js
+```
+
+The security model is the point. Anyone can sit in a Discord voice channel, but only an enrolled speaker's audio is ever transcribed and sent to the brain. The speaker gate is the same fail-closed allowlist as every other channel: a stranger in the call is acoustically present and completely powerless, the bot ignores its own audio, and an optional `DISCORD_VOICE_OWNER_ONLY=1` restricts it to you. The owner can barge in to interrupt a reply. Set `DISCORD_TOKEN`, `DISCORD_VOICE_GUILD_ID`, and `DISCORD_VOICE_CHANNEL_ID` in `bridge.env`, then add yourself with `urfael team add discord <your-user-id>`.
+
+The pure orchestration (the speaker gate, the speech shaping, the listen/think/speak state machine) is unit-tested and the allowlist is frozen as a benchmark check. The heavy `@discordjs/voice` and opus stack is an optional dependency, so the core stays dependency-free: the bridge prints the exact `npm install discord.js @discordjs/voice prism-media @discordjs/opus libsodium-wrappers` line if they are missing. Honest status: code-complete and unit-tested; the live voice-channel round-trip (a real bot in a real channel, with the optional packages, ffmpeg, and a local TTS) is the remaining certification.
+
 ## Setup pointers
 
 - The default voice tier installs with `brew install ffmpeg whisper-cpp` on macOS (Linux: `ffmpeg` plus `espeak-ng`, and build whisper.cpp).
