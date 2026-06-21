@@ -185,7 +185,7 @@ One brain, four ways to reach it, all thin clients of the same daemon, so a conv
 
 - **Orb HUD** (`URFAEL_ORB=1`): an ambient, click-through seeing-stone in the corner of your screen with four looks (`sigil`, `rune`, `ember`, `eye`). Speak the wake word and talk hands-free.
 - **Terminal.** `urfael "summarize my inbox"` streams the answer live; `status`, `jobs`, `reminders`, `remind`, `sessions search`, `skills`, `stop`, `dashboard` manage the rest. `Ctrl+C` stops a turn.
-- **`urfael tui`.** A no-deps full-screen terminal cockpit: streamed transcript with live tool activity, a status bar, `Esc` to stop, and it always leaves your terminal clean.
+- **`urfael tui`.** A no-deps full-screen terminal cockpit: streamed transcript with live tool activity, a status bar, `Esc` to stop, and it always leaves your terminal clean. Type `/` for a command palette that filters as you go (switch model or persona, search past conversations, see today's usage), so you never have to remember a command, the way Claude Code does it.
 - **OpenAI-compatible API.** `urfael serve` exposes a token-gated `http://127.0.0.1:7720/v1` (chat completions + models). Point Open WebUI, LibreChat, or the `openai` SDK at it, and Urfael becomes their backend, locked to loopback.
 - **Web dashboard.** `urfael dashboard` opens a token-gated localhost page (bound to `127.0.0.1` only, constant-time token, no path serving). It's a responsive web app you can add to your home screen (a web manifest, not a full offline PWA; no service worker), so over a tunnel it works on your phone too: the browser surface the others have, locked down harder.
 
@@ -262,7 +262,7 @@ It runs on a flat-rate subscription, so there's nothing to meter, but you can st
 
 Honesty is a feature here, so this section exists. As of now:
 
-- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, all 8 bridges degrading cleanly, and the skill-hub SSRF refusal + scanner, plus 431 unit tests, several of them adversarial security regressions.
+- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, all 8 bridges degrading cleanly, and the skill-hub SSRF refusal + scanner, plus 440 unit tests, several of them adversarial security regressions.
 - **Not yet exercised against real accounts:** the live relay of the Matrix, Signal, and WhatsApp bridges (their pure parsing/allowlist logic *is* unit-tested). Treat them as code-complete and reviewed, not battle-hardened.
 - **Linux is newer than macOS.** The headless core, voice, and GUI run there, but it has far less mileage.
 - **Real-world scale is small.** This is a personal tool, honestly stated, not a 100k-deployment veteran. That's the one thing only time and users add.

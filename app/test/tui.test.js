@@ -165,3 +165,26 @@ test('buildTitle: the ᚢ urfael wordmark is always present; a persona is a CHIP
   assert.ok(chipped.includes('ᚢ urfael'), 'wordmark NOT replaced by the persona');
   assert.ok(chipped.includes('The Architect'), 'persona chip added after the wordmark');
 });
+
+// ── the /command palette overlays the BOTTOM of the transcript pane, never the worker/status/input chrome ──
+test('compose floats state.menu on the pane bottom (just above the prompt), bounded to the pane height', () => {
+  const geom = { cols: 80, rows: 24 };
+  const L = rend.layout(geom, CFG());
+  const lines = Array.from({ length: 40 }, (_, i) => 'transcript-' + i);   // a tall transcript to overlay onto
+  const menu = ['MENU_TOP', 'MENU_MID', 'MENU_BOT'];
+  const frame = rend.compose({ theme: TH, cfg: CFG(), vitals: {}, lines, worker: null, statusText: 'STATUS', promptMark: '> ', inputView: '/mo', scroll: 0, menu }, geom).map(strip);
+
+  // the last menu row sits immediately above the worker divider; the rows stack upward in order
+  assert.ok(frame[L.workerRow - 1].includes('MENU_BOT'), 'last menu row hugs the prompt');
+  assert.ok(frame[L.workerRow - 2].includes('MENU_MID'));
+  assert.ok(frame[L.workerRow - 3].includes('MENU_TOP'));
+  // chrome is untouched: the menu never bleeds into worker / status / input
+  assert.ok(!/MENU_/.test(frame[L.workerRow]), 'worker row clean');
+  assert.ok(frame[L.statusRow].includes('STATUS'), 'status row intact');
+  assert.ok(frame[L.inputRow].includes('/mo'), 'input row intact');
+
+  // an over-tall menu is clamped to the pane (never overruns the title/spacer or the chrome below)
+  const tall = Array.from({ length: 999 }, (_, i) => 'M' + i);
+  const f2 = rend.compose({ theme: TH, cfg: CFG(), vitals: {}, lines, worker: null, statusText: '', promptMark: '> ', inputView: '', scroll: 0, menu: tall }, geom).map(strip);
+  assert.ok(!/^M\d/.test(f2[L.titleRow]) && !/MENU|^M\d/.test(f2[L.inputRow]), 'a huge menu stays inside the pane');
+});

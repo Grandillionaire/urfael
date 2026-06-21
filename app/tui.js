@@ -15,6 +15,7 @@ const readline = require('readline');
 const theme = require('./tui-theme');
 const anim = require('./tui-anim');
 const rend = require('./tui-render');
+const slash = require('./slash');
 
 const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
 
@@ -40,6 +41,7 @@ function req(method, p, body) {
 const lines = [];          // { who: 'you'|'urfael'|'tool'|'sys', text }
 let scroll = 0;            // rows scrolled UP from the bottom (0 = pinned to newest)
 let input = '';            // current input buffer
+let slashSel = 0;          // highlighted row in the /command typeahead (reset to top on every buffer edit)
 let lastSent = '';         // for Up-arrow recall
 let inflight = false;      // a turn is streaming
 let vitals = { model: '', turnsToday: 0, warm: [] };
@@ -81,9 +83,134 @@ function render() {
   if (scroll > maxScroll) scroll = maxScroll; if (scroll < 0) scroll = 0;
   const mark = promptMark(), markW = rend.visLen(mark), room = Math.max(1, g.cols - markW - 1);
   const buf = input.length > room ? input.slice(input.length - room) : input;
-  const inputView = (!inflight && !input) ? T.dim + 'ask Liquid Intelligence anything…' + T.RST : buf;
-  const frame = rend.compose({ theme: T, cfg, vitals, lines: all, worker: workerLine(g, Date.now()), statusText: statusLine(), promptMark: mark, inputView, scroll }, g);
+  const inputView = (!inflight && !input) ? T.dim + 'ask Liquid Intelligence anything…  (/ for commands)' + T.RST : buf;
+  const sl = inflight ? { active: false } : slash.resolve(input, slashSel);
+  const menu = sl.active ? buildMenu(sl, T) : null;
+  const frame = rend.compose({ theme: T, cfg, vitals, lines: all, worker: workerLine(g, Date.now()), statusText: statusLine(), promptMark: mark, inputView, scroll, menu }, g);
   rend.flush(frame, caretFor(g), g, process.stdout);
+}
+
+// ---- the /command typeahead: a palette that floats above the prompt (derived from slash.COMMANDS) ----
+// buildMenu(sl, T) → the themed rows compose() overlays on the pane bottom. mode 'menu' = the ranked, highlighted
+// list; mode 'arg' = a single signature hint for the chosen command. Plain strings (the renderer clips them).
+function buildMenu(sl, T) {
+  if (sl.mode === 'arg') {
+    if (!sl.valid) return [T.dim + '  no command ' + ('/' + sl.name) + '  ·  Esc to cancel' + T.RST];
+    return [T.accent + '  ' + slash.sig(sl.cmd) + T.RST + T.dim + '    ' + sl.cmd.summary + T.RST];
+  }
+  const items = sl.items.slice(0, 8);
+  if (!items.length) return [T.dim + '  no match  ·  Esc to cancel' + T.RST];
+  const W = Math.max(...items.map((c) => slash.sig(c).length));
+  return items.map((c, i) => {
+    const on = i === sl.selected, s = slash.sig(c);
+    const head = on ? T.accent + '▌ ' : T.dim + '  ';
+    return head + s + ' '.repeat(Math.max(2, W + 3 - s.length)) + (on ? '' : T.dim) + c.summary + T.RST;
+  });
+}
+
+// completeSlash(c) → fill the buffer with command c (Tab / a partial accept), leaving the caret at the argument.
+function completeSlash(c) { input = slash.completion(c); slashSel = 0; render(); }
+
+// acceptSlash(sl) → Enter inside the palette. Completes a command that still needs an argument; otherwise RUNS it.
+// A /command is never sent to the brain, so typing `/clear` clears the screen instead of asking the model about it.
+function acceptSlash(sl) {
+  let cmd, arg;
+  if (sl.mode === 'arg') {
+    if (!sl.valid) { input = ''; slashSel = 0; add('sys', '╶ no such command — type / to see the list'); render(); return; }
+    cmd = sl.cmd; arg = sl.arg.trim();
+  } else {
+    cmd = sl.exact || sl.items[sl.selected] || null;
+    if (!cmd) { input = ''; slashSel = 0; add('sys', '╶ no such command — type / to see the list'); render(); return; }
+    if (!sl.exact && (cmd.arg || cmd.needsArg)) return completeSlash(cmd);   // accept the highlighted name, type the arg next
+    arg = '';
+  }
+  if (cmd.needsArg && !arg) return completeSlash(cmd);
+  input = ''; slashSel = 0;
+  runSlash(cmd.name, arg);
+}
+
+// runSlash(name, arg) → the single dispatch. Local commands reuse the exact key actions; the rest call the daemon
+// over the same 0600 socket as everything else. Each daemon call shows a placeholder line, then fills it in place.
+function runSlash(name, arg) {
+  const c = slash.byName(name); if (!c) return;
+  if (c.name === 'help') return showSlashHelp();
+  if (c.name === 'clear') { lines.length = 0; scroll = 0; rend.resetFrame(); render(); return; }
+  if (c.name === 'theme') { cfg = theme.withTheme(cfg, baseEnv, cfg.isTTY); rend.resetFrame(); render(); return; }
+  if (c.name === 'anim') { cfg = theme.withAnim(cfg); render(); return; }
+  if (c.name === 'stop') { if (inflight) abortTurn(); else { add('sys', '╶ nothing is running'); render(); } return; }
+  if (c.name === 'quit') return quit(0);
+  if (c.name === 'model') return runModel(arg);
+  if (c.name === 'persona') return runPersona(arg);
+  if (c.name === 'search') return runSearch(arg);
+  if (c.name === 'usage') return runUsage();
+}
+
+function pending(text) { add('sys', '╶ ' + text); const ix = lines.length - 1; render(); return ix; }
+function settle(ix, text) { if (lines[ix]) lines[ix].text = sanitize('╶ ' + text); render(); }
+
+function runModel(arg) {
+  const a = arg.toLowerCase();
+  const body = (a === '' || a === 'status') ? null : (a === 'auto') ? { action: 'auto' }
+    : (a === 'opus' || a === 'sonnet') ? { model: a } : 'bad';
+  if (body === 'bad') { add('sys', '╶ /model takes opus · sonnet · auto · status'); render(); return; }
+  const ix = pending('model…');
+  (body ? req('POST', '/model', body) : req('GET', '/model'))
+    .then((r) => settle(ix, 'model: ' + (r && (r.text || ('pinned ' + (r.pinned || 'auto') + ' · using ' + (r.model || '?'))))))
+    .catch(() => settle(ix, 'model: daemon unreachable'));
+}
+
+function runPersona(arg) {
+  const a = arg.toLowerCase().trim();
+  const body = (a === '' || a === 'status') ? null : (a === 'reset' || a === 'urfael') ? { action: 'reset' }
+    : (a === 'list') ? { action: 'list' } : { id: a };
+  const ix = pending('persona…');
+  (body ? req('POST', '/persona', body) : req('GET', '/persona'))
+    .then((r) => {
+      if (r && r.error) return settle(ix, 'persona: ' + r.error);
+      if (r && r.text) return settle(ix, r.text);
+      if (r && r.display) return settle(ix, 'persona: ' + (r.display.glyph ? r.display.glyph + ' ' : '') + (r.display.name || a));
+      settle(ix, 'persona updated');
+    })
+    .catch(() => settle(ix, 'persona: daemon unreachable'));
+}
+
+function runSearch(query) {
+  const q = String(query || '').trim();
+  if (!q) { add('sys', '╶ /search needs a query'); render(); return; }
+  const ix = pending('searching “' + q + '” …');
+  req('GET', '/recall?q=' + encodeURIComponent(q) + '&k=8')
+    .then((r) => {
+      const hits = Array.isArray(r) ? r : [];
+      if (!hits.length) { settle(ix, 'no matches for “' + q + '”'); return; }
+      settle(ix, hits.length + ' match' + (hits.length > 1 ? 'es' : '') + ' for “' + q + '”');
+      for (const h of hits.slice(0, 8)) {
+        const when = (h.t || '').slice(0, 10);
+        const snip = String(h.user || h.urfael || '').replace(/\s+/g, ' ').slice(0, 110);
+        add('sys', '  · ' + (when ? when + '  ' : '') + snip);
+      }
+      render();
+    })
+    .catch(() => settle(ix, 'search: daemon unreachable'));
+}
+
+function runUsage() {
+  const ix = pending('usage…');
+  req('GET', '/usage')
+    .then((u) => {
+      const d = (u && u.today) || {};
+      const parts = [(d.turns || 0) + ' turns', (d.tokIn || 0) + ' in / ' + (d.tokOut || 0) + ' out tokens'];
+      if (typeof d.costUsd === 'number') parts.push('~$' + d.costUsd.toFixed(3));
+      settle(ix, 'today: ' + parts.join(' · '));
+    })
+    .catch(() => settle(ix, 'usage: daemon unreachable'));
+}
+
+// showSlashHelp → list the whole palette in the transcript (plain text; the 'sys' style is applied by the renderer).
+function showSlashHelp() {
+  add('sys', 'slash commands — type / then a name · ↑↓ choose · Tab complete · Enter run · Esc cancel');
+  const W = Math.max(...slash.COMMANDS.map((c) => slash.sig(c).length));
+  for (const c of slash.COMMANDS) add('sys', '  ' + slash.sig(c) + ' '.repeat(W + 3 - slash.sig(c).length) + c.summary + (c.key ? '  (' + c.key + ')' : ''));
+  render();
 }
 
 // the cheap animation tick: repaint ONLY the worker row
@@ -178,9 +305,21 @@ function onKey(str, key) {
   if (key.ctrl && key.name === 't') { cfg = theme.withTheme(cfg, baseEnv, cfg.isTTY); rend.resetFrame(); render(); return; }   // cycle theme
   if (key.ctrl && key.name === 'y') { cfg = theme.withAnim(cfg); render(); return; }                                          // cycle animation
 
+  // ── /command typeahead: while the buffer is a /command (and nothing is streaming), the palette owns ↑↓ Tab Enter Esc ──
+  if (!inflight && input.startsWith('/')) {
+    const sl = slash.resolve(input, slashSel);
+    if (key.name === 'escape') { input = ''; slashSel = 0; render(); return; }
+    if (key.name === 'tab') { const c = sl.mode === 'menu' ? sl.items[sl.selected] : sl.cmd; if (c) completeSlash(c); return; }
+    if (key.name === 'return' || key.name === 'enter') { acceptSlash(sl); return; }
+    if (sl.mode === 'menu' && sl.items.length) {
+      if (key.name === 'up') { slashSel = slash.clampSel(slashSel - 1, sl.items.length); render(); return; }
+      if (key.name === 'down') { slashSel = slash.clampSel(slashSel + 1, sl.items.length); render(); return; }
+    }
+  }
+
   if (key.name === 'escape') { if (inflight) abortTurn(); return; }
   if (key.name === 'return' || key.name === 'enter') { const text = input.trim(); if (!text) return; input = ''; sendTurn(text); return; }
-  if (key.name === 'backspace') { input = input.slice(0, -1); render(); return; }
+  if (key.name === 'backspace') { input = input.slice(0, -1); slashSel = 0; render(); return; }
 
   if (key.name === 'up' && (key.shift || key.meta)) { scroll += 1; render(); return; }
   if (key.name === 'down' && (key.shift || key.meta)) { scroll = Math.max(0, scroll - 1); render(); return; }
@@ -193,7 +332,7 @@ function onKey(str, key) {
   if (key.name === 'down') { scroll = Math.max(0, scroll - 1); render(); return; }
 
   if (str === 'q' && input === '') { return quit(0); }
-  if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { input += str; render(); return; }
+  if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { input += str; slashSel = 0; render(); return; }
 }
 
 function run() {
@@ -218,7 +357,7 @@ function run() {
   process.stdin.on('keypress', (str, key) => { try { onKey(str, key); } catch {} });
   process.stdout.on('resize', () => { rend.resetFrame(); render(); });
 
-  add('sys', 'Urfael — Enter sends · Esc aborts · q quits · ^L clears · ^T theme · ^Y anim · Up recalls');
+  add('sys', 'Urfael — type / for commands · Enter sends · Esc aborts · q quits · ^L clears · ^T theme · ^Y anim · Up recalls');
   render();
   refreshVitals();
 }

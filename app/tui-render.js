@@ -73,6 +73,13 @@ function compose(state, geom) {
   const shown = all.slice(start, end);
   for (let i = 0; i < L.paneH; i++) out[L.paneTop + i] = clipPad(shown[i] || '', cols, RST);
 
+  // the slash-command typeahead floats on the BOTTOM rows of the pane (directly above the prompt), so it overlays
+  // the transcript without changing the frame height the differential writer expects. Clamped to the pane height.
+  if (Array.isArray(state.menu) && state.menu.length) {
+    const m = state.menu.slice(-L.paneH);
+    for (let i = 0; i < m.length; i++) out[L.paneTop + L.paneH - m.length + i] = clipPad(m[i], cols, RST);
+  }
+
   out[L.workerRow] = clipPad(state.worker != null ? state.worker : theme.dim + '─'.repeat(cols) + RST, cols, RST);
   out[L.statusRow] = clipPad(state.statusText || '', cols, RST);
   out[L.inputRow] = clipPad((state.promptMark || '') + (state.inputView || ''), cols, RST);
