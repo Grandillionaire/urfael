@@ -77,6 +77,7 @@ deliberate non-goal). Verdict: **Urfael matches or beats Hermes on every *real* 
 | | OpenClaw | Hermes | Urfael |
 |---|---|---|---|
 | Migration importer | — | ✓ `claw migrate` (imports OpenClaw) | ✦ `urfael import` imports from **both** OpenClaw and Hermes (memory + skills; foreign skills safety-scanned, DANGER skipped) |
+| Trajectory / training-data export | — | ✓ batch + trajectory export, RL with Atropos (raw runs) | ✦ `urfael dataset export` — three formats from one corpus: **sft** (OpenAI fine-tune messages), **atropos** (trajectory + reward + metadata), and **lessons** — a dataset of VERIFIED knowledge from the verify-before-trust ledger, each example carrying its correct/safe verdict + confidence (Hermes has no verification signal, so it can't emit a quality-gated set). Every record **provenance-stamped** (the manifest points at the tamper-evident Ledger of Record, `urfael audit --verify`), **secrets redacted** by default, filterable by date/channel/model/confidence. Pure + unit-tested + live end-to-end |
 | OpenAI-client interop | ✗ | ✓ (OpenAI-compatible server) | ✓ token-gated localhost OpenAI API, now with **real token usage** in responses (`prompt`/`completion`/`total_tokens`, cached reads counted as input) + an opt-in `stream_options.include_usage` final chunk — so LibreChat/cost-meter clients read true spend, not zeros |
 
 ## Skills & self-improvement

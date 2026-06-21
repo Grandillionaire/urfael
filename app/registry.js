@@ -76,6 +76,11 @@ const COMMANDS = [
     summary: 'remove matching beliefs + leave a provable git tombstone',
     usage: 'urfael forget ["<phrase>"]',
     examples: ['urfael forget "old office address"', 'urfael forget'], see: ['learn', 'why'] },
+  { name: 'dataset', group: 'MEMORY', aliases: ['trajectories'],
+    summary: 'export your runs + verified lessons as training data',
+    usage: 'urfael dataset stats\nurfael dataset export --format sft|atropos|lessons|all\n  [--since <date>] [--channel <name>] [--model opus|sonnet] [--out <dir>] [--no-redact]',
+    examples: ['urfael dataset stats', 'urfael dataset export --format sft --since "2026-05-01"', 'urfael dataset export --format all --out ~/urfael-dataset'],
+    see: ['learn', 'sessions', 'why'] },
 
   // ── SCHEDULE ─────────────────────────────────────────────────────────────────
   { name: 'remind', group: 'SCHEDULE', starter: true, bareLabel: 'urfael remind …', bareSummary: 'set a reminder, once or repeating',

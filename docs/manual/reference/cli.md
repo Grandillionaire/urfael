@@ -151,6 +151,28 @@ urfael forget
 
 See also: `learn` · `why`
 
+### `urfael dataset`
+
+export your runs + verified lessons as training data.
+
+```bash
+urfael dataset stats
+urfael dataset export --format sft|atropos|lessons|all
+  [--since <date>] [--channel <name>] [--model opus|sonnet] [--out <dir>] [--no-redact]
+```
+
+Aliases: `trajectories`
+
+Examples:
+
+```bash
+urfael dataset stats
+urfael dataset export --format sft --since "2026-05-01"
+urfael dataset export --format all --out ~/urfael-dataset
+```
+
+See also: `learn` · `sessions` · `why`
+
 ## Schedule
 
 _reminders, background jobs, and cron_

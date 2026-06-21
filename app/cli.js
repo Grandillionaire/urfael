@@ -202,6 +202,7 @@ function printPluginPreview(ph, m) {
   if (m.description) console.log(dim('   ' + m.description));
   console.log(dim('─'.repeat(60)));
   console.log(dim('   tier      ') + (p.requiresDocker ? gold(p.tier) : p.tier));
+  if (p.unconfined) console.log(dim('   ') + gold('⚠ not sandboxed') + dim('  — this plugin\'s MCP server is spawned as a normal local process with your privileges (no Docker cell). It has no GRANTED fs/net/secret, but the server code itself is unconfined. Install only code you trust.'));
   console.log(dim('   scope     ') + gold('owner turns only') + dim(' — never loaded on a sandboxed/remote/cron turn'));
   console.log(dim('   trust     ') + dim('signed ') + (p.signed ? gold('yes') : gold('NO')) + dim('   sha-pinned ') + (p.shaPinned ? gold('yes') : gold('NO')));
   if (!p.capabilities.length) console.log(dim('   caps      ') + dim('none — zero-capability, inert until granted'));
@@ -285,6 +286,63 @@ function printPluginPreview(ph, m) {
         else if (ln.startsWith('-') && !ln.startsWith('---')) { const c = ln.slice(1).trim(); if (c) console.log('  \x1b[31m- ' + c.slice(0, 100) + '\x1b[0m'); }   // removed / revised belief
       }
     }
+    return;
+  }
+
+  // dataset: export your own runs + VERIFIED lessons as training data. Pure CLI, read-only, no brain. Provenance is
+  // the tamper-evident Ledger of Record; credential-shaped strings are redacted by default. `stats` summarises.
+  if (cmd === 'dataset' || cmd === 'trajectories') {
+    const tj = require('./trajectory');
+    const learn = require('./learn');
+    const sub = rest[0] || 'stats';
+    const sdir = path.join(MEMORY_DIR, 'sessions');
+    const entries = [];
+    try {
+      for (const f of fs.readdirSync(sdir).filter((x) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(x)).sort()) {
+        for (const ln of fs.readFileSync(path.join(sdir, f), 'utf8').split('\n')) { if (!ln.trim()) continue; try { entries.push(JSON.parse(ln)); } catch {} }
+      }
+    } catch {}
+    const ledger = (() => { try { return learn.load(MEMORY_DIR); } catch { return []; } })();
+    const mc = flag(rest, '--min-confidence');
+    const opts = { since: flag(rest, '--since'), until: flag(rest, '--until'), channel: flag(rest, '--channel'), model: flag(rest, '--model'), minConfidence: mc != null ? Number(mc) : undefined, redact: !rest.includes('--no-redact') };
+
+    if (sub === 'stats') {
+      const sft = tj.buildSFT(entries, opts);
+      const trusted = ledger.filter((it) => it && it.status === 'trusted').length;
+      const filtered = (opts.since || opts.until || opts.channel || opts.model);
+      console.log(gold('Urfael dataset'));
+      console.log('  archived turns:   ' + entries.length + (filtered ? dim('  (' + sft.records.length + ' after filter)') : ''));
+      console.log('  verified lessons: ' + trusted);
+      console.log(dim('  formats:  ') + 'sft' + dim(' (fine-tune messages) · ') + 'atropos' + dim(' (trajectory+reward) · ') + 'lessons' + dim(' (verified knowledge, confidence-weighted)'));
+      console.log(dim('  export:   ') + gold('urfael dataset export --format all --out ~/urfael-dataset'));
+      return;
+    }
+
+    if (sub === 'export') {
+      const fmt = (flag(rest, '--format') || 'sft').toLowerCase();
+      const out = flag(rest, '--out') || path.join(process.cwd(), 'urfael-dataset');
+      try { fs.mkdirSync(out, { recursive: true }); } catch (e) { console.error('✗ cannot create ' + out + ': ' + (e && e.message)); process.exit(1); }
+      const parts = {}; const want = (k) => fmt === 'all' || fmt === k;
+      if (want('sft')) parts.sft = tj.buildSFT(entries, opts);
+      if (want('atropos')) parts.atropos = tj.buildAtropos(entries, opts);
+      if (want('lessons')) parts.lessons = tj.buildLessons(ledger, opts);
+      if (!Object.keys(parts).length) { console.error('✗ unknown --format ' + fmt + ' (use sft|atropos|lessons|all)'); process.exit(1); }
+      let totalRec = 0;
+      for (const [k, v] of Object.entries(parts)) {
+        const file = path.join(out, k + '.jsonl');
+        try { fs.writeFileSync(file, tj.toJSONL(v.records)); } catch (e) { console.error('✗ write failed: ' + (e && e.message)); process.exit(1); }
+        totalRec += v.records.length;
+        console.log(gold('✓ ') + k + dim(' → ') + file + dim('  (' + v.records.length + ' records, ' + v.redactions + ' redactions)'));
+      }
+      const man = tj.manifest(parts, opts);
+      fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(man, null, 2));
+      console.log(gold('✓ manifest → ') + path.join(out, 'manifest.json'));
+      console.log(dim('  ' + totalRec + ' records · ' + man.totalRedactions + ' secrets redacted · provenance: ') + gold('urfael audit --verify'));
+      if (!opts.redact) console.log(dim('  ⚠ --no-redact: secrets are NOT stripped from this export. Review before sharing.'));
+      return;
+    }
+
+    console.log('usage: urfael dataset [stats | export --format sft|atropos|lessons|all [--since <date>] [--channel <name>] [--model opus|sonnet] [--out <dir>] [--no-redact]]');
     return;
   }
 
@@ -433,7 +491,7 @@ function printPluginPreview(ph, m) {
           if (d) process.exit(1);
         }
       } else {
-        console.log(dim('   signature ') + (m.signature ? dim('present — verify against the publisher key at install') : gold('UNSIGNED — a hub install would refuse this')));
+        console.log(dim('   signature ') + (m.signature ? dim('present (the ed25519 verify primitive ships + is tested; publisher-key verification at install is the next increment)') : gold('UNSIGNED')) + dim('   integrity: the manifest is sha-pinned at install and re-checked at enable'));
       }
       return;
     }

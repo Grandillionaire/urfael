@@ -21,6 +21,7 @@
   - [Personas](features/personas.md)
   - [Automation](features/automation.md)
   - [Models & providers](features/models.md)
+  - [Training data export](features/datasets.md)
 
 - Channels
   - [Overview](channels/overview.md)

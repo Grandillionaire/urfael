@@ -25,6 +25,7 @@ This is the documentation index. The human-readable manual is at https://urfael.
 - [Personas](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/personas.md): A persona changes how Urfael talks, nothing else. It is a voice overlay: a stance that gets appended to the system prompt when a session spawns. The tools, the 
 - [Automation](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/automation.md): Urfael can act without you asking. Four mechanisms cover it: reminders that speak a fixed text, scheduled jobs that run the brain and report back, background jo
 - [Models & providers](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/models.md): The brain is your installed claude CLI. Urfael does not host weights and runs no inference of its own. Every model choice is really a choice of which backend th
+- [Training data export](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/datasets.md): Urfael turns your own archived runs into clean training datasets, locally and owner-only. This is the same idea as exporting agent trajectories for fine-tuning 
 
 ## Channels
 - [Overview](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/channels/overview.md): A channel is a way for a person to reach Urfael from somewhere other than the machine it runs on. Urfael knows eleven of them:
