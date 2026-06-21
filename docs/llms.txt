@@ -29,7 +29,7 @@ This is the documentation index. The human-readable manual is at https://urfael.
 - [A2UI safe canvas](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/a2ui.md): A2UI lets the brain emit interactive UI, a card with a table and buttons, a progress bar, a form, instead of only text. The agent writes a fenced block:
 
 ## Channels
-- [Overview](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/channels/overview.md): A channel is a way for a person to reach Urfael from somewhere other than the machine it runs on. Urfael knows eleven of them:
+- [Overview](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/channels/overview.md): A channel is a way for a person to reach Urfael from somewhere other than the machine it runs on. Urfael knows nineteen of them (eleven native bridges plus eigh
 - [Setup, channel by channel](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/channels/setup.md): This page is the practical wiring. Where the tokens go, how you put yourself (and teammates) on the allowlist, and how a one-off pairing code works. For the why
 
 ## Security

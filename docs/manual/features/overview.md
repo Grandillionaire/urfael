@@ -52,13 +52,13 @@ See [features/models.md](features/models.md).
 
 ## Channels
 
-Drive Urfael from 8 owner-allowlisted channels (Telegram, Discord, Slack, iMessage, Email as draft-only, Matrix, Signal, WhatsApp), by text or by voice memo transcribed locally. Every channel is gated to your id before the brain sees anything and is sandboxed read-only by default. The universal `relay` turns any platform with an in/out webhook into a two-way channel. The live relay of the Matrix, Signal, and WhatsApp bridges is not yet exercised against real accounts; treat them as code-complete and reviewed, not battle-hardened.
+Drive Urfael from 19 owner-allowlisted channels (the eight best-tested: Telegram, Discord, Slack, iMessage, Email as draft-only, Matrix, Signal, WhatsApp; the rest, including QQ, SimpleX, phone, and eight native webhook channels, are newer), by text or by voice memo transcribed locally. Every channel is gated to your id before the brain sees anything and is sandboxed read-only by default. The universal `relay` turns any platform with an in/out webhook into a two-way channel. The live relay of the Matrix, Signal, and WhatsApp bridges is not yet exercised against real accounts; treat them as code-complete and reviewed, not battle-hardened.
 
 See [channels/overview.md](channels/overview.md).
 
 ## The security model
 
-The brain is a local daemon reachable only through a `0600` unix socket and never opens a TCP port; the topology is one-way, so nothing reaches in. Default **Fortress** mode keeps remote turns read-only with no egress, and you opt into **Full** mode deliberately. Security-critical paths ship with adversarial regression tests, and `npm run security` attacks the running daemon: the latest run resisted 10 of 10 attack classes across 91 checks. Real-world scale is still small, and the docs say so on purpose.
+The brain is a local daemon reachable only through a `0600` unix socket and never opens a TCP port; the topology is one-way, so nothing reaches in. Default **Fortress** mode keeps remote turns read-only with no egress, and you opt into **Full** mode deliberately. Security-critical paths ship with adversarial regression tests, and `npm run security` attacks the running daemon: the latest run resisted 10 of 10 attack classes across 95 checks. Real-world scale is still small, and the docs say so on purpose.
 
 See [security/model.md](security/model.md). The full Threat Model and benchmark are summarised in [security/threat-model.md](security/threat-model.md), with the source documents at [docs/THREAT-MODEL.md](https://github.com/Grandillionaire/urfael/blob/main/docs/THREAT-MODEL.md) and [docs/SECURITY-BENCHMARK.md](https://github.com/Grandillionaire/urfael/blob/main/docs/SECURITY-BENCHMARK.md).
 

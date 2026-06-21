@@ -19,9 +19,9 @@ It listens and speaks locally, sandboxes every autonomous action fail-closed, al
 
 <br/>
 
-<img src="docs/media/demo.gif" width="820" alt="Urfael resisting the attack classes that compromised other agents: npm run security boots the real daemon and prints 10/10 attack classes, 92/92 checks passed" />
+<img src="docs/media/demo.gif" width="820" alt="Urfael resisting the attack classes that compromised other agents: npm run security boots the real daemon and prints 10/10 attack classes, 95/95 checks passed" />
 
-<sub><code>npm run security</code> boots the real daemon and runs the actual attack classes that owned other agents in the wild. It lands on 10/10 classes, 92/92 checks. The proof is a command you run, not a claim you read.</sub>
+<sub><code>npm run security</code> boots the real daemon and runs the actual attack classes that owned other agents in the wild. It lands on 10/10 classes, 95/95 checks. The proof is a command you run, not a claim you read.</sub>
 
 <br/><br/>
 
@@ -33,7 +33,7 @@ It listens and speaks locally, sandboxes every autonomous action fail-closed, al
 
 > The other self-hosted assistants optimize for channel count and star count. Urfael optimizes for not getting owned, and for not lying to you about what it can do.
 
-<sub>📖 **The full manual** is a navigable, searchable docs site at [`docs/manual/`](docs/manual/) (install, quickstart, every feature, all 11 channels, the security model, and an auto-generated [CLI reference](docs/manual/reference/cli.md)). Machine-readable index at [`docs/llms.txt`](docs/llms.txt). 📄 The shareable landing page lives at [`docs/index.html`](docs/index.html) (enable GitHub Pages → `/docs` to serve both).</sub>
+<sub>📖 **The full manual** is a navigable, searchable docs site at [`docs/manual/`](docs/manual/) (install, quickstart, every feature, all 19 channels, the security model, and an auto-generated [CLI reference](docs/manual/reference/cli.md)). Machine-readable index at [`docs/llms.txt`](docs/llms.txt). 📄 The shareable landing page lives at [`docs/index.html`](docs/index.html) (enable GitHub Pages → `/docs` to serve both).</sub>
 
 ---
 
@@ -70,7 +70,7 @@ Every win below is real, and every gap is admitted in the same grid. The honesty
 | Desktop app · TUI · web dashboard | ✅ all three | ⚠️ TUI + desktop | ✅ apps + canvas |
 | Multi-user, audit-ready | ✅ sandboxed principals + `urfael audit` | ⚠️ DM-pairing | ⚠️ pairing |
 | Skill hub that can't ship malware | ✅ scanned + sha-pinned + never run | ⚠️ external standard | ❌ ~20% malware (in the wild) |
-| Chat channel breadth | ⚠️ 8, curated | ✅ many | ✅ 20+ |
+| Chat channel breadth | ✅ 19 | ✅ many | ✅ 20+ |
 | Model flexibility | ✅ any model via proxy, safety harness-enforced | ✅ 200+ native | ✅ many providers |
 | Battle-tested at scale | ⚠️ small, and we say so | ✅ large | ✅ very large |
 | OS coverage | ⚠️ macOS solid, Linux newer | ✅ broad | ✅ broad |
@@ -107,7 +107,7 @@ The brain is a local daemon reachable only through a `0600` unix socket, and **i
 - **Fail-closed everything.** An unknown channel resolves to the most-restricted profile, not the least. A malformed request is rejected, not guessed.
 - **Sandboxed autonomy.** The `/goal` loop runs on the host, in a throwaway `--network none` Docker container (only the `claude` auth files are staged in, never your `bridge.env`/API keys), or on a remote box over SSH.
 
-**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (OpenClaw's ClawJacked token-leak RCE, 40k exposed gateways, the poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **10/10 attack classes resisted, 91/91 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md); multi-user is in [Team mode](docs/TEAM-MODE.md).
+**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (OpenClaw's ClawJacked token-leak RCE, 40k exposed gateways, the poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **10/10 attack classes resisted, 95/95 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md); multi-user is in [Team mode](docs/TEAM-MODE.md).
 
 > [!WARNING]
 > Full capability (`URFAEL_YOLO=1`) gives the agent an unrestricted shell that also reads untrusted email and web. Run that mode **only** in a VM, container, or throwaway account.
@@ -199,9 +199,9 @@ One brain, four ways to reach it, all thin clients of the same daemon, so a conv
 
 ## Channels
 
-Drive Urfael from **8 owner-allowlisted channels**, by text or **voice memos** (transcribed locally, never by a cloud STT). Every one is sandboxed read-only by default and gated to your id before the brain sees anything.
+Drive Urfael from **19 owner-allowlisted channels**, by text or **voice memos** (transcribed locally, never by a cloud STT). Every one is sandboxed read-only by default and gated to your id before the brain sees anything.
 
-Need a channel that isn't in the eight? Don't wait for a bespoke adapter; use the **universal `relay`** (`urfael hook add --action relay --reply-url <webhook>`). One verified, sandboxed code path turns *any* platform with an in/out webhook into a two-way channel: Microsoft Teams, Mattermost, Google Chat, or **Zapier / n8n / Make**, which themselves reach hundreds of apps. The reply destination is fixed by you at setup (never read from the incoming message, and SSRF-filtered), the brain stays no-egress, and the daemon does the outbound post. That's how Urfael beats a pile of 21 hand-maintained adapters: breadth is *architecture*, not code to babysit. (Matrix doubles as a federation hub too: in a Matrix room, its bridge ecosystem reaches Telegram/Discord/WhatsApp/IRC/SMS.)
+Need a channel beyond the nineteen? Don't wait for a bespoke adapter; use the **universal `relay`** (`urfael hook add --action relay --reply-url <webhook>`). One verified, sandboxed code path turns *any* platform with an in/out webhook into a two-way channel: Microsoft Teams or **Zapier / n8n / Make**, which themselves reach hundreds of apps. The reply destination is fixed by you at setup (never read from the incoming message, and SSRF-filtered), the brain stays no-egress, and the daemon does the outbound post. That's how Urfael beats a pile of 21 hand-maintained adapters: breadth is *architecture*, not code to babysit. (Matrix doubles as a federation hub too: in a Matrix room, its bridge ecosystem reaches Telegram/Discord/WhatsApp/IRC/SMS.)
 
 <details>
 <summary>Telegram · Discord · Slack · iMessage · Email (draft-only) · Matrix · Signal · WhatsApp · setup notes</summary>
@@ -268,7 +268,7 @@ It runs on a flat-rate subscription, so there's nothing to meter, but you can st
 
 Honesty is a feature here, so this section exists. As of now:
 
-- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, all 8 bridges degrading cleanly, and the skill-hub SSRF refusal + scanner, plus 459 unit tests, several of them adversarial security regressions.
+- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, the 8 core chat bridges degrading cleanly, and the skill-hub SSRF refusal + scanner, plus 497 unit tests, several of them adversarial security regressions.
 - **Not yet exercised against real accounts:** the live relay of the Matrix, Signal, and WhatsApp bridges (their pure parsing/allowlist logic *is* unit-tested). Treat them as code-complete and reviewed, not battle-hardened.
 - **Linux is newer than macOS.** The headless core, voice, and GUI run there, but it has far less mileage.
 - **Real-world scale is small.** This is a personal tool, honestly stated, not a 100k-deployment veteran. That's the one thing only time and users add.

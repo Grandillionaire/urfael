@@ -1,10 +1,10 @@
 # Channels
 
-A channel is a way for a person to reach Urfael from somewhere other than the machine it runs on. Urfael knows eleven of them:
+A channel is a way for a person to reach Urfael from somewhere other than the machine it runs on. Urfael knows nineteen of them (eleven native bridges plus eight native webhook channels):
 
 `telegram`, `discord`, `slack`, `imessage`, `email`, `matrix`, `signal`, `whatsapp`, `qq`, `simplex`, `phone`.
 
-(The README counts eight as the curated, documented set. The roster code in `app/lib.js` validates all eleven, so all eleven are real channel names you can put a principal on. The newer ones have had less real-world mileage; see [What is lightly tested](#what-is-lightly-tested) below.)
+(The roster code in `app/lib.js` validates all nineteen, so all nineteen are real channel names you can put a principal on; the eight webhook channels are in [setup](channels/setup.md). The newer ones have had less real-world mileage; see [What is lightly tested](#what-is-lightly-tested) below.)
 
 ## The one rule
 
