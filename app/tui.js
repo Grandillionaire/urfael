@@ -42,6 +42,7 @@ const lines = [];          // { who: 'you'|'urfael'|'tool'|'sys', text }
 let scroll = 0;            // rows scrolled UP from the bottom (0 = pinned to newest)
 let input = '';            // current input buffer
 let slashSel = 0;          // highlighted row in the /command typeahead (reset to top on every buffer edit)
+let picker = null;         // an open VALUE picker (persona/model/theme/anim) — owns all input while set; see openers below
 let lastSent = '';         // for Up-arrow recall
 let inflight = false;      // a turn is streaming
 let vitals = { model: '', turnsToday: 0, warm: [] };
@@ -84,8 +85,11 @@ function render() {
   const mark = promptMark(), markW = rend.visLen(mark), room = Math.max(1, g.cols - markW - 1);
   const buf = input.length > room ? input.slice(input.length - room) : input;
   const inputView = (!inflight && !input) ? T.dim + 'ask Liquid Intelligence anything…  (/ for commands)' + T.RST : buf;
-  const sl = inflight ? { active: false } : slash.resolve(input, slashSel);
-  const menu = sl.active ? buildMenu(sl, T) : null;
+  let menu = null;
+  if (!inflight) {
+    if (picker) menu = buildPicker(picker, T);
+    else { const sl = slash.resolve(input, slashSel); if (sl.active) menu = buildMenu(sl, T); }
+  }
   const frame = rend.compose({ theme: T, cfg, vitals, lines: all, worker: workerLine(g, Date.now()), statusText: statusLine(), promptMark: mark, inputView, scroll, menu }, g);
   rend.flush(frame, caretFor(g), g, process.stdout);
 }
@@ -108,6 +112,50 @@ function buildMenu(sl, T) {
   });
 }
 
+// ---- the value picker: a bespoke, navigable card list for a value-set command (persona/model/theme/anim) ----
+// buildPicker(p, T) → a titled, highlighted card list: a header (title + how-to), then one card per value with an
+// optional glyph, the label, a "(current)" marker, and a dim description, aligned. Honours the type-to-filter query.
+// All cards share one label column width so the descriptions line up into a readable second column.
+function buildPicker(p, T) {
+  const view = slash.pickerView(p.all, p.query, p.sel);
+  p.sel = view.sel;                                                  // keep state in step with the clamped selection
+  const head = T.gold + '  ' + p.title + T.RST + '   ' + T.dim + p.hint + T.RST + (p.query ? T.RST + '   ' + T.accent + p.query + '▏' + T.RST : '');
+  if (!view.items.length) return [head, T.dim + '  no match  ·  Esc to cancel' + T.RST];
+  const labelOf = (it) => (it.glyph ? it.glyph + '  ' : '') + (it.label || it.value);
+  const W = Math.max(...view.items.map((it) => visw(labelOf(it))));
+  const rows = view.items.map((it, i) => {
+    const on = i === view.sel, label = labelOf(it);
+    const cur = it.current ? ' (current)' : '';
+    const left = (on ? T.accent + '▌ ' : '  ') + (on ? T.accent : T.gold) + label + T.RST + T.dim + cur + T.RST;
+    const pad = ' '.repeat(Math.max(2, W + 4 - visw(label) - cur.length));
+    return left + (it.desc ? pad + T.dim + it.desc + T.RST : '');
+  });
+  return [head, ...rows];
+}
+// visible width of a short label (ASCII names + at most one leading rune glyph counted as width 1)
+function visw(s) { return rend.visLen(String(s)); }
+
+// closePicker → drop the picker and let the prompt take input again. The caller renders (or relies on the next one).
+function closePicker() { picker = null; }
+
+// pickerKey(str, key) → a picker OWNS every key while open: ↑↓ move (live-previewing if the picker asks), Enter/Tab
+// pick, Esc/^C cancel, Backspace/printables drive the type-to-filter. Returns nothing; onKey returns right after.
+function pickerKey(str, key) {
+  const view = slash.pickerView(picker.all, picker.query, picker.sel);
+  if (key.name === 'escape' || (key.ctrl && key.name === 'c')) { const c = picker.onCancel; closePicker(); if (c) c(); render(); return; }
+  if (key.name === 'up') { picker.sel = slash.clampSel(picker.sel - 1, view.items.length); moveSel(); return; }
+  if (key.name === 'down') { picker.sel = slash.clampSel(picker.sel + 1, view.items.length); moveSel(); return; }
+  if (key.name === 'return' || key.name === 'enter' || key.name === 'tab') { const it = view.items[view.sel]; const pick = picker.onPick; if (it && pick) { pick(it); } else { render(); } return; }
+  if (key.name === 'backspace') { picker.query = picker.query.slice(0, -1); picker.sel = 0; render(); return; }
+  if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { picker.query += str; picker.sel = 0; render(); return; }
+  render();
+}
+// moveSel → after a selection change, live-preview if the picker opted in (theme/anim), then repaint.
+function moveSel() {
+  if (picker.live && picker.onMove) { const v = slash.pickerView(picker.all, picker.query, picker.sel); const it = v.items[v.sel]; if (it) picker.onMove(it); }
+  render();
+}
+
 // completeSlash(c) → fill the buffer with command c (Tab / a partial accept), leaving the caret at the argument.
 function completeSlash(c) { input = slash.completion(c); slashSel = 0; render(); }
 
@@ -121,7 +169,9 @@ function acceptSlash(sl) {
   } else {
     cmd = sl.exact || sl.items[sl.selected] || null;
     if (!cmd) { input = ''; slashSel = 0; add('sys', '╶ no such command — type / to see the list'); render(); return; }
-    if (!sl.exact && (cmd.arg || cmd.needsArg)) return completeSlash(cmd);   // accept the highlighted name, type the arg next
+    // a free-text-arg command (search) completes to text so you can type; a PICKER command falls through to run with
+    // no arg, which opens its visual picker; a no-arg command runs straight away.
+    if (!cmd.picker && !sl.exact && (cmd.arg || cmd.needsArg)) return completeSlash(cmd);
     arg = '';
   }
   if (cmd.needsArg && !arg) return completeSlash(cmd);
@@ -135,8 +185,8 @@ function runSlash(name, arg) {
   const c = slash.byName(name); if (!c) return;
   if (c.name === 'help') return showSlashHelp();
   if (c.name === 'clear') { lines.length = 0; scroll = 0; rend.resetFrame(); render(); return; }
-  if (c.name === 'theme') { cfg = theme.withTheme(cfg, baseEnv, cfg.isTTY); rend.resetFrame(); render(); return; }
-  if (c.name === 'anim') { cfg = theme.withAnim(cfg); render(); return; }
+  if (c.name === 'theme') return openThemePicker();
+  if (c.name === 'anim') return openAnimPicker();
   if (c.name === 'stop') { if (inflight) abortTurn(); else { add('sys', '╶ nothing is running'); render(); } return; }
   if (c.name === 'quit') return quit(0);
   if (c.name === 'model') return runModel(arg);
@@ -149,20 +199,21 @@ function pending(text) { add('sys', '╶ ' + text); const ix = lines.length - 1;
 function settle(ix, text) { if (lines[ix]) lines[ix].text = sanitize('╶ ' + text); render(); }
 
 function runModel(arg) {
-  const a = arg.toLowerCase();
-  const body = (a === '' || a === 'status') ? null : (a === 'auto') ? { action: 'auto' }
-    : (a === 'opus' || a === 'sonnet') ? { model: a } : 'bad';
+  const a = arg.toLowerCase().trim();
+  if (a === '') return openModelPicker();                            // no value typed → the visual picker
+  if (a === 'status') { const ix = pending('model…'); req('GET', '/model').then((r) => settle(ix, 'model: pinned ' + ((r && r.pinned) || 'auto') + ' · using ' + ((r && r.model) || '?'))).catch(() => settle(ix, 'model: daemon unreachable')); return; }
+  const body = (a === 'auto') ? { action: 'auto' } : (a === 'opus' || a === 'sonnet') ? { model: a } : 'bad';
   if (body === 'bad') { add('sys', '╶ /model takes opus · sonnet · auto · status'); render(); return; }
   const ix = pending('model…');
-  (body ? req('POST', '/model', body) : req('GET', '/model'))
+  req('POST', '/model', body)
     .then((r) => settle(ix, 'model: ' + (r && (r.text || ('pinned ' + (r.pinned || 'auto') + ' · using ' + (r.model || '?'))))))
     .catch(() => settle(ix, 'model: daemon unreachable'));
 }
 
 function runPersona(arg) {
   const a = arg.toLowerCase().trim();
-  const body = (a === '' || a === 'status') ? null : (a === 'reset' || a === 'urfael') ? { action: 'reset' }
-    : (a === 'list') ? { action: 'list' } : { id: a };
+  if (a === '' || a === 'list') return openPersonaPicker();          // no value typed → the visual picker
+  const body = (a === 'status') ? null : (a === 'reset' || a === 'urfael') ? { action: 'reset' } : { id: a };
   const ix = pending('persona…');
   (body ? req('POST', '/persona', body) : req('GET', '/persona'))
     .then((r) => {
@@ -172,6 +223,69 @@ function runPersona(arg) {
       settle(ix, 'persona updated');
     })
     .catch(() => settle(ix, 'persona: daemon unreachable'));
+}
+
+// ---- the pickers: each fetches its live values, then opens a navigable card list (see buildPicker/pickerKey) ----
+// openPersonaPicker → the headline: glyph + name + essence per voice, the active one marked, Enter switches.
+function openPersonaPicker() {
+  req('GET', '/persona').then((r) => {
+    const roster = (r && Array.isArray(r.roster)) ? r.roster : [];
+    if (!roster.length) { add('sys', '╶ persona: daemon unreachable'); render(); return; }
+    const cur = r && r.persona;
+    const all = roster.map((p) => ({ value: p.id, label: p.name, glyph: p.glyph, desc: p.essence || '', current: p.id === cur }));
+    picker = {
+      title: 'Switch persona', hint: '↑↓ choose · Enter apply · Esc cancel · type to filter', all, query: '',
+      sel: Math.max(0, all.findIndex((it) => it.current)), live: false,
+      onPick: (it) => { closePicker(); runPersona(it.value); },
+      onCancel: null,
+    };
+    render();
+  }).catch(() => { add('sys', '╶ persona: daemon unreachable'); render(); });
+}
+
+// openModelPicker → the three tiers with an honest one-line blurb, the pinned one marked.
+function openModelPicker() {
+  req('GET', '/model').then((r) => {
+    const cur = (r && r.pinned) ? r.pinned : 'auto';
+    const all = [
+      { value: 'opus', label: 'Opus', desc: 'most capable; deepest reasoning + hardest coding' },
+      { value: 'sonnet', label: 'Sonnet', desc: 'faster and cheaper; ample for most turns' },
+      { value: 'auto', label: 'Auto', desc: 'route each turn to the tier that fits' },
+    ].map((m) => ({ ...m, current: m.value === cur }));
+    picker = {
+      title: 'Switch model', hint: '↑↓ choose · Enter apply · Esc cancel', all, query: '',
+      sel: Math.max(0, all.findIndex((it) => it.current)), live: false,
+      onPick: (it) => { closePicker(); runModel(it.value); }, onCancel: null,
+    };
+    render();
+  }).catch(() => { add('sys', '╶ model: daemon unreachable'); render(); });
+}
+
+// openThemePicker → live preview: moving the selection repaints the whole cockpit in that theme; Esc reverts.
+function openThemePicker() {
+  const blurb = { gold: 'warm gold on dark (default)', ember: 'orange ember', mono: 'monochrome, no colour', custom: 'your URFAEL_TUI_ACCENT' };
+  const original = cfg;
+  const all = theme.THEME_NAMES.map((n) => ({ value: n, label: n[0].toUpperCase() + n.slice(1), desc: blurb[n] || '', current: n === cfg.themeName }));
+  picker = {
+    title: 'Theme', hint: '↑↓ preview · Enter keep · Esc revert', all, query: '',
+    sel: Math.max(0, all.findIndex((it) => it.current)), live: true,
+    onMove: (it) => { cfg = theme.setTheme(cfg, it.value, baseEnv, cfg.isTTY); rend.resetFrame(); },
+    onPick: (it) => { cfg = theme.setTheme(cfg, it.value, baseEnv, cfg.isTTY); closePicker(); rend.resetFrame(); add('sys', '╶ theme: ' + it.value); render(); },
+    onCancel: () => { cfg = original; rend.resetFrame(); },
+  };
+  render();
+}
+
+// openAnimPicker → set the worker animation (seen next time it thinks); short honest blurbs.
+function openAnimPicker() {
+  const blurb = { oracle: 'a turning rune and word (default)', rune: 'cycling runes', ember: 'a glowing ember', braille: 'a braille spinner', scry: 'a scrying sweep', shimmer: 'a soft shimmer' };
+  const all = theme.ANIM_NAMES.map((n) => ({ value: n, label: n[0].toUpperCase() + n.slice(1), desc: blurb[n] || '', current: n === cfg.anim }));
+  picker = {
+    title: 'Worker animation', hint: '↑↓ choose · Enter keep · Esc cancel', all, query: '',
+    sel: Math.max(0, all.findIndex((it) => it.current)), live: false,
+    onPick: (it) => { cfg = theme.setAnim(cfg, it.value); closePicker(); add('sys', '╶ animation: ' + it.value); render(); }, onCancel: null,
+  };
+  render();
 }
 
 function runSearch(query) {
@@ -197,10 +311,13 @@ function runUsage() {
   const ix = pending('usage…');
   req('GET', '/usage')
     .then((u) => {
-      const d = (u && u.today) || {};
-      const parts = [(d.turns || 0) + ' turns', (d.tokIn || 0) + ' in / ' + (d.tokOut || 0) + ' out tokens'];
-      if (typeof d.costUsd === 'number') parts.push('~$' + d.costUsd.toFixed(3));
-      settle(ix, 'today: ' + parts.join(' · '));
+      if (!u || typeof u !== 'object') { settle(ix, 'usage: (none yet)'); return; }
+      const row = (label, w) => { const d = w || {}; const cost = typeof d.costUsd === 'number' ? '  ~$' + d.costUsd.toFixed(2) : ''; return label + ': ' + (d.turns || 0) + ' turns · ' + (d.tokIn || 0) + ' in / ' + (d.tokOut || 0) + ' out' + cost; };
+      settle(ix, 'usage');
+      add('sys', '  ' + row('today  ', u.today));
+      add('sys', '  ' + row('last 7d', u.last7d));
+      add('sys', '  ' + row('last30d', u.last30d));
+      render();
     })
     .catch(() => settle(ix, 'usage: daemon unreachable'));
 }
@@ -299,6 +416,8 @@ function quit(code) { cleanup(); process.exit(code || 0); }
 // ---- key handling ----
 function onKey(str, key) {
   key = key || {};
+  // an open value picker (persona/model/theme/anim) owns every key until it is picked or cancelled
+  if (picker && !inflight) { pickerKey(str, key); return; }
   if (key.ctrl && key.name === 'c') { if (inflight) { abortTurn(); return; } return quit(0); }
   if (key.ctrl && key.name === 'd') { return quit(0); }
   if (key.ctrl && key.name === 'l') { lines.length = 0; scroll = 0; rend.resetFrame(); render(); return; }
@@ -362,6 +481,6 @@ function run() {
   refreshVitals();
 }
 
-module.exports = { run };
+module.exports = { run, _internals: { buildPicker, buildMenu } };
 
 if (require.main === module) run();

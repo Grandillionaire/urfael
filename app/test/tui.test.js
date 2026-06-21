@@ -188,3 +188,39 @@ test('compose floats state.menu on the pane bottom (just above the prompt), boun
   const f2 = rend.compose({ theme: TH, cfg: CFG(), vitals: {}, lines, worker: null, statusText: '', promptMark: '> ', inputView: '', scroll: 0, menu: tall }, geom).map(strip);
   assert.ok(!/^M\d/.test(f2[L.titleRow]) && !/MENU|^M\d/.test(f2[L.inputRow]), 'a huge menu stays inside the pane');
 });
+
+// ── named theme/anim setters (drive the /theme + /anim picker live-preview); unknown names are a safe no-op ──
+test('setTheme / setAnim move to a specific value and no-op on an unknown one', () => {
+  const c0 = themer.readCfg({ TERM: 'xterm-256color', URFAEL_TUI_THEME: 'gold' }, true);
+  const ember = themer.setTheme(c0, 'ember', { TERM: 'xterm-256color' }, true);
+  assert.equal(ember.themeName, 'ember');
+  assert.equal(ember.theme.accent, '\x1b[38;5;208m');                 // really repainted to ember
+  assert.equal(themer.setTheme(c0, 'nope', {}, true), c0);            // unknown → same cfg (no throw, no change)
+  const scry = themer.setAnim(c0, 'scry');
+  assert.equal(scry.anim, 'scry');
+  assert.equal(themer.setAnim(c0, 'bogus'), c0);
+});
+
+// ── the persona/value picker renders titled, highlighted cards with glyph + label + (current) + description ──
+test('buildPicker renders a header and one highlighted card per value (glyph, current marker, description)', () => {
+  const { buildPicker } = require('../tui')._internals;
+  const p = {
+    title: 'Switch persona', hint: '↑↓ choose',
+    all: [
+      { value: 'architect', label: 'The Architect', glyph: 'ᚨ', desc: 'systems mind', current: false },
+      { value: 'urfael', label: 'Urfael', glyph: 'ᚢ', desc: 'the anchor', current: true },
+    ],
+    query: '', sel: 1,
+  };
+  const rows = buildPicker(p, TH).map(strip);
+  assert.match(rows[0], /Switch persona/);                            // header line
+  assert.match(rows[0], /↑↓ choose/);
+  assert.ok(rows.some((r) => /ᚨ\s+The Architect\s+systems mind/.test(r)), 'architect card with glyph + desc');
+  const urf = rows.find((r) => /Urfael/.test(r));
+  assert.match(urf, /\(current\)/);                                   // active persona marked
+  assert.ok(urf.startsWith('▌'), 'the selected (current) row carries the highlight bar');
+  // type-to-filter narrows the cards; an out-of-range selection is clamped
+  const f = buildPicker({ ...p, query: 'arch', sel: 5 }, TH).map(strip);
+  assert.equal(f.filter((r) => /The Architect/.test(r)).length, 1);
+  assert.ok(!f.some((r) => /Urfael/.test(r)), 'filtered out');
+});

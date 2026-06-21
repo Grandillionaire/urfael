@@ -91,4 +91,17 @@ function withAnim(cfg) {
   return Object.freeze({ ...cfg, anim: ANIM_NAMES[(i + 1) % ANIM_NAMES.length] });
 }
 
-module.exports = { THEMES, THEME_16, THEME_NAMES, ANIM_NAMES, RST, supports256, resolveTheme, readCfg, withTheme, withAnim };
+// setTheme/setAnim: like withTheme/withAnim but to a SPECIFIC name (for the /theme + /anim pickers' live preview).
+// An unknown name is a no-op (fail-soft to the current cfg), so a picker can preview freely without ever throwing.
+function setTheme(cfg, name, env, isTTY) {
+  const n = String(name || '').toLowerCase();
+  if (!THEME_NAMES.includes(n)) return cfg;
+  const e = { ...(env || {}), URFAEL_TUI_THEME: n };
+  return Object.freeze({ ...cfg, themeName: n, theme: resolveTheme(e, isTTY == null ? cfg.isTTY : isTTY) });
+}
+function setAnim(cfg, name) {
+  const n = String(name || '').toLowerCase();
+  return ANIM_NAMES.includes(n) ? Object.freeze({ ...cfg, anim: n }) : cfg;
+}
+
+module.exports = { THEMES, THEME_16, THEME_NAMES, ANIM_NAMES, RST, supports256, resolveTheme, readCfg, withTheme, withAnim, setTheme, setAnim };

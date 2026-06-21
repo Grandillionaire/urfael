@@ -11,15 +11,20 @@
 //   key       (optional) the equivalent keystroke, surfaced in `/help` so the menu teaches the shortcuts
 //   aliases   (optional) extra names the matcher accepts (fed to byName + rank), e.g. exit/q for quit
 
+// picker:true → accepting the command opens a bespoke, navigable VALUE picker (cards you arrow through) instead of
+// completing to raw text. The catalog only flags it; tui.js owns each picker's look + data (personas carry a glyph
+// and an essence, models a tier blurb, theme/anim live-preview as you move). A free-text command (search) is NOT a
+// picker — there is no fixed value set, so it completes to text and you type. Honesty rule still holds: every entry,
+// picker or not, runs a real action right now.
 const COMMANDS = [
   { name: 'help',    summary: 'show everything you can do in here' },
-  { name: 'model',   arg: '[opus|sonnet|auto|status]', summary: 'switch the model for this session (no arg shows the current one)' },
-  { name: 'persona', arg: '[architect|sage|operator|muse|analyst|reset]', summary: 'switch the voice (no arg shows who is active)' },
+  { name: 'model',   arg: '[opus|sonnet|auto]', picker: true, summary: 'switch the model for this session (opens a picker)' },
+  { name: 'persona', arg: '[architect|sage|operator|muse|analyst|reset]', picker: true, summary: 'switch the voice (opens a picker)' },
   { name: 'search',  arg: '<query>', needsArg: true, summary: 'full-text search every past conversation' },
   { name: 'usage',   summary: "today's turns, tokens, and estimated cost" },
   { name: 'clear',   summary: 'clear the transcript', key: 'Ctrl+L' },
-  { name: 'theme',   summary: 'cycle the colour theme', key: 'Ctrl+T' },
-  { name: 'anim',    summary: 'cycle the worker animation', key: 'Ctrl+Y' },
+  { name: 'theme',   picker: true, summary: 'pick the colour theme, previewed live', key: 'Ctrl+T' },
+  { name: 'anim',    picker: true, summary: 'pick the worker animation', key: 'Ctrl+Y' },
   { name: 'stop',    summary: 'abort the in-flight turn', key: 'Esc' },
   { name: 'quit',    summary: 'leave the cockpit', aliases: ['exit', 'q'], key: 'Ctrl+C' },
 ];
@@ -75,4 +80,15 @@ function parse(input) {
 // so the caret lands where the argument goes (no space for a no-arg command, which is then ready to run).
 function completion(c) { return '/' + c.name + (c.arg || c.needsArg ? ' ' : ''); }
 
-module.exports = { COMMANDS, byName, sig, rank, clampSel, resolve, parse, completion };
+// pickerView(items, query, sel) → the VISIBLE state of a value picker: the items filtered by an incremental
+// type-to-filter query (case-insensitive substring over value + label + desc), with the selection clamped into the
+// filtered range. Pure, ReDoS-safe (only indexOf), never throws. tui.js renders this; the same call drives nav.
+function pickerView(items, query, sel) {
+  const all = Array.isArray(items) ? items : [];
+  const q = String(query == null ? '' : query).toLowerCase().slice(0, 64);
+  const hay = (it) => (String(it.value || '') + ' ' + String(it.label || '') + ' ' + String(it.desc || '')).toLowerCase();
+  const vis = q ? all.filter((it) => hay(it).includes(q)) : all.slice();
+  return { items: vis, sel: clampSel(sel, vis.length), query: q };
+}
+
+module.exports = { COMMANDS, byName, sig, rank, clampSel, resolve, parse, completion, pickerView };
