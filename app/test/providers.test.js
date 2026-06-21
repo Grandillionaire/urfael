@@ -109,3 +109,19 @@ test('preview is pure data, marks local/verified, and never contains a secret va
   assert.equal(p.preview(p.find(p.load(), 'ollama')).local, true);
   assert.ok(!p.redact('Authorization: Bearer sk-or-THE-SECRET', ['sk-or-THE-SECRET']).includes('sk-or-THE-SECRET'));
 });
+
+// ── provider fallback chains (Hermes-style fallback_providers): the daemon tries the next on a failed turn ──
+test('chain resolves [primary, ...fallbacks] to real entries, deduped, self/unknown skipped', () => {
+  const list = [
+    { id: 'a', fallbacks: ['b', 'c', 'a', 'ghost'] },   // self + unknown are skipped
+    { id: 'b', fallbacks: [] },
+    { id: 'c', fallbacks: ['b'] },
+  ];
+  assert.deepEqual(p.chain(list, 'a').map((x) => x.id), ['a', 'b', 'c']);
+  assert.deepEqual(p.chain(list, 'b').map((x) => x.id), ['b']);
+  assert.deepEqual(p.chain(list, 'nope'), []);
+  // parsed from the bundled registry: openai falls back to openrouter then deepseek
+  const real = p.load();
+  assert.deepEqual(p.chain(real, 'openai').map((x) => x.id), ['openai', 'openrouter', 'deepseek']);
+  assert.ok(Array.isArray(p.find(real, 'claude').fallbacks));   // every entry has a (possibly empty) fallbacks array
+});

@@ -218,6 +218,40 @@ function printPluginPreview(ph, m) {
 (async () => {
   const [cmd, ...rest] = process.argv.slice(2);
   if (cmd === 'logo') { console.log(banner()); return; }
+
+  // version / update: release discipline. Pure CLI, no brain. `update` pulls + reinstalls the user's own clone.
+  if (cmd === 'version' || cmd === '--version' || cmd === '-v') {
+    const pkg = require('./package.json');
+    const root = path.join(__dirname, '..');
+    let sha = '';
+    try { sha = execFileSync('git', ['-C', root, 'rev-parse', '--short', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch {}
+    console.log(gold('Urfael ') + 'v' + pkg.version + (sha ? dim('  (' + sha + ')') : '') + dim('  ·  node ' + process.version + '  ·  ' + process.platform));
+    console.log(dim('  changelog: ') + 'CHANGELOG.md' + dim('   ·   update: ') + gold('urfael update'));
+    return;
+  }
+  if (cmd === 'update' || cmd === 'upgrade') {
+    const root = path.join(__dirname, '..');
+    try { execFileSync('git', ['-C', root, 'rev-parse', '--is-inside-work-tree'], { stdio: 'ignore' }); }
+    catch { console.error('✗ not a git checkout, so there is nothing to update. Reinstall from https://github.com/Grandillionaire/urfael'); process.exit(1); }
+    process.stdout.write(dim('checking for updates…\n'));
+    try { execFileSync('git', ['-C', root, 'fetch', '--quiet', 'origin'], { stdio: ['ignore', 'ignore', 'inherit'], timeout: 60000 }); }
+    catch { console.error('✗ could not reach the remote (offline?)'); process.exit(1); }
+    let behind = '0', branch = 'main';
+    try { branch = execFileSync('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || 'main'; } catch {}
+    try { behind = execFileSync('git', ['-C', root, 'rev-list', '--count', 'HEAD..origin/' + branch], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch {}
+    if (behind === '0') { console.log(gold('✓ already up to date') + dim('  (' + branch + ')')); return; }
+    console.log(gold(behind + ' new commit' + (behind === '1' ? '' : 's') + ':'));
+    try { console.log(execFileSync('git', ['-C', root, 'log', '--oneline', '--no-decorate', 'HEAD..origin/' + branch], { stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 20 }).toString().replace(/^/gm, '  ')); } catch {}
+    const dirty = (() => { try { return !!execFileSync('git', ['-C', root, 'status', '--porcelain'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return false; } })();
+    if (dirty) { console.error(dim('  you have local changes; commit or stash them first, then re-run ') + gold('urfael update')); process.exit(1); }
+    if (!(await promptYesNo('Pull these and reinstall?'))) { console.log(dim('aborted, nothing changed')); return; }
+    try { execFileSync('git', ['-C', root, 'pull', '--ff-only', '--quiet', 'origin', branch], { stdio: ['ignore', 'inherit', 'inherit'] }); }
+    catch { console.error('✗ pull failed (a non-fast-forward?). Resolve it in ' + root); process.exit(1); }
+    process.stdout.write(dim('installing dependencies…\n'));
+    try { execFileSync('npm', ['install', '--silent'], { cwd: __dirname, stdio: ['ignore', 'ignore', 'inherit'], timeout: 300000 }); } catch { console.error(dim('  (npm install reported an issue; check it manually)')); }
+    console.log(gold('✓ updated') + dim('  ·  restart the daemon to run the new code:  ') + gold('urfael shutdown') + dim(' then your next command'));
+    return;
+  }
   if (!cmd) { console.log(reg.renderBare(helpUI)); return; }                          // bare urfael → the "start here" card
   if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
     console.log(rest[0] ? reg.renderOne(rest[0], helpUI) : reg.renderFull(helpUI));   // `help <cmd>` drills in; `help` is the grouped reference

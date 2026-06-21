@@ -59,6 +59,7 @@ function parse(text) {
       proxyHint: String(e.proxyHint || '').slice(0, 200), note: String(e.note || '').replace(/\s+/g, ' ').slice(0, 200),
       models, verified: e.verified === true,
       cost: clampTier(e.cost), speed: clampTier(e.speed), quality: clampTier(e.quality), flatRate: e.flatRate === true,
+      fallbacks: Array.isArray(e.fallbacks) ? [...new Set(e.fallbacks.map(slugify).filter((s) => /^[a-z0-9-]+$/.test(s)))].slice(0, 6) : [],
     });
   }
   return out;
@@ -66,6 +67,20 @@ function parse(text) {
 function load(file) { let t = ''; try { t = fs.readFileSync(file || registryPath(), 'utf8'); } catch { return []; } return parse(t); }
 function search(list, q) { const s = String(q || '').toLowerCase().trim(); return !s ? list : list.filter((p) => (p.id + ' ' + p.label + ' ' + p.kind + ' ' + p.note).toLowerCase().includes(s)); }
 function find(list, id) { const k = slugify(id); return (list || []).find((p) => p.id === k) || null; }
+
+// chain(list, id) → the ordered list of provider ENTRIES to try: [primary, ...its fallbacks], resolved to real
+// entries, deduped, self/unknown skipped. Hermes has `fallback_providers`; this is the pure resolver for ours. The
+// daemon iterates this on a failed/timed-out turn (the live mid-session swap is the daemon's integration step). Pure.
+function chain(list, id) {
+  const primary = find(list, id); if (!primary) return [];
+  const out = [primary]; const seen = new Set([primary.id]);
+  for (const fid of (primary.fallbacks || [])) {
+    if (seen.has(slugify(fid))) continue;
+    const f = find(list, fid); if (!f) continue;
+    seen.add(f.id); out.push(f);
+  }
+  return out;
+}
 
 // which secret (if any) the user must supply to switch to this provider.
 function secretNeeded(entry) { return (entry && entry.authKind === 'key') ? { env: entry.authEnv, label: entry.authLabel } : null; }
@@ -114,6 +129,6 @@ function preview(entry, secret) {
 }
 
 module.exports = {
-  registryPath, slugify, parse, load, search, find, secretNeeded, resolveEnv, redact, preview,
+  registryPath, slugify, parse, load, search, find, chain, secretNeeded, resolveEnv, redact, preview,
   KINDS, AUTHS, PROXIES, MANAGED,
 };

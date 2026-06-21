@@ -679,6 +679,40 @@ urfael shutdown
 
 See also: `stop` · `health`
 
+### `urfael version`
+
+print the installed version, commit, and runtime.
+
+```bash
+urfael version
+```
+
+Examples:
+
+```bash
+urfael version
+```
+
+See also: `update` · `doctor`
+
+### `urfael update`
+
+pull the latest and reinstall (your own git checkout).
+
+```bash
+urfael update
+```
+
+Aliases: `upgrade`
+
+Examples:
+
+```bash
+urfael update
+```
+
+See also: `version` · `doctor`
+
 ### `urfael logo`
 
 print the Urfael terminal logo.

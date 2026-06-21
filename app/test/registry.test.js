@@ -26,6 +26,7 @@ test('every dispatched command exists in the registry (no orphan handlers)', () 
     ...Object.keys(reg.ALIASES),      // asof, init, onboard — real handler aliases
     'unremind',                        // own branch, intentionally not a registry entry
     'help', '--help', '-h',            // help variants
+    '--version', '-v',                 // version flag variants (the `version` command is in the registry)
   ]);
   for (const d of dispatched) assert.ok(known.has(d), 'cli.js dispatches `' + d + '` but the registry never names it');
 });
