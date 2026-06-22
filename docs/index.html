@@ -6,28 +6,171 @@
 <title>Urfael, Liquid Intelligence. At your service.</title>
 <meta name="description" content="A personal, voice-capable AI you run on your own machine, on the flat-rate Claude subscription you already pay for. No inbound port to attack. No per-token meter. It resists the attacks that owned other self-hosted agents, 10/10 attack classes, 95/95 checks, and it can prove what it did." />
 <link rel="canonical" href="https://urfael.com/" />
-<link rel="icon" type="image/svg+xml" href="media/urfael-logo.svg" />
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+<meta name="author" content="MYG Media" />
+<meta name="keywords" content="self-hosted AI agent, secure AI assistant, local AI on Claude subscription, personal voice AI, OpenClaw alternative, Hermes Agent alternative, AI agent security, open source AI assistant" />
+<link rel="icon" href="/favicon.ico" sizes="32x32" />
+<link rel="icon" type="image/svg+xml" href="/media/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="/media/favicon-32x32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="/media/favicon-16x16.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon.png" />
+<link rel="manifest" href="/site.webmanifest" />
 <meta name="theme-color" content="#0d0c0a" />
+<meta name="application-name" content="Urfael" />
+<meta name="apple-mobile-web-app-title" content="Urfael" />
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Urfael" />
 <meta property="og:url" content="https://urfael.com/" />
 <meta property="og:title" content="Urfael, Liquid Intelligence. At your service." />
 <meta property="og:description" content="Security-first personal AI on your Claude subscription. 10/10 real-world attack classes resisted, 95/95 checks, run the benchmark yourself. No inbound port. It can prove what it did." />
-<meta property="og:image" content="https://urfael.com/media/console.png" />
-<meta property="og:image:width" content="1320" />
-<meta property="og:image:height" content="865" />
-<meta property="og:image:alt" content="The Urfael Console, a gold-on-dark desktop app" />
+<meta property="og:image" content="https://urfael.com/media/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:alt" content="Urfael, Liquid Intelligence. At your service. A personal AI on your Claude subscription: no inbound port, 10/10 attack classes, 95/95 checks, flat-rate." />
+<meta property="og:locale" content="en_US" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Urfael, Liquid Intelligence. At your service." />
 <meta name="twitter:description" content="Security-first personal AI on your Claude subscription. 10/10 attack classes resisted, 95/95 checks, run the benchmark yourself." />
-<meta name="twitter:image" content="https://urfael.com/media/console.png" />
+<meta name="twitter:image" content="https://urfael.com/media/og.png" />
+<meta name="twitter:image:alt" content="Urfael, Liquid Intelligence. At your service." />
 <script type="application/ld+json">
 {
-  "@context":"https://schema.org","@type":"SoftwareApplication","name":"Urfael",
-  "applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux","url":"https://urfael.com/",
-  "downloadUrl":"https://github.com/Grandillionaire/urfael","license":"https://opensource.org/licenses/MIT",
-  "description":"A personal, voice-capable AI you run on your own machine. Security-first, on the flat-rate Claude subscription you already pay for. No inbound port; it resists the attacks that compromised other self-hosted agents (10/10 attack classes, 95/95 checks).",
-  "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}
+  "@context":"https://schema.org",
+  "@graph":[
+    {
+      "@type":"SoftwareApplication","@id":"https://urfael.com/#software","name":"Urfael","alternateName":"Urfael AI assistant",
+      "applicationCategory":"DeveloperApplication","applicationSubCategory":"AI Agent","operatingSystem":"macOS, Linux",
+      "url":"https://urfael.com/","downloadUrl":"https://github.com/Grandillionaire/urfael","license":"https://opensource.org/licenses/MIT",
+      "image":"https://urfael.com/media/og.png",
+      "description":"A personal, voice-capable AI you run on your own machine. Security-first, on the flat-rate Claude subscription you already pay for. No inbound port; it resists the attacks that compromised other self-hosted agents (10/10 attack classes, 95/95 checks). A more secure, honest alternative to OpenClaw and Hermes Agent.",
+      "featureList":["No inbound network port (unix-socket only)","Runs on a flat-rate Claude subscription, no per-token meter","Local voice in and out (whisper.cpp + local TTS)","Tamper-evident Ledger of Record with an ed25519 seal","19 hardened chat channels with a fail-closed allowlist","Multi-agent Council","Runnable security benchmark (npm run security)","urfael code: Claude Code in your repo with checkpoint and rewind"],
+      "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},
+      "publisher":{"@id":"https://urfael.com/#org"}
+    },
+    {"@type":"Organization","@id":"https://urfael.com/#org","name":"MYG Media","url":"https://urfael.com/","logo":"https://urfael.com/media/icon-512.png"},
+    {"@type":"WebSite","@id":"https://urfael.com/#website","url":"https://urfael.com/","name":"Urfael","description":"Liquid Intelligence. At your service.","publisher":{"@id":"https://urfael.com/#org"}}
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "FAQPage",
+ "mainEntity": [
+  {
+   "@type": "Question",
+   "name": "Is this just a wrapper around Claude?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "The brain is the Claude you already pay for, reached through the claude CLI you are already signed into. Urfael is everything around that brain a wrapper is not: a tamper-evident ledger of every action, an ed25519 seal over it, a read-only sandbox for untrusted messages, a credential-deny boundary, nineteen hardened chat channels, voice in and out, proactive active recall over your own notes, a multi-agent Council, and a security benchmark you can run in one command. The model is rented. The sovereignty, the memory, and the safety are yours, on your machine, under MIT."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What does it cost to run?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Your existing Claude subscription, flat-rate. There is no per-token meter, no Urfael account, no server you rent from us. Point it at a local model on your own GPU instead and it costs you electricity. We do not see your traffic; there is nothing to see."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is it actually secure, or is that just a word?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "It is a command: npm run security . It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists 10 of 10 real-world attack classes across 95 of 95 checks. You do not take our word for it. You run it."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is Urfael an alternative to OpenClaw or Hermes Agent?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes, and an honest one. OpenClaw and Hermes Agent optimize for channel count and model breadth, and they are genuinely good at it. Urfael optimizes for what matters when a machine lives on your desk and acts for you: the smallest blast radius, a flat bill, local voice, and not overstating what it does. Where the others default to optional sandboxes and an inbound surface, Urfael opens no network port , allowlists every sender before the brain sees a token, and runs remote turns read-only by default. It ships a security benchmark you run yourself ( 10/10 attack classes, 95/95 checks) and a tamper-evident ledger so it can prove what it did. The full comparison, every win and every gap in the same table, is above ."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What is the most secure self-hosted AI agent?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Security is something you should be able to verify , not a word you read. Urfael was built blast-radius-first: no inbound network port (a 0600 unix socket only), fail-closed allowlists on every channel, read-only sandboxed remote turns, and autonomous work confined to throwaway containers with no secrets mounted. The proof is a command, npm run security , which boots the real daemon and runs the actual attacks that compromised other self-hosted agents in 2026, landing on 10/10 attack classes and 95/95 checks. Run it yourself rather than take anyone's word for it."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "A prompt injection got other agents to leak secrets. Why not this one?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Because the containment is structural, not a clever prompt. Remote and untrusted turns run a read-only profile: read and search your notes, no shell, no write, and critically no network-egress tool. The vault also denies the agent reading your credential stores outright, a hard boundary that holds even in Full mode. So an injected \"read a secret and send it somewhere\" has nothing to read and nowhere to send."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "So is there any mode where an injection could leak something?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes, and we will not hide it. The default Fortress posture has no egress, so untrusted content cannot exfiltrate at all. If you deliberately enable Full mode the agent can fetch the web, which means a successful injection could exfiltrate notes you have given it, though never your credentials, because the credential-deny boundary still holds. Run Full mode only in a VM, a container, or a throwaway account. The benchmark, the docs, and this answer all say the same thing on purpose."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Why is there no inbound port? Doesn't that limit it?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "It is the whole point. The brain listens on a 0600 unix socket only, never a TCP port. The topology is one-way: Urfael reaches out (to your Claude login, to chat APIs it polls); nothing reaches in. There is no gateway to expose, no token to leak over a socket, no DM endpoint to spray. The 20,000-plus exposed gateways that got owned in 2026 were owned because they were reachable. This one is not."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can I use a model other than Claude?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes. Claude is native through your subscription, the one path billed to you with no per-token meter. Every other provider (OpenAI, Gemini, Llama, Mistral, DeepSeek, Groq, Ollama, LM Studio, NVIDIA NIM, OpenRouter, Bedrock, Vertex, Azure) runs through a documented Anthropic-compatible proxy such as claude-code-router or LiteLLM, with the same sandbox harness enforcing the boundaries. You can also switch models mid-conversation by just saying so: switch to opus ."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can it run fully offline, with nothing leaving my machine?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes. Point it at a local model (Ollama or NVIDIA NIM) and use the local voice model, and nothing leaves the machine. See the Local-GPU guide. You trade some capability for total air-gap; that is your call to make, not ours."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can it prove what it actually did?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "That is the trust suite, and it is real. Every action lands in a hash-chained Ledger of Record, so tampering is detectable. An ed25519 Sovereign Seal signs the chain head, so you can prove the record's authorship and integrity at a moment in time (it proves the record is authentic, not that every claim inside is true, we are precise about that). urfael why pickaxes the provenance of any lesson it learned. And urfael forget writes a tombstone for provable, consented deletion."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "How mature is this, honestly?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the full stack but has far less mileage. The Matrix, Signal and WhatsApp bridges are code-complete and reviewed, with their parsing and allowlist logic unit-tested, but not yet battle-hardened against live accounts. Real-world scale is small, because this is a personal tool and we say so. There are 514 unit tests, an end-to-end harness against a live daemon, and adversarial security regressions frozen from real findings. What only time and users add is the one thing we cannot fake."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "What is the Council?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "A multi-agent orchestration you can watch. Urfael decomposes a hard question, dispatches read-only sandboxed workers to gather what each needs, then synthesizes one answer. The workers cannot write, cannot run a shell, and cannot reach the network; they read and report. You see the whole thing happen rather than trusting a black box."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Is this affiliated with Anthropic?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "No. Urfael is an independent, open-source project under the MIT license. It runs on your Claude subscription but is not built, endorsed, or operated by Anthropic. The Urfael name and the Uruz mark are an original character drawn from the public-domain Elder Futhark."
+   }
+  }
+ ]
 }
 </script>
 <style>
@@ -112,7 +255,7 @@
   .p-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
   .p-chip{font:12px var(--mono);color:var(--gold-soft);background:rgba(212,168,90,.05);border:1px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;transition:.2s}
   .p-chip[aria-selected="true"]{background:rgba(255,138,66,.16);border-color:rgba(212,168,90,.5);color:#fff}
-  /* council + recall svg */
+  /* council + ledger svg */
   .stage{border:1px solid var(--line);border-radius:12px;background:radial-gradient(130% 130% at 50% 22%,#181308,#0b0a07);padding:8px;overflow:hidden}
   /* council */
   .c-link-base{stroke:rgba(212,168,90,.16);stroke-width:1.5;fill:none}
@@ -162,6 +305,10 @@
   @keyframes spin{to{transform:rotate(360deg)}}@keyframes spinrev{to{transform:rotate(-360deg)}}
   .wheel-grid{display:none}
   .wheel-grid.on{display:grid}
+  .wheel-grid .lg{display:grid;place-items:center;gap:4px;min-height:62px;padding:9px;border:1px solid var(--line);border-radius:12px;background:var(--bg3)}
+  .wheel-grid .lg .mk{width:28px;height:28px}
+  .wheel-grid .lg .tx{font:10px var(--mono);color:var(--gold-soft);text-align:center;line-height:1.15}
+  .wheel-grid .lg.native{border-color:rgba(127,220,160,.45);box-shadow:0 0 12px rgba(127,220,160,.15)}
   /* security ring of badges + integration row */
   .secbadges,.introw{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:22px}
   .secbadges b{font:11px var(--mono);color:var(--gold-soft);border:1px solid var(--line);border-radius:14px;padding:4px 10px;font-weight:400;letter-spacing:.3px}
@@ -404,6 +551,8 @@ cd app &amp;&amp; npm start # the Console opens</pre>
     <details><summary>Is this just a wrapper around Claude?</summary><div class="ans">The brain is the Claude you already pay for, reached through the <code>claude</code> CLI you are already signed into. Urfael is everything around that brain a wrapper is not: a tamper-evident ledger of every action, an ed25519 seal over it, a read-only sandbox for untrusted messages, a credential-deny boundary, nineteen hardened chat channels, voice in and out, proactive active recall over your own notes, a multi-agent Council, and a security benchmark you can run in one command. The model is rented. The sovereignty, the memory, and the safety are yours, on your machine, under MIT.</div></details>
     <details><summary>What does it cost to run?</summary><div class="ans">Your existing Claude subscription, flat-rate. There is no per-token meter, no Urfael account, no server you rent from us. Point it at a local model on your own GPU instead and it costs you electricity. We do not see your traffic; there is nothing to see.</div></details>
     <details><summary>Is it actually secure, or is that just a word?</summary><div class="ans">It is a command: <code>npm run security</code>. It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists <b>10 of 10</b> real-world attack classes across <b>95 of 95</b> checks. You do not take our word for it. You run it.</div></details>
+    <details><summary>Is Urfael an alternative to OpenClaw or Hermes Agent?</summary><div class="ans">Yes, and an honest one. OpenClaw and Hermes Agent optimize for channel count and model breadth, and they are genuinely good at it. Urfael optimizes for what matters when a machine lives on your desk and acts for you: the smallest blast radius, a flat bill, local voice, and not overstating what it does. Where the others default to optional sandboxes and an inbound surface, Urfael opens <b>no network port</b>, allowlists every sender <i>before</i> the brain sees a token, and runs remote turns read-only by default. It ships a security benchmark you run yourself (<b>10/10</b> attack classes, <b>95/95</b> checks) and a tamper-evident ledger so it can prove what it did. The full comparison, every win and every gap in the same table, is <a href="#compare">above</a>.</div></details>
+    <details><summary>What is the most secure self-hosted AI agent?</summary><div class="ans">Security is something you should be able to <i>verify</i>, not a word you read. Urfael was built blast-radius-first: no inbound network port (a <code>0600</code> unix socket only), fail-closed allowlists on every channel, read-only sandboxed remote turns, and autonomous work confined to throwaway containers with no secrets mounted. The proof is a command, <code>npm run security</code>, which boots the real daemon and runs the actual attacks that compromised other self-hosted agents in 2026, landing on <b>10/10</b> attack classes and <b>95/95</b> checks. Run it yourself rather than take anyone's word for it.</div></details>
     <details><summary>A prompt injection got other agents to leak secrets. Why not this one?</summary><div class="ans">Because the containment is structural, not a clever prompt. Remote and untrusted turns run a read-only profile: read and search your notes, no shell, no write, and critically no network-egress tool. The vault also denies the agent reading your credential stores outright, a hard boundary that holds even in Full mode. So an injected "read a secret and send it somewhere" has nothing to read and nowhere to send.</div></details>
     <details><summary>So is there any mode where an injection could leak something?</summary><div class="ans">Yes, and we will not hide it. The default Fortress posture has no egress, so untrusted content cannot exfiltrate at all. If you deliberately enable Full mode the agent can fetch the web, which means a successful injection could exfiltrate notes you have given it, though never your credentials, because the credential-deny boundary still holds. Run Full mode only in a VM, a container, or a throwaway account. The benchmark, the docs, and this answer all say the same thing on purpose.</div></details>
     <details><summary>Why is there no inbound port? Doesn't that limit it?</summary><div class="ans">It is the whole point. The brain listens on a <code>0600</code> unix socket only, never a TCP port. The topology is one-way: Urfael reaches out (to your Claude login, to chat APIs it polls); nothing reaches in. There is no gateway to expose, no token to leak over a socket, no DM endpoint to spray. The 20,000-plus exposed gateways that got owned in 2026 were owned because they were reachable. This one is not.</div></details>
@@ -551,7 +700,7 @@ ANIMS.wheel=root=>{
   if(RM || innerWidth<=720){ root.style.display='none'; grid.classList.add('on');
     grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px;max-width:560px;margin:0 auto;text-align:center';
     grid.innerHTML='<div class="lg native" style="position:static" title="Claude"><img class="mk" src="media/logos/anthropic.svg" alt="" loading="lazy"/></div>'
-      + MODELS.slice(1).map(m=>'<div class="lg" style="position:static"><i class="mk" style="--src:url(media/logos/'+m.f+'.svg)"></i></div>').join('')
+      + MODELS.slice(1).map(m=>'<div class="lg" style="position:static" title="'+m.n+'"><img class="mk" src="media/logos/'+m.f+'.svg" alt="'+m.n+'" loading="lazy"/></div>').join('')
       + MODELS_TXT.map(m=>'<div class="lg" style="position:static"><span class="tx">'+m.t+'</span></div>').join(''); }
 };
 </script>

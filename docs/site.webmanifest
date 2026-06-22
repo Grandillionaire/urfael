@@ -1,0 +1,14 @@
+{
+  "name": "Urfael — Liquid Intelligence",
+  "short_name": "Urfael",
+  "description": "A personal, voice-capable AI you run on your own machine, on the flat-rate Claude subscription. No inbound port to attack. It can prove what it did.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0c0a",
+  "theme_color": "#0d0c0a",
+  "icons": [
+    { "src": "/media/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/media/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/media/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

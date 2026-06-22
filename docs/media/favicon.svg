@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Urfael — the Uruz rune (ᚢ, the historical "U" of the Elder Futhark; public-domain
+       Anglo-Saxon runes, the same script Tolkien drew on). Minimal: one ring, one rune. -->
+  <circle cx="64" cy="64" r="58" fill="#16110a" stroke="#d4a85a" stroke-width="2.5"/>
+  <g stroke="#e7c280" stroke-width="7" stroke-linecap="butt" fill="none">
+    <path d="M47 30 L47 98"/>
+    <path d="M47 30 L81 52"/>
+    <path d="M81 52 L81 98"/>
+  </g>
+</svg>
