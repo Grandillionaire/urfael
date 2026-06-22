@@ -545,13 +545,20 @@ This restores your tracked files to that snapshot. The current state is checkpoi
   </section>
 
   <section id="install">
-    <h2>Three lines</h2>
+    <h2>Install</h2>
+    <p class="lede center">Free and open source under the MIT license. Download the app, or run two lines in a terminal. You bring a Claude subscription (or any of 30 providers, or a local model); there is no API key and no Urfael account.</p>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:6px 0 4px">
+      <a class="btn primary" href="https://github.com/Grandillionaire/urfael/releases/latest">Download for macOS</a>
+      <a class="btn primary" href="https://github.com/Grandillionaire/urfael/releases/latest">Windows</a>
+      <a class="btn primary" href="https://github.com/Grandillionaire/urfael/releases/latest">Linux</a>
+    </div>
+    <p class="cap">Desktop builds are not yet code-signed, so first launch may need a right-click Open on macOS or a SmartScreen "More info, Run anyway" on Windows. Or build from source, below.</p>
     <pre>git clone https://github.com/Grandillionaire/urfael.git &amp;&amp; cd urfael
 ./install.sh        # checks deps, scaffolds your vault, no keys
 cd app &amp;&amp; npm start # the Console opens</pre>
-    <p><b>You need:</b> a <a href="https://claude.com/claude-code">Claude Code</a> subscription (Pro or Max), signed in. macOS on Apple Silicon or Intel is the best-tested target; Linux is supported but newer. No API key.</p>
-    <p><b style="color:var(--gold-soft)">Or run it 100% on your own GPU.</b> A local model (Ollama / NVIDIA NIM) plus local voice means nothing leaves the machine. <a href="LOCAL-GPU.md">Guide</a>. Full setup is in <a href="SETUP.md">docs/SETUP.md</a>.</p>
-    <p class="center" style="margin-top:22px"><a class="btn primary" href="https://github.com/Grandillionaire/urfael">★ Star it on GitHub</a></p>
+    <p><b>You need:</b> a <a href="https://claude.com/claude-code">Claude Code</a> subscription (Pro or Max) signed in, or any provider, or a local model. macOS on Apple Silicon or Intel is the best-tested target; Linux is supported but newer. Full setup is in the <a href="/manual/#/start/install">install guide</a>.</p>
+    <p><b style="color:var(--gold-soft)">Or run it 100% on your own GPU.</b> A local model (Ollama / NVIDIA NIM) plus local voice means nothing leaves the machine. <a href="/manual/#/guides/local-gpu">Guide</a>.</p>
+    <p class="center" style="margin-top:18px"><a class="btn" href="https://github.com/Grandillionaire/urfael">★ Star it on GitHub</a></p>
   </section>
 
   <style>
@@ -565,8 +572,12 @@ cd app &amp;&amp; npm start # the Console opens</pre>
     .ed .btn{align-self:flex-start;margin:0}
     .stay{margin-top:34px;border-top:1px solid var(--line);padding-top:26px}
     .emailcap{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;max-width:540px;margin:0 auto}
-    .emailcap input{flex:1;min-width:220px;background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:11px 14px;color:var(--body);font:15px var(--serif)}
+    .emailcap input[type=email]{flex:1;min-width:220px;background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:11px 14px;color:var(--body);font:15px var(--serif)}
     .emailcap input:focus{outline:2px solid var(--gold);outline-offset:1px}
+    .consent{display:block;text-align:center;margin:11px auto 0;max-width:540px;font:12px var(--mono);color:var(--dim);line-height:1.5}
+    .consent a{color:var(--gold-soft)}.consent input{vertical-align:middle;margin-right:5px;accent-color:var(--gold)}
+    .ed-tease{text-align:center;font:13px var(--mono);color:var(--dim);margin:18px auto 0;max-width:620px}
+    .ed-tease b{color:var(--gold-soft)}
   </style>
   <section id="editions">
     <h2>Editions, honest about what each one is</h2>
@@ -599,23 +610,37 @@ cd app &amp;&amp; npm start # the Console opens</pre>
           <li>A monthly signed attestation that it stayed home</li>
           <li>Onboarding and an SLA</li>
         </ul>
-        <a class="btn" href="#stay">Talk to us</a>
+        <a class="btn" href="mailto:hello@myg-media.com?subject=Urfael%20Managed-Sovereign">Talk to us</a>
       </div>
     </div>
     <p class="cap">Paid editions never meter tokens. You always bring your own subscription, provider, or local model.</p>
+    <p class="ed-tease">Coming later: a fully managed <b>Cloud edition with simple monthly plans</b>, for people who want the convenience without running anything themselves. <a href="#stay" style="color:var(--gold-soft)">Tell us if you want it sooner.</a></p>
     <div id="stay" class="stay">
       <p class="lede center">Get the launch, the benchmark results, and release notes.</p>
-      <!-- Email capture: create a free form at formspree.io or buttondown.email, then replace the action URL below with your form endpoint. Until then, the Watch-releases button works with no setup. -->
-      <form class="emailcap" action="https://formspree.io/f/REPLACE_WITH_YOUR_FORM_ID" method="POST">
-        <input type="email" name="email" required placeholder="you@example.com" aria-label="Email address" />
-        <button class="btn primary" type="submit">Keep me posted</button>
+      <!-- EMAIL CAPTURE: create a free form at formspree.io (or buttondown.email) and replace REPLACE_WITH_YOUR_FORM_ID below with your form id. Until then the guard script keeps it from erroring. -->
+      <form class="emailform" id="emailform" action="https://formspree.io/f/REPLACE_WITH_YOUR_FORM_ID" method="POST">
+        <div class="emailcap">
+          <input type="email" name="email" required placeholder="you@example.com" aria-label="Email address" />
+          <button class="btn primary" type="submit">Keep me posted</button>
+        </div>
+        <label class="consent"><input type="checkbox" name="consent" required /> I agree to receive launch and release emails, and I accept the <a href="/privacy">Privacy Policy</a>. Unsubscribe anytime.</label>
       </form>
-      <p class="center" style="margin-top:14px">
-        <a class="btn" href="https://github.com/sponsors/Grandillionaire">Sponsor on GitHub</a>
-        <a class="btn" href="https://github.com/Grandillionaire/urfael/releases">Watch releases</a>
+      <p class="center" style="margin-top:16px">
+        <a class="btn" href="https://github.com/Grandillionaire/urfael">★ Star on GitHub</a>
+        <a class="btn" href="https://github.com/Grandillionaire/urfael/releases/latest">Releases</a>
       </p>
     </div>
   </section>
+  <script>
+  /* Email-capture guard: until a real form endpoint is wired in (the action still contains the placeholder),
+     intercept the submit so it never posts to a dead URL. Once you paste a real Formspree id, this is a no-op. */
+  (function(){ var f=document.getElementById('emailform'); if(!f) return;
+    f.addEventListener('submit', function(e){
+      if (f.getAttribute('action').indexOf('REPLACE_WITH') !== -1){ e.preventDefault();
+        f.innerHTML = '<p class="lede center" style="margin:0">Thank you. The mailing list goes live at launch, for now <a href="https://github.com/Grandillionaire/urfael/releases/latest" style="color:var(--gold-soft)">watch Releases on GitHub</a>.</p>'; }
+    });
+  })();
+  </script>
 
   <section id="faq">
     <h2>Every question, answered</h2>
@@ -643,6 +668,10 @@ cd app &amp;&amp; npm start # the Console opens</pre>
     Urfael is an original character; the mark is the Uruz rune (ᚢ) of the public-domain Elder Futhark.<br/>
     An independent open-source project (MIT), not affiliated with, endorsed by, or sponsored by Anthropic.<br/>
     "Claude" and "Claude Code" are trademarks of Anthropic. Provider names and marks belong to their respective owners and indicate compatibility only.
+    <div style="margin-top:16px;font-family:var(--mono);font-size:12px;letter-spacing:.3px">
+      <a href="/privacy" style="color:var(--gold-soft)">Privacy</a> &middot; <a href="/terms" style="color:var(--gold-soft)">Terms</a> &middot; <a href="/imprint" style="color:var(--gold-soft)">Imprint</a> &middot; <a href="https://github.com/Grandillionaire/urfael/blob/main/LICENSE" style="color:var(--gold-soft)">MIT License</a> &middot; <a href="https://github.com/Grandillionaire/urfael" style="color:var(--gold-soft)">GitHub</a>
+    </div>
+    <div style="margin-top:9px;font-family:var(--mono);font-size:11px;color:var(--dim);opacity:.75">&copy; 2026 MYG Media SRL</div>
   </div>
 </footer>
 

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy Policy, Urfael</title>
+<meta name="description" content="How urfael.com handles personal data. The site collects almost nothing and the Urfael software is local-first: it runs on your own machine and we never receive your prompts or traffic. Full GDPR notice with your rights and how to exercise them." />
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://urfael.com/privacy.html" />
+<link rel="icon" href="/favicon.ico" sizes="32x32" />
+<link rel="icon" type="image/svg+xml" href="/media/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="/media/favicon-32x32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="/media/favicon-16x16.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon.png" />
+<meta name="theme-color" content="#0d0c0a" />
+<meta property="og:type" content="article" />
+<meta property="og:site_name" content="Urfael" />
+<meta property="og:url" content="https://urfael.com/privacy.html" />
+<meta property="og:title" content="Privacy Policy, Urfael" />
+<meta property="og:description" content="The site collects almost nothing and the software is local-first. Full GDPR notice with your rights." />
+<style>
+  :root{
+    --bg:#0d0c0a; --bg2:#161109; --gold:#d4a85a; --gold-soft:#ecd3a0;
+    --body:#e8e0cf; --dim:#a99b78; --line:rgba(212,168,90,.20);
+    --serif:"Iowan Old Style","Palatino","Book Antiqua",Georgia,serif;
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--body);
+    font-family:var(--serif); font-size:17px; line-height:1.72;
+    background-image:radial-gradient(1100px 540px at 50% -8%, var(--bg2), var(--bg) 62%);
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--gold-soft); text-decoration:none; border-bottom:1px solid var(--line)}
+  a:hover{color:var(--gold); border-bottom-color:var(--gold)}
+
+  /* ---- top bar ---- */
+  nav{
+    position:sticky; top:0; z-index:10;
+    display:flex; align-items:center; gap:13px;
+    padding:13px 22px; background:rgba(13,12,10,.86);
+    backdrop-filter:saturate(140%) blur(8px);
+    border-bottom:1px solid var(--line);
+  }
+  nav .logo{display:inline-flex; align-items:center; gap:11px; border-bottom:0}
+  nav .logo svg{width:34px; height:34px; display:block}
+  nav .logo b{font-family:var(--serif); color:var(--gold); font-size:20px; font-variant:small-caps; letter-spacing:1px; font-weight:600}
+  nav .spacer{flex:1}
+  nav .back{font-family:var(--mono); font-size:13px; color:var(--dim); border-bottom:0}
+  nav .back:hover{color:var(--gold-soft)}
+
+  /* ---- content column ---- */
+  main{max-width:760px; margin:0 auto; padding:44px 22px 30px}
+  h1{
+    font-size:34px; line-height:1.18; color:var(--gold);
+    font-variant:small-caps; letter-spacing:1.2px; font-weight:600;
+    margin:6px 0 8px;
+  }
+  h2{
+    font-size:23px; color:var(--gold); font-weight:600;
+    letter-spacing:.3px; margin:38px 0 10px;
+  }
+  h3{font-size:18px; color:var(--gold-soft); font-weight:600; margin:22px 0 6px}
+  p{margin:0 0 15px}
+  ul,ol{margin:0 0 16px; padding-left:24px}
+  li{margin:0 0 8px}
+  strong{color:var(--gold-soft); font-weight:600}
+  .lead{font-size:19px; color:var(--body); line-height:1.7}
+  .updated{font-family:var(--mono); font-size:13px; color:var(--dim); letter-spacing:.4px; margin:0 0 6px}
+  .tag{display:inline-block; font-family:var(--mono); font-size:11px; color:var(--gold-soft);
+    border:1px solid var(--line); border-radius:14px; padding:3px 10px; letter-spacing:.4px;
+    background:rgba(212,168,90,.04); margin:2px 4px 2px 0}
+  .ph{font-family:var(--mono); font-size:.86em; color:var(--gold); background:rgba(212,168,90,.08);
+    border:1px solid var(--line); border-radius:5px; padding:1px 6px; white-space:nowrap}
+  .mono{font-family:var(--mono)}
+  .card{border:1px solid var(--line); border-radius:12px; background:rgba(212,168,90,.03);
+    padding:18px 20px; margin:18px 0}
+  .card.hi{background:rgba(127,220,160,.05); border-color:rgba(127,220,160,.28)}
+  table{width:100%; border-collapse:collapse; margin:14px 0 18px; font-size:15px}
+  th,td{text-align:left; vertical-align:top; padding:10px 12px; border-bottom:1px solid var(--line)}
+  th{font-family:var(--mono); font-size:12px; color:var(--gold-soft); font-weight:400; letter-spacing:.5px}
+  td{color:var(--body)}
+  .toc{border:1px solid var(--line); border-radius:12px; padding:16px 20px; margin:24px 0 8px; background:rgba(212,168,90,.025)}
+  .toc h2{margin:0 0 8px; font-size:15px; font-family:var(--mono); font-variant:normal; letter-spacing:.5px; color:var(--gold-soft)}
+  .toc ol{margin:0; padding-left:22px; columns:2; column-gap:28px; font-size:15px}
+  .toc li{margin:0 0 5px}
+  .toc a{border-bottom:0; color:var(--body)}
+  .toc a:hover{color:var(--gold)}
+
+  /* ---- footer ---- */
+  footer{
+    color:var(--dim); font-size:13px; text-align:center;
+    padding:40px 22px 60px; border-top:1px solid var(--line); margin-top:40px;
+    font-family:var(--serif);
+  }
+  footer .flinks{margin-top:10px; font-family:var(--mono); font-size:12px; letter-spacing:.4px}
+  footer .flinks a{margin:0 7px; border-bottom:0; color:var(--dim)}
+  footer .flinks a:hover{color:var(--gold-soft)}
+
+  @media(max-width:680px){
+    body{font-size:16px}
+    h1{font-size:28px}
+    h2{font-size:21px}
+    main{padding:34px 18px 24px}
+    .toc ol{columns:1}
+  }
+</style>
+</head>
+<body>
+
+<nav aria-label="primary">
+  <a class="logo" href="/" aria-label="Urfael home">
+    <svg viewBox="0 0 128 128" role="img" aria-hidden="true">
+      <circle cx="64" cy="64" r="58" fill="#16110a" stroke="#d4a85a" stroke-width="2.5"/>
+      <g stroke="#e7c280" stroke-width="7" fill="none">
+        <path d="M47 30 L47 98"/>
+        <path d="M47 30 L81 52"/>
+        <path d="M81 52 L81 98"/>
+      </g>
+    </svg>
+    <b>Urfael</b>
+  </a>
+  <span class="spacer" style="flex:1"></span>
+  <a class="back" href="/">back to the site &rsaquo;</a>
+</nav>
+
+<main>
+  <p class="updated">Last updated: 22 June 2026</p>
+  <h1>Privacy Policy</h1>
+
+  <p class="lead">Short version: this website collects almost nothing, and the Urfael software is local-first. Urfael runs on <strong>your own machine</strong>, your conversations and your vault stay on your device, and we never receive your prompts, your memory, or your AI traffic. The only personal data this site can collect is an email address, and only if you choose to give us one.</p>
+
+  <div class="card hi">
+    <p style="margin:0"><strong>The software does not talk to us.</strong> When you run Urfael, it processes your data locally on your device. Your prompts and your vault are never sent to MYG Media or to any Urfael server, because there is no Urfael server and no Urfael account. The model you point Urfael at (for example your Claude subscription, another provider, or a local model on your own hardware) has its own terms and its own privacy notice, and that connection is between you and that provider. This policy covers the marketing website at urfael.com, not the AI model you choose to use with the software.</p>
+  </div>
+
+  <div class="toc">
+    <h2>On this page</h2>
+    <ol>
+      <li><a href="#controller">Who we are</a></li>
+      <li><a href="#collect">What this site collects</a></li>
+      <li><a href="#newsletter">Email and consent</a></li>
+      <li><a href="#logs">Server logs</a></li>
+      <li><a href="#cookies">Cookies and tracking</a></li>
+      <li><a href="#software">The local software</a></li>
+      <li><a href="#recipients">Who receives data</a></li>
+      <li><a href="#transfers">International transfers</a></li>
+      <li><a href="#retention">How long we keep data</a></li>
+      <li><a href="#rights">Your rights</a></li>
+      <li><a href="#complaint">Complaints</a></li>
+      <li><a href="#children">Children</a></li>
+      <li><a href="#changes">Changes</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ol>
+  </div>
+
+  <h2 id="controller">1. Who we are (the data controller)</h2>
+  <p>The controller responsible for personal data collected through urfael.com is:</p>
+  <p>
+    <strong>MYG Media SRL</strong> (a limited company registered in Romania)<br/>
+    Registered address: <span class="ph">[REGISTERED ADDRESS]</span><br/>
+    Trade register / company registration number (CUI): <span class="ph">[COMPANY REG. NO. / CUI]</span><br/>
+    Privacy contact: <a href="mailto:privacy@myg-media.com">privacy@myg-media.com</a> <span class="tag">to confirm</span>
+  </p>
+  <p>If you have any question about this policy or about how your data is handled, you can reach us at the email above.</p>
+
+  <h2 id="collect">2. What this site collects</h2>
+  <p>We have deliberately built urfael.com to gather as little as possible. In normal use, the site collects two things, and only one of them depends on you:</p>
+  <ul>
+    <li><strong>A newsletter or launch email address</strong>, but only if you type it into a form and submit it. See section 3.</li>
+    <li><strong>Standard server and hosting logs</strong>, created automatically by the companies that host the site, the same way almost every website on the internet works. See section 4.</li>
+  </ul>
+  <p>We do not ask you to create an account. We do not run advertising trackers. We do not build a profile of you. We do not sell or rent personal data to anyone, ever.</p>
+
+  <h2 id="newsletter">3. Email and consent (the newsletter or launch list)</h2>
+  <p>If you want to hear from us, for example to be told when Urfael ships an update or a new release, you can enter your email address into a form on the site and submit it. Here is exactly what happens.</p>
+  <table>
+    <tr><th>What we collect</th><td>The email address you type in, plus the technical metadata that comes with a form submission (such as the time it was sent and the originating IP address, handled by our form provider).</td></tr>
+    <tr><th>Why</th><td>To send you the updates or announcements you asked for. Nothing else.</td></tr>
+    <tr><th>Legal basis</th><td><strong>Your consent</strong> (Article 6(1)(a) GDPR). You give it by choosing to submit the form. You can withdraw it at any time.</td></tr>
+    <tr><th>Processor</th><td>An email or form service provider, for example Formspree or Buttondown, typically based in the United States. <span class="tag">specific provider to confirm</span></td></tr>
+  </table>
+  <p><strong>Withdrawing your consent is easy and free.</strong> Every email we send includes an unsubscribe link, and one click removes you. You can also email <a href="mailto:privacy@myg-media.com">privacy@myg-media.com</a> and ask us to delete your address. Withdrawing consent stops future emails and leads to deletion of your address from the list; it does not affect the lawfulness of anything we did with your consent before you withdrew it.</p>
+  <p>Giving us your email is entirely optional. The website works exactly the same whether or not you ever submit the form.</p>
+
+  <h2 id="logs">4. Server logs (hosting and security)</h2>
+  <p>Like virtually every website, urfael.com is served by hosting providers that automatically keep technical logs so the site can run, stay available, and be defended against attacks and abuse. These logs can include your IP address, the date and time of the request, the page or file requested, the referring page, and your browser and device type (the user-agent string).</p>
+  <p><strong>Legal basis: legitimate interest</strong> (Article 6(1)(f) GDPR). The legitimate interest is operating the site reliably, keeping it secure, diagnosing faults, and preventing abuse. We do not use these logs to identify or profile individual visitors for marketing. You have the right to object to this processing (see section 10).</p>
+
+  <h2 id="cookies">5. Cookies and tracking</h2>
+  <div class="card">
+    <p style="margin:0"><strong>At present, urfael.com does not set any analytics or tracking cookies, and it runs no third-party advertising or analytics trackers.</strong> There is no consent banner because there is nothing here that legally requires one. Any cookie strictly necessary to serve the site or to operate the form would be used only to make the page function, not to track you.</p>
+  </div>
+  <p>If we ever add analytics or any non-essential cookie in the future, we will first show a clear cookie banner and ask for your consent before any such cookie is set, and we will update this policy to describe it.</p>
+
+  <h2 id="software">6. The Urfael software (local-first, on your machine)</h2>
+  <p>Urfael is open-source software released under the MIT license that you download and run on your own computer. This is the heart of why Urfael exists, so we want to be plain about it:</p>
+  <ul>
+    <li>The software processes your data <strong>locally on your device</strong>.</li>
+    <li>Your vault, your notes, and your memory are stored <strong>on your machine only</strong>. They are not uploaded to us.</li>
+    <li>MYG Media does <strong>not</strong> receive your prompts, your conversations, or your AI traffic. There is no Urfael account and no Urfael server in the loop.</li>
+  </ul>
+  <p>When Urfael needs an AI model to think, it connects to whatever model provider you configure, for example your existing Claude subscription, another provider, or a local model running on your own hardware. That connection is directly between you and that provider, under that provider's own terms and privacy notice. We are not a party to it and we do not see it. For data handled entirely on your own machine by software you control, MYG Media is not the controller.</p>
+
+  <h2 id="recipients">7. Who receives data (processors and recipients)</h2>
+  <p>To run the website, we rely on a small number of service providers acting on our behalf or hosting the content. They process data only as needed to provide their service.</p>
+  <table>
+    <tr><th>Recipient</th><th>Role</th><th>What they handle</th></tr>
+    <tr><td><strong>Vercel</strong></td><td>Website hosting and delivery</td><td>Server logs, including IP and request data, to serve and protect the site.</td></tr>
+    <tr><td><strong>GitHub</strong> (Pages / CDN)</td><td>Code hosting and content delivery</td><td>Standard access logs when assets are served from their network.</td></tr>
+    <tr><td><strong>Email / form provider</strong><br/><span class="tag">to confirm</span></td><td>Newsletter delivery</td><td>Your email address and form submission metadata, only if you submit the form.</td></tr>
+  </table>
+  <p>We do not sell personal data, and we do not share it with anyone except the providers above for the purposes described. We may disclose data if we are legally required to do so, for example by a valid order from a competent authority.</p>
+
+  <h2 id="transfers">8. International data transfers</h2>
+  <p>Some of the providers above are based in, or store data in, the United States. Where personal data is transferred outside the European Economic Area, that transfer is protected by appropriate safeguards under the GDPR, in particular the European Commission's Standard Contractual Clauses (SCCs) and, where applicable, an adequacy framework. You can ask us for more detail about the safeguards in place using the contact details in section 1.</p>
+
+  <h2 id="retention">9. How long we keep data</h2>
+  <ul>
+    <li><strong>Newsletter email:</strong> kept until you unsubscribe or ask us to delete it, after which it is removed from the active list within a reasonable period. We do not keep your address once you have withdrawn consent.</li>
+    <li><strong>Server logs:</strong> kept by our hosting providers for a short period for security and operational purposes, then deleted or anonymised according to their standard retention practices.</li>
+  </ul>
+  <p>We do not keep personal data longer than we need it for the purpose it was collected for.</p>
+
+  <h2 id="rights">10. Your rights</h2>
+  <p>Under the GDPR you have the following rights over your personal data. They are free to exercise:</p>
+  <ul>
+    <li><strong>Access:</strong> ask whether we hold data about you and get a copy of it.</li>
+    <li><strong>Rectification:</strong> have inaccurate or incomplete data corrected.</li>
+    <li><strong>Erasure:</strong> ask us to delete your data (the "right to be forgotten").</li>
+    <li><strong>Restriction:</strong> ask us to limit how we use your data in certain cases.</li>
+    <li><strong>Portability:</strong> receive the data you gave us in a structured, commonly used, machine-readable format, and have it sent to another controller where technically feasible.</li>
+    <li><strong>Objection:</strong> object to processing based on legitimate interest, including the server logs described in section 4.</li>
+    <li><strong>Withdraw consent:</strong> where we rely on your consent (the newsletter), withdraw it at any time. This is as simple as clicking unsubscribe or emailing us, and it does not affect processing carried out before you withdrew.</li>
+  </ul>
+  <p>To exercise any of these rights, email <a href="mailto:privacy@myg-media.com">privacy@myg-media.com</a> <span class="tag">to confirm</span>. We will respond within one month, as required by law. We may need to confirm your identity before acting, to protect your data.</p>
+
+  <h2 id="complaint">11. The right to lodge a complaint</h2>
+  <p>If you believe we have handled your personal data unlawfully, we would like the chance to put it right, so please contact us first. You also have the right to lodge a complaint with a supervisory authority. In Romania, where MYG Media SRL is established, that authority is:</p>
+  <p>
+    <strong>The National Supervisory Authority for Personal Data Processing (ANSPDCP)</strong><br/>
+    B-dul G-ral. Gheorghe Magheru 28-30, Sector 1, 010336 Bucharest, Romania<br/>
+    Web: <a href="https://www.dataprotection.ro" rel="nofollow noopener">www.dataprotection.ro</a>
+  </p>
+  <p>You may also complain to the data protection authority in your own country of residence or place of work within the EU or EEA.</p>
+
+  <h2 id="children">12. Children</h2>
+  <p>This site is intended for a general, adult audience. We do not knowingly collect personal data from children. If you believe a child has submitted personal data to us, please contact us and we will delete it.</p>
+
+  <h2 id="changes">13. Changes to this policy</h2>
+  <p>We may update this policy from time to time, for example if we add a new processor or a new feature. When we do, we will change the "Last updated" date at the top of this page. If a change is significant, we will make a reasonable effort to flag it more prominently.</p>
+
+  <h2 id="contact">14. Contact</h2>
+  <p>Questions about this policy or about your data? Email <a href="mailto:privacy@myg-media.com">privacy@myg-media.com</a> <span class="tag">to confirm</span>, or write to MYG Media SRL at <span class="ph">[REGISTERED ADDRESS]</span>.</p>
+</main>
+
+<footer>
+  Urfael is open source under the MIT license. © 2026 MYG Media SRL.
+  <div class="flinks">
+    <a href="/privacy.html">Privacy</a> &middot;
+    <a href="/terms.html">Terms</a> &middot;
+    <a href="/imprint.html">Imprint</a>
+  </div>
+</footer>
+
+</body>
+</html>

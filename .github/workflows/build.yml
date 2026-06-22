@@ -15,6 +15,9 @@ on:
     tags: ['v*']
   workflow_dispatch: {}
 
+permissions:
+  contents: write   # needed to publish installers to a GitHub Release on tag
+
 jobs:
   package:
     strategy:
@@ -52,3 +55,15 @@ jobs:
             app/dist/*.AppImage
             app/dist/*.exe
           if-no-files-found: ignore
+      # On a tag push, attach the installers to the GitHub Release so urfael.com's download buttons resolve.
+      - name: Publish installers to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app/dist/*.dmg
+            app/dist/*.zip
+            app/dist/*.AppImage
+            app/dist/*.exe
+          fail_on_unmatched_files: false
+          generate_release_notes: true
