@@ -44,7 +44,7 @@
       "url":"https://urfael.com/","downloadUrl":"https://github.com/Grandillionaire/urfael","license":"https://opensource.org/licenses/MIT",
       "image":"https://urfael.com/media/og.png",
       "description":"A personal, voice-capable AI you run on your own machine. Security-first, on the flat-rate Claude subscription you already pay for. No inbound port; it resists the attacks that compromised other self-hosted agents (10/10 attack classes, 95/95 checks). A more secure, honest alternative to OpenClaw and Hermes Agent.",
-      "featureList":["No inbound network port (unix-socket only)","Runs on a flat-rate Claude subscription, no per-token meter","Local voice in and out (whisper.cpp + local TTS)","Tamper-evident Ledger of Record with an ed25519 seal","19 hardened chat channels with a fail-closed allowlist","Multi-agent Council","Runnable security benchmark (npm run security)","urfael code: Claude Code in your repo with checkpoint and rewind"],
+      "featureList":["No inbound network port (unix-socket only)","Runs on a flat-rate Claude subscription, no per-token meter","Local voice in and out (whisper.cpp + local TTS)","Tamper-evident Ledger of Record with an ed25519 seal","Nineteen hardened chat channels with a fail-closed allowlist","Multi-agent Council","Runnable security benchmark (npm run security)","urfael code: Claude Code in your repo with checkpoint and rewind"],
       "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},
       "publisher":{"@id":"https://urfael.com/#org"}
     },
@@ -68,18 +68,18 @@
     },
     {
       "@type": "Question",
-      "name": "Does Urfael depend on Anthropic, and what if their terms change?",
+      "name": "Is it actually secure, or is that just a word?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Urfael is not built, endorsed, or operated by Anthropic, and running it on a flat-rate Claude subscription depends on Anthropic's consumer terms, which we do not control. We say so plainly. It is not a single point of failure: the same Urfael, with the same security guarantees, also runs on any of 30 providers through a documented proxy, or on a local model on your own GPU, with one config line. So if those terms ever change, your cost model changes, not the product."
+        "text": "It is a command: npm run security. It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists 10 of 10 real-world attack classes across 95 of 95 checks. You do not take our word for it. You run it."
       }
     },
     {
       "@type": "Question",
-      "name": "Is it actually secure, or is that just a word?",
+      "name": "Does Urfael depend on Anthropic, and what if their terms change?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "It is a command: npm run security . It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists 10 of 10 real-world attack classes across 95 of 95 checks. You do not take our word for it. You run it."
+        "text": "Urfael is not built, endorsed, or operated by Anthropic, and running it on a flat-rate Claude subscription depends on Anthropic's consumer terms, which we do not control. We say so plainly. It is not a single point of failure: the same Urfael, with the same security guarantees, also runs on any of 30 providers through a documented proxy, or on a local model on your own GPU, with one config line. So if those terms ever change, your cost model changes, not the product."
       }
     }
   ]
@@ -100,6 +100,7 @@
   code,.mono{font-family:var(--mono);font-size:.9em;color:var(--gold-soft)}
   pre{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:14px 16px;overflow:auto;font:13.5px/1.6 var(--mono);color:var(--gold-soft)}
   .btn{display:inline-block;border:1px solid var(--line);border-radius:9px;padding:11px 20px;color:var(--gold-soft);background:rgba(212,168,90,.08);font-variant:small-caps;letter-spacing:1px;margin:6px;transition:.2s}
+  .btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
   .btn:hover{background:rgba(212,168,90,.18);color:#fff}
   .btn.primary{background:linear-gradient(180deg,rgba(255,138,66,.18),rgba(212,168,90,.10));border-color:rgba(212,168,90,.45)}
   /* nav */
@@ -167,6 +168,8 @@
   .p-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
   .p-chip{font:12px var(--mono);color:var(--gold-soft);background:rgba(212,168,90,.05);border:1px solid var(--line);border-radius:18px;padding:6px 12px;cursor:pointer;transition:.2s}
   .p-chip[aria-selected="true"]{background:rgba(255,138,66,.16);border-color:rgba(212,168,90,.5);color:#fff}
+  .p-chip:hover{background:rgba(212,168,90,.12)}
+  .p-chip:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
   /* council + ledger svg */
   .stage{border:1px solid var(--line);border-radius:12px;background:radial-gradient(130% 130% at 50% 22%,#181308,#0b0a07);padding:8px;overflow:hidden}
   /* council */
@@ -247,7 +250,7 @@
   <div class="nlinks">
     <a href="#proof">Proof</a><a href="#council">Council</a><a href="#cockpit">Cockpit</a>
     <a href="#coding">Coding</a><a href="#personas">Personas</a><a href="#trust">Trust</a><a href="#wheel">Connects</a>
-    <a href="#honesty">Honesty</a><a href="#editions">Editions</a><a href="#install">Install</a><a href="manual/">Manual</a>
+    <a href="#compare">Honesty</a><a href="#editions">Editions</a><a href="#install">Install</a><a href="manual/">Manual</a>
   </div>
   <span class="nseal" id="navSeal">ᚢ 10/10</span>
 </nav>
@@ -369,7 +372,7 @@ This restores your tracked files to that snapshot. The current state is checkpoi
       <div class="p-glyph">ᚢ</div>
       <div><div class="p-name">Urfael</div><div class="p-ess">the dry old-intelligence butler, the anchor</div></div>
     </div>
-    <div class="p-chips" role="tablist"></div>
+    <div class="p-chips" role="tablist" aria-label="Persona"></div>
     <p class="cap">all five personas plus the Urfael anchor are real in app/personas.js · faithful re-creation of real urfael output</p>
   </section>
 
@@ -417,35 +420,13 @@ This restores your tracked files to that snapshot. The current state is checkpoi
   </section>
 
   <section id="compare">
-    <h2>The honest comparison</h2>
-    <p>Every win is real, and every gap is admitted in the same table.</p>
-    <table>
-      <tr><th>Capability</th><th>Urfael</th><th>Hermes</th><th>OpenClaw</th></tr>
-      <tr><td>No inbound network port</td><td class="y">✅ none</td><td class="w">⚠️ varies</td><td class="w">⚠️ gateway/DMs</td></tr>
-      <tr><td>Ships an attack benchmark</td><td class="y">✅ <span class="mono">npm run security</span></td><td class="n">❌</td><td class="n">❌</td></tr>
-      <tr><td>Flat-rate cost (no per-token)</td><td class="y">✅ subscription</td><td class="n">❌</td><td class="n">❌</td></tr>
-      <tr><td>Can prove what it did (ledger + seal)</td><td class="y">✅</td><td class="n">❌</td><td class="n">❌</td></tr>
-      <tr><td>Live, watchable multi-agent Council</td><td class="y">✅</td><td class="w">⚠️ opaque</td><td class="w">⚠️ opaque</td></tr>
-      <tr><td>Undoable coding turns (checkpoint + rewind)</td><td class="y">✅ auto-checkpoint + reversible rewind</td><td class="w">⚠️ none documented</td><td class="w">⚠️ none documented</td></tr>
-      <tr><td>Skill hub that can't ship malware</td><td class="y">✅ scanned + sha-pinned + never run</td><td class="w">⚠️</td><td class="n">❌ no scan gate</td></tr>
-      <tr><td>Proactive memory recall (every turn)</td><td class="y">✅ retrieves per turn</td><td class="w">⚠️ frozen snapshot</td><td class="w">⚠️ agent must search</td></tr>
-      <tr><td>Generative UI that can't run code</td><td class="y">✅ sanitized canvas</td><td class="n">❌</td><td class="w">⚠️ renders agent HTML</td></tr>
-      <tr><td>Chat-channel breadth</td><td class="y">✅ 19 (11 native + 8 webhook)</td><td class="y">✅ many</td><td class="y">✅ 20+</td></tr>
-      <tr><td>Battle-tested at scale</td><td class="w">⚠️ small, &amp; we say so</td><td class="y">✅ large</td><td class="y">✅ very large</td></tr>
-    </table>
-    <p class="cap">We win where it counts for a machine that lives on your desk and acts for you: blast radius, cost, provability, and not overstating maturity.</p>
-  </section>
-
-  <section id="honesty">
-    <h2>What's lightly tested</h2>
-    <p class="lede">Honesty is a feature here, so this section exists on purpose.</p>
-    <ul>
-      <li><b>Every feature is verified end-to-end</b> by an in-repo harness (<span class="mono">npm run e2e</span>) against a live daemon, plus <b>520 unit tests</b>, several of them frozen adversarial security regressions.</li>
-      <li><b>The Matrix, Signal and WhatsApp bridges</b>, the <b>eight native webhook channels</b> (Mattermost, Google Chat, SMS, DingTalk, Home Assistant, BlueBubbles, Feishu, WeCom), <b>Discord voice channels</b>, and the <b>Android/Termux</b> host are code-complete and reviewed, their parsing, verification, and allowlist logic unit-tested and frozen as benchmark checks, but not yet certified against live accounts or a real device. Treat them that way.</li>
-      <li><b>A2UI canvas</b> ships as a protocol and a validator (unit-tested, benchmark-frozen as XSS-proof); live rendering of A2UI blocks in the dashboard and Console is the next increment, not yet built.</li>
-      <li><b>Linux runs the full stack</b> but is newer than macOS and has less mileage; <b>real-world scale is small</b>, because this is a personal tool and we say so; the GUI is unsigned.</li>
-      <li>If you want twenty channels and every model under the sun, OpenClaw and Hermes are excellent at breadth. If you want the smallest possible blast radius, a flat bill, local voice, and a tool that is straight with you about its limits, stay.</li>
-    </ul>
+    <h2>The honest part</h2>
+    <p class="lede">Against Hermes Agent and OpenClaw, Urfael wins where it counts for a machine that lives on your desk: no inbound port, a flat bill, an attack benchmark you run yourself, and a ledger that proves what it did. It loses on raw scale and channel count, and we put that in the same table.</p>
+    <p class="lede" style="margin-top:12px">The security posture is verified by a command and frozen by 520 tests. The newer bridges, Discord voice, and the Android host are code-complete but not yet certified against live accounts, and we label them that way.</p>
+    <p style="text-align:center;margin:24px 0 0">
+      <a href="/compare" style="font-family:ui-monospace,Menlo,monospace;font-size:14px;letter-spacing:.5px;color:#ecd3a0;border:1px solid rgba(212,168,90,.25);padding:11px 22px;border-radius:10px;display:inline-block;margin:5px">The full comparison &rsaquo;</a>
+      <a href="/honesty" style="font-family:ui-monospace,Menlo,monospace;font-size:14px;letter-spacing:.5px;color:#ecd3a0;border:1px solid rgba(212,168,90,.25);padding:11px 22px;border-radius:10px;display:inline-block;margin:5px">What&rsquo;s lightly tested &rsaquo;</a>
+    </p>
   </section>
 
   <section id="install">
@@ -562,7 +543,7 @@ cd app &amp;&amp; npm start # the Console opens</pre>
     An independent open-source project (MIT), not affiliated with, endorsed by, or sponsored by Anthropic.<br/>
     "Claude" and "Claude Code" are trademarks of Anthropic. Provider names and marks belong to their respective owners and indicate compatibility only.
     <div style="margin-top:16px;font-family:var(--mono);font-size:12px;letter-spacing:.3px">
-      <a href="/faq" style="color:var(--gold-soft)">FAQ</a> &middot; <a href="/privacy" style="color:var(--gold-soft)">Privacy</a> &middot; <a href="/terms" style="color:var(--gold-soft)">Terms</a> &middot; <a href="/imprint" style="color:var(--gold-soft)">Imprint</a> &middot; <a href="https://github.com/Grandillionaire/urfael/blob/main/LICENSE" style="color:var(--gold-soft)">MIT License</a> &middot; <a href="https://github.com/Grandillionaire/urfael" style="color:var(--gold-soft)">GitHub</a>
+      <a href="/faq" style="color:var(--gold-soft)">FAQ</a> &middot; <a href="/compare" style="color:var(--gold-soft)">Compare</a> &middot; <a href="/honesty" style="color:var(--gold-soft)">What&rsquo;s tested</a> &middot; <a href="/privacy" style="color:var(--gold-soft)">Privacy</a> &middot; <a href="/terms" style="color:var(--gold-soft)">Terms</a> &middot; <a href="/imprint" style="color:var(--gold-soft)">Imprint</a> &middot; <a href="https://github.com/Grandillionaire/urfael/blob/main/LICENSE" style="color:var(--gold-soft)">MIT License</a> &middot; <a href="https://github.com/Grandillionaire/urfael" style="color:var(--gold-soft)">GitHub</a>
     </div>
     <div style="margin-top:9px;font-family:var(--mono);font-size:11px;color:var(--dim);opacity:.75">&copy; 2026 MYG Media SRL</div>
   </div>
@@ -636,12 +617,13 @@ const PERSONAS=[{g:'ᚢ',n:'Urfael',e:'the dry old-intelligence butler, the anch
  {g:'ᛁ',n:'The Analyst',e:'loyal skeptic, interrogates the premise, names the cheaper alternative'}];
 ANIMS.personas=root=>{ const glyph=root.querySelector('.p-glyph'), name=root.querySelector('.p-name'), ess=root.querySelector('.p-ess');
   const chips=document.querySelector('.p-chips');
-  chips.innerHTML=PERSONAS.map((p,i)=>'<button class="p-chip" role="tab" aria-selected="'+(i===0)+'" data-i="'+i+'"><span>'+p.g+'</span> '+p.n+'</button>').join('');
+  chips.innerHTML=PERSONAS.map((p,i)=>'<button class="p-chip" role="tab" aria-selected="'+(i===0)+'" tabindex="'+(i===0?0:-1)+'" data-i="'+i+'"><span>'+p.g+'</span> '+p.n+'</button>').join('');
   let auto=true;
-  const sel=i=>{ [...chips.children].forEach((c,j)=>c.setAttribute('aria-selected',j===i));
+  const sel=i=>{ [...chips.children].forEach((c,j)=>{c.setAttribute('aria-selected',j===i);c.tabIndex=j===i?0:-1;});
     const set=()=>{glyph.textContent=PERSONAS[i].g;name.textContent=PERSONAS[i].n;ess.textContent=PERSONAS[i].e;};
     if(RM){set();return;} glyph.animate([{opacity:1,transform:'rotate(0)'},{opacity:0,transform:'rotate(-16deg)'},{opacity:1,transform:'rotate(0)'}],{duration:420}); setTimeout(set,210); };
   chips.addEventListener('click',e=>{const b=e.target.closest('.p-chip'); if(b){auto=false; sel(+b.dataset.i);}});
+  chips.addEventListener('keydown',e=>{const ks={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1,Home:'h',End:'e'}; if(!(e.key in ks))return; e.preventDefault(); auto=false; const m=PERSONAS.length; let c=[...chips.children].findIndex(x=>x.getAttribute('aria-selected')==='true'); let t=ks[e.key]==='h'?0:ks[e.key]==='e'?m-1:(c+ks[e.key]+m)%m; sel(t); chips.children[t].focus();});
   let i=0; sel(0); if(!RM){ const iv=setInterval(()=>{ if(!auto){clearInterval(iv);return;} i=(i+1)%PERSONAS.length; sel(i); },2600); } };
 
 /* 5) ledger hash-chain: actions appended as linked blocks, then sealed */

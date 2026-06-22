@@ -10,6 +10,14 @@
 <link rel="icon" href="/favicon.ico" sizes="32x32" />
 <link rel="icon" type="image/svg+xml" href="/media/favicon.svg" />
 <meta name="theme-color" content="#0d0c0a" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Urfael" />
+<meta property="og:title" content="Urfael FAQ, every question answered" />
+<meta property="og:description" content="Honest answers about cost, security, the Anthropic dependency, models, offline use, and how Urfael proves what it did." />
+<meta property="og:url" content="https://urfael.com/faq" />
+<meta property="og:image" content="https://urfael.com/media/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://urfael.com/media/og.png" />
 <style>
   :root{--bg:#0d0c0a;--bg2:#161109;--gold:#d4a85a;--gold-soft:#ecd3a0;--body:#e8e0cf;--dim:#a99b78;--line:rgba(212,168,90,.20);--serif:"Iowan Old Style","Palatino","Book Antiqua",Georgia,serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
   *{box-sizing:border-box}
@@ -67,7 +75,7 @@
       "name": "Is it actually secure, or is that just a word?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "It is a command: npm run security . It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists 10 of 10 real-world attack classes across 95 of 95 checks. You do not take our word for it. You run it."
+        "text": "It is a command: npm run security. It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists 10 of 10 real-world attack classes across 95 of 95 checks. You do not take our word for it. You run it."
       }
     },
     {
@@ -75,7 +83,7 @@
       "name": "Is Urfael an alternative to OpenClaw or Hermes Agent?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Yes, and an honest one. OpenClaw and Hermes Agent optimize for channel count and model breadth, and they are genuinely good at it. Urfael optimizes for what matters when a machine lives on your desk and acts for you: the smallest blast radius, a flat bill, local voice, and not overstating what it does. Where the others default to optional sandboxes and an inbound surface, Urfael opens no network port , allowlists every sender before the brain sees a token, and runs remote turns read-only by default. It ships a security benchmark you run yourself ( 10/10 attack classes, 95/95 checks) and a tamper-evident ledger so it can prove what it did. The full comparison, every win and every gap in the same table, is above ."
+        "text": "Yes, and an honest one. OpenClaw and Hermes Agent optimize for channel count and model breadth, and they are genuinely good at it. Urfael optimizes for what matters when a machine lives on your desk and acts for you: the smallest blast radius, a flat bill, local voice, and not overstating what it does. Where the others default to optional sandboxes and an inbound surface, Urfael opens no network port, allowlists every sender before the brain sees a token, and runs remote turns read-only by default. It ships a security benchmark you run yourself (10/10 attack classes, 95/95 checks) and a tamper-evident ledger so it can prove what it did. The full comparison, every win and every gap in the same table, is in the full comparison."
       }
     },
     {
@@ -83,7 +91,7 @@
       "name": "What is the most secure self-hosted AI agent?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Security is something you should be able to verify , not a word you read. Urfael was built blast-radius-first: no inbound network port (a 0600 unix socket only), fail-closed allowlists on every channel, read-only sandboxed remote turns, and autonomous work confined to throwaway containers with no secrets mounted. The proof is a command, npm run security , which boots the real daemon and runs the actual attacks that compromised other self-hosted agents in 2026, landing on 10/10 attack classes and 95/95 checks. Run it yourself rather than take anyone's word for it."
+        "text": "Security is something you should be able to verify, not a word you read. Urfael was built blast-radius-first: no inbound network port (a 0600 unix socket only), fail-closed allowlists on every channel, read-only sandboxed remote turns, and autonomous work confined to throwaway containers with no secrets mounted. The proof is a command, npm run security, which boots the real daemon and runs the actual attacks that compromised other self-hosted agents in 2026, landing on 10/10 attack classes and 95/95 checks. Run it yourself rather than take anyone's word for it."
       }
     },
     {
@@ -115,7 +123,7 @@
       "name": "Can I use a model other than Claude?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Yes. Claude is native through your subscription, the one path billed to you with no per-token meter. Every other provider (OpenAI, Gemini, Llama, Mistral, DeepSeek, Groq, Ollama, LM Studio, NVIDIA NIM, OpenRouter, Bedrock, Vertex, Azure) runs through a documented Anthropic-compatible proxy such as claude-code-router or LiteLLM, with the same sandbox harness enforcing the boundaries. You can also switch models mid-conversation by just saying so: switch to opus ."
+        "text": "Yes. Claude is native through your subscription, the one path billed to you with no per-token meter. Every other provider (OpenAI, Gemini, Llama, Mistral, DeepSeek, Groq, Ollama, LM Studio, NVIDIA NIM, OpenRouter, Bedrock, Vertex, Azure) runs through a documented Anthropic-compatible proxy such as claude-code-router or LiteLLM, with the same sandbox harness enforcing the boundaries. You can also switch models mid-conversation by just saying so: switch to opus."
       }
     },
     {
@@ -177,7 +185,7 @@
   <details><summary>What does it cost to run?</summary><div class="ans">By default, your existing Claude subscription, flat-rate. There is no Urfael account and no server you rent from us. You can also point it at any of 30 providers (you pay their per-token rate) or at a local model on your own GPU, where it costs you only electricity. We do not see your traffic; there is nothing to see. On the subscription path, see the next answer about Anthropic's terms.</div></details>
   <details><summary>Does Urfael depend on Anthropic, and what if their terms change?</summary><div class="ans">Urfael is not built, endorsed, or operated by Anthropic, and running it on a flat-rate Claude subscription depends on Anthropic's consumer terms, which we do not control. We say so plainly. It is not a single point of failure: the same Urfael, with the same security guarantees, also runs on any of 30 providers through a documented proxy, or on a local model on your own GPU, with one config line. So if those terms ever change, your cost model changes, not the product.</div></details>
   <details><summary>Is it actually secure, or is that just a word?</summary><div class="ans">It is a command: <code>npm run security</code>. It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists <b>10 of 10</b> real-world attack classes across <b>95 of 95</b> checks. You do not take our word for it. You run it.</div></details>
-  <details><summary>Is Urfael an alternative to OpenClaw or Hermes Agent?</summary><div class="ans">Yes, and an honest one. OpenClaw and Hermes Agent optimize for channel count and model breadth, and they are genuinely good at it. Urfael optimizes for what matters when a machine lives on your desk and acts for you: the smallest blast radius, a flat bill, local voice, and not overstating what it does. Where the others default to optional sandboxes and an inbound surface, Urfael opens <b>no network port</b>, allowlists every sender <i>before</i> the brain sees a token, and runs remote turns read-only by default. It ships a security benchmark you run yourself (<b>10/10</b> attack classes, <b>95/95</b> checks) and a tamper-evident ledger so it can prove what it did. The full comparison, every win and every gap in the same table, is <a href="#compare">above</a>.</div></details>
+  <details><summary>Is Urfael an alternative to OpenClaw or Hermes Agent?</summary><div class="ans">Yes, and an honest one. OpenClaw and Hermes Agent optimize for channel count and model breadth, and they are genuinely good at it. Urfael optimizes for what matters when a machine lives on your desk and acts for you: the smallest blast radius, a flat bill, local voice, and not overstating what it does. Where the others default to optional sandboxes and an inbound surface, Urfael opens <b>no network port</b>, allowlists every sender <i>before</i> the brain sees a token, and runs remote turns read-only by default. It ships a security benchmark you run yourself (<b>10/10</b> attack classes, <b>95/95</b> checks) and a tamper-evident ledger so it can prove what it did. The full comparison, every win and every gap in the same table, is <a href="/compare">in the full comparison</a>.</div></details>
   <details><summary>What is the most secure self-hosted AI agent?</summary><div class="ans">Security is something you should be able to <i>verify</i>, not a word you read. Urfael was built blast-radius-first: no inbound network port (a <code>0600</code> unix socket only), fail-closed allowlists on every channel, read-only sandboxed remote turns, and autonomous work confined to throwaway containers with no secrets mounted. The proof is a command, <code>npm run security</code>, which boots the real daemon and runs the actual attacks that compromised other self-hosted agents in 2026, landing on <b>10/10</b> attack classes and <b>95/95</b> checks. Run it yourself rather than take anyone's word for it.</div></details>
   <details><summary>A prompt injection got other agents to leak secrets. Why not this one?</summary><div class="ans">Because the containment is structural, not a clever prompt. Remote and untrusted turns run a read-only profile: read and search your notes, no shell, no write, and critically no network-egress tool. The vault also denies the agent reading your credential stores outright, a hard boundary that holds even in Full mode. So an injected "read a secret and send it somewhere" has nothing to read and nowhere to send.</div></details>
   <details><summary>So is there any mode where an injection could leak something?</summary><div class="ans">Yes, and we will not hide it. The default Fortress posture has no egress, so untrusted content cannot exfiltrate at all. If you deliberately enable Full mode the agent can fetch the web, which means a successful injection could exfiltrate notes you have given it, though never your credentials, because the credential-deny boundary still holds. Run Full mode only in a VM, a container, or a throwaway account. The benchmark, the docs, and this answer all say the same thing on purpose.</div></details>

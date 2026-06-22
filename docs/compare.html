@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Urfael vs Hermes vs OpenClaw, the honest comparison</title>
+<meta name="description" content="An honest, side-by-side comparison of Urfael, Hermes Agent, and OpenClaw: blast radius, cost, provability, and where each one wins or falls short. Every gap admitted in the same table." />
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://urfael.com/compare" />
+<link rel="icon" href="/favicon.ico" sizes="32x32" />
+<link rel="icon" type="image/svg+xml" href="/media/favicon.svg" />
+<meta name="theme-color" content="#0d0c0a" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Urfael" />
+<meta property="og:title" content="Urfael vs Hermes vs OpenClaw, the honest comparison" />
+<meta property="og:description" content="Every win and every gap in one table: blast radius, cost, provability. We are smaller, and we say so." />
+<meta property="og:url" content="https://urfael.com/compare" />
+<meta property="og:image" content="https://urfael.com/media/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://urfael.com/media/og.png" />
+<style>
+  :root{--bg:#0d0c0a;--bg2:#161109;--gold:#d4a85a;--gold-soft:#ecd3a0;--body:#e8e0cf;--dim:#a99b78;--line:rgba(212,168,90,.20);--green:#7fdca0;--ember:#ff8a42;--serif:"Iowan Old Style","Palatino","Book Antiqua",Georgia,serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--body);font:17px/1.7 var(--serif);background-image:radial-gradient(1100px 540px at 50% -8%,var(--bg2),var(--bg) 62%);-webkit-font-smoothing:antialiased}
+  a{color:var(--gold-soft);text-decoration:none}a:hover{color:var(--gold)}
+  nav{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:13px;padding:13px 22px;background:rgba(13,12,10,.86);backdrop-filter:saturate(140%) blur(8px);border-bottom:1px solid var(--line)}
+  nav .logo{display:inline-flex;align-items:center;gap:11px}nav .logo svg{width:34px;height:34px}nav .logo b{color:var(--gold);font-size:20px;font-variant:small-caps;letter-spacing:1px}
+  nav .spacer{flex:1}nav .back{font:13px var(--mono);color:var(--dim)}nav .back:hover{color:var(--gold-soft)}
+  main{max-width:860px;margin:0 auto;padding:44px 22px 30px}
+  h1{font-size:34px;color:var(--gold);font-variant:small-caps;letter-spacing:1.2px;font-weight:600;margin:6px 0 6px}
+  .lead{font-size:18px;color:var(--dim);margin:0 0 22px}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14.5px}
+  th,td{text-align:left;padding:10px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--gold);font-variant:small-caps;letter-spacing:1px;font-weight:500}
+  td.y{color:var(--green)}td.w{color:var(--ember)}td.n{color:#c96}
+  .mono{font-family:var(--mono);font-size:.9em;color:var(--gold-soft)}
+  .pill{font:12px var(--mono);color:var(--green);border:1px solid rgba(127,220,160,.3);border-radius:14px;padding:2px 9px;white-space:nowrap}
+  .cap{color:var(--dim);font-size:12.5px;margin-top:10px;font-family:var(--mono);letter-spacing:.3px}
+  .xlink{margin-top:28px;font-family:var(--mono);font-size:14px}
+  footer{color:var(--dim);font-size:13px;text-align:center;padding:40px 22px 60px;border-top:1px solid var(--line);margin-top:40px}
+  footer .fl{margin-top:10px;font:12px var(--mono);letter-spacing:.4px}footer .fl a{margin:0 7px;color:var(--dim)}footer .fl a:hover{color:var(--gold-soft)}
+  @media(max-width:680px){body{font-size:16px}h1{font-size:28px}main{padding:34px 16px 24px}table{font-size:13px}th,td{padding:8px 7px}}
+</style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": "Urfael", "item": "https://urfael.com/"},
+    {"@type": "ListItem", "position": 2, "name": "Comparison", "item": "https://urfael.com/compare"}
+  ]
+}
+</script>
+</head>
+<body>
+<nav aria-label="primary">
+  <a class="logo" href="/" aria-label="Urfael home"><svg viewBox="0 0 128 128" aria-hidden="true"><circle cx="64" cy="64" r="58" fill="#16110a" stroke="#d4a85a" stroke-width="2.5"/><g stroke="#e7c280" stroke-width="7" fill="none"><path d="M47 30 L47 98"/><path d="M47 30 L81 52"/><path d="M81 52 L81 98"/></g></svg><b>Urfael</b></a>
+  <span class="spacer"></span>
+  <a class="back" href="/">back to the site &rsaquo;</a>
+</nav>
+<main>
+  <h1>The honest comparison</h1>
+  <p class="lead">Urfael, Hermes Agent, and OpenClaw, every win and every gap in one table. Urfael wins where it counts for a machine that lives on your desk and acts for you: the smallest blast radius, a flat bill, and the ability to prove what it did. We are smaller and newer, and we say so in the same table.</p>
+  <table>
+    <tr><th>Capability</th><th>Urfael</th><th>Hermes</th><th>OpenClaw</th></tr>
+    <tr><td>No inbound network port</td><td class="y">none</td><td class="w">varies</td><td class="w">gateway/DMs</td></tr>
+    <tr><td>Ships an attack benchmark</td><td class="y">yes, <span class="mono">npm run security</span></td><td class="n">no</td><td class="n">no</td></tr>
+    <tr><td>Flat-rate cost (no per-token)</td><td class="y">yes, subscription</td><td class="n">no</td><td class="n">no</td></tr>
+    <tr><td>Can prove what it did (ledger + seal)</td><td class="y">yes</td><td class="n">no</td><td class="n">no</td></tr>
+    <tr><td>Live, watchable multi-agent Council</td><td class="y">yes</td><td class="w">opaque</td><td class="w">opaque</td></tr>
+    <tr><td>Undoable coding turns (checkpoint + rewind)</td><td class="y">yes, auto-checkpoint + reversible rewind</td><td class="w">none documented</td><td class="w">none documented</td></tr>
+    <tr><td>Skill hub that can't ship malware</td><td class="y">scanned + sha-pinned + never run</td><td class="w">partial</td><td class="n">no scan gate</td></tr>
+    <tr><td>Proactive memory recall (every turn)</td><td class="y">retrieves per turn</td><td class="w">frozen snapshot</td><td class="w">agent must search</td></tr>
+    <tr><td>Generative UI that can't run code</td><td class="y">sanitized canvas</td><td class="n">no</td><td class="w">renders agent HTML</td></tr>
+    <tr><td>Chat-channel breadth</td><td class="y">19 (11 native + 8 webhook)</td><td class="y">many</td><td class="y">20+</td></tr>
+    <tr><td>Battle-tested at scale</td><td class="w">small, and we say so</td><td class="y">large</td><td class="y">very large</td></tr>
+  </table>
+  <p class="cap">Where it counts for a machine on your desk: blast radius, cost, provability, and not overstating maturity. OpenClaw and Hermes are genuinely excellent at breadth and scale.</p>
+  <p class="xlink">Want the caveats, not just the wins? <a href="/honesty">See what's lightly tested &rsaquo;</a></p>
+  <p style="margin-top:14px"><a href="/">&lsaquo; Back to urfael.com</a></p>
+</main>
+<footer>
+  An independent open-source project (MIT), not affiliated with Anthropic.
+  <div class="fl"><a href="/">Home</a> &middot; <a href="/faq">FAQ</a> &middot; <a href="/honesty">What's tested</a> &middot; <a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a> &middot; <a href="/imprint">Imprint</a> &middot; <a href="https://github.com/Grandillionaire/urfael">GitHub</a></div>
+  <div style="margin-top:8px;font:11px var(--mono);color:var(--dim);opacity:.75">&copy; 2026 MYG Media SRL</div>
+</footer>
+</body>
+</html>
