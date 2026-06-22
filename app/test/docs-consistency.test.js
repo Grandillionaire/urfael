@@ -71,6 +71,18 @@ test('every total-channel-count claim in the docs equals the real channel count'
   }
 });
 
+// ── the landing page builds its hero badges, proof tally, and cockpit animation from a JS literal (const URFAEL =
+//    {classes, checks, ...}); the text scans above cannot see those numbers, so assert the literal itself is correct. ──
+test('the landing page JS counts (const URFAEL) match the real benchmark', () => {
+  const html = read('docs/index.html');
+  const m = html.match(/const URFAEL\s*=\s*\{([^}]*)\}/);
+  assert.ok(m, 'docs/index.html must define const URFAEL = { ... }');
+  const cls = m[1].match(/classes:\s*(\d+)/), chk = m[1].match(/checks:\s*(\d+)/);
+  assert.ok(cls && chk, 'const URFAEL must define classes: and checks:');
+  assert.equal(Number(cls[1]), CLASSES, 'const URFAEL.classes is ' + cls[1] + ' but there are ' + CLASSES + ' attack classes');
+  assert.equal(Number(chk[1]), CHECKS, 'const URFAEL.checks is ' + chk[1] + ' but the benchmark has ' + CHECKS + ' checks');
+});
+
 // ── the SECURITY-BENCHMARK scorecard must detail every attack class (no undercount vs the headline) ──
 test('the security-benchmark scorecard lists every attack class', () => {
   const rows = (read('docs/SECURITY-BENCHMARK.md').match(/^\| \d+ \|/gm) || []).length;

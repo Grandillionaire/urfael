@@ -93,6 +93,8 @@
   .term-bar i{width:10px;height:10px;border-radius:50%}.term-bar i:nth-child(1){background:#e0625e}.term-bar i:nth-child(2){background:#d9a441}.term-bar i:nth-child(3){background:#74c47a}
   .term-bar span{margin-left:7px}
   .term-body{padding:15px 16px;min-height:160px}
+  .codeterm .term-body{min-height:0;font:13px/1.75 var(--mono);color:var(--dim);white-space:pre-wrap;word-break:break-word}
+  .codeterm .g{color:var(--gold-soft)}.codeterm .ok{color:var(--green)}.codeterm .b{color:var(--body)}
   .bench-list{list-style:none;padding:0;margin:0;font:12.5px/1.95 var(--mono)}
   .bench-list li{color:var(--dim);transition:color .25s}.bench-list li.pass{color:var(--green)}
   .bench-list .tk{display:inline-block;width:1.3em;color:var(--ember)}
@@ -120,8 +122,9 @@
   .dot.native{background:var(--green)}.dot.proxy{background:var(--gold)}.dot.light{background:var(--ember)}
   .wheel{position:relative;width:min(460px,86vw);aspect-ratio:1;margin:0 auto}
   .wheel-core{position:absolute;inset:0;display:grid;place-items:center;z-index:3;text-align:center}
-  .wheel-core .ru{font-size:78px;color:var(--gold);filter:drop-shadow(0 0 22px rgba(212,168,90,.5))}
-  .wheel-core small{display:block;font:10px var(--mono);color:var(--dim);letter-spacing:1px;margin-top:-6px}
+  .wheel-core::before{content:'';position:absolute;top:50%;left:50%;width:122px;height:122px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,var(--bg2) 56%,rgba(22,17,10,.82) 100%);border:1px solid rgba(212,168,90,.34);box-shadow:0 0 34px rgba(212,168,90,.16),inset 0 0 18px rgba(0,0,0,.55)}
+  .wheel-core .ru{position:relative;font-size:62px;line-height:1;color:var(--gold);filter:drop-shadow(0 0 18px rgba(212,168,90,.5))}
+  .wheel-core small{position:absolute;top:calc(50% + 70px);left:0;right:0;display:block;font:10px var(--mono);color:var(--dim);letter-spacing:1px}
   .ring{position:absolute;inset:0}
   .ring.r1{animation:spin 96s linear infinite}.ring.r2{inset:21%;animation:spin 120s linear infinite reverse}
   .orbit{position:absolute;top:50%;left:50%;width:54px;height:54px;margin:-27px;
@@ -161,7 +164,7 @@
   <a class="nmark" href="#top" aria-label="Urfael">ᚢ</a>
   <div class="nlinks">
     <a href="#proof">Proof</a><a href="#council">Council</a><a href="#cockpit">Cockpit</a>
-    <a href="#personas">Personas</a><a href="#trust">Trust</a><a href="#wheel">Connects</a>
+    <a href="#coding">Coding</a><a href="#personas">Personas</a><a href="#trust">Trust</a><a href="#wheel">Connects</a>
     <a href="#honesty">Honesty</a><a href="#install">Install</a><a href="manual/">Manual</a>
   </div>
   <span class="nseal" id="navSeal">ᚢ 10/10</span>
@@ -252,6 +255,27 @@
     <p class="cap">faithful re-creation of real urfael output</p>
   </section>
 
+  <section id="coding">
+    <h2>A safer Claude Code, in your own repo</h2>
+    <p class="lede">The brain is the <span class="mono">claude</span> CLI, so <span class="mono">urfael code</span> runs Claude Code in your repo with a safety net the bare CLI lacks: it remembers each repo, snapshots your tracked and untracked files before it touches anything, and gives you a one-command undo that is itself reversible.</p>
+    <div class="term codeterm">
+      <div class="term-bar"><i></i><i></i><i></i><span>urfael code</span></div>
+      <div class="term-body"><span class="g">$ urfael code "add a retry to the API client"</span>
+<span class="g">●</span> urfael code  repo api-client  <span class="b">·</span>  memory you-api-client  <span class="b">·</span>  checkpoint mg3k1-a2b4
+  (Claude Code runs in your repo, your conventions already loaded)
+  undo this session:  <span class="g">urfael rewind mg3k1-a2b4</span>   <span class="b">·</span>   all:  <span class="g">urfael checkpoints</span>
+
+<span class="g">$ urfael rewind</span>
+rewind api-client <span class="b">→</span> mg3k1-a2b4  "add a retry to the API client"
+This restores your tracked files to that snapshot. The current state is checkpointed first, so it is undoable. Proceed? (y/N) <span class="b">y</span>
+<span class="ok">✓ restored to mg3k1-a2b4</span>
+  2 file(s) created since the snapshot were KEPT (not deleted): notes.md, scratch.ts
+  undo this rewind:  <span class="g">urfael rewind mg9x2-7c1d</span></div>
+    </div>
+    <p class="cap">faithful re-creation of real urfael output</p>
+    <p class="gnote"><b>Per-repo memory.</b> A <span class="mono">CONVENTIONS.md</span> and <span class="mono">HISTORY.md</span>, keyed to the git remote and loaded every turn, so it keeps your conventions instead of relearning them. <b>Auto-checkpoint.</b> Your tracked and untracked files (the <span class="mono">git add -A</span> set, so gitignored files like <span class="mono">.env</span> stay out and a secret never lands in it) are snapshotted onto a private git shadow ref before the brain runs, never touching your branch or index. <b>Reversible rewind.</b> It restores your files, checkpoints the current state first so the undo is itself undoable, and keeps anything you made since. This pre-edit checkpoint and reversible rewind is the safety net; without it you are back to <span class="mono">git stash</span> by hand.</p>
+  </section>
+
   <section id="personas">
     <h2>It answers in the voice you ask for</h2>
     <p class="lede">Six built-in stances, switchable by just asking. Same capability, a different approach to dialogue and advice. Want a different brain too? Say <code>switch to opus</code>.</p>
@@ -315,6 +339,7 @@
       <tr><td>Flat-rate cost (no per-token)</td><td class="y">✅ subscription</td><td class="n">❌</td><td class="n">❌</td></tr>
       <tr><td>Can prove what it did (ledger + seal)</td><td class="y">✅</td><td class="n">❌</td><td class="n">❌</td></tr>
       <tr><td>Live, watchable multi-agent Council</td><td class="y">✅</td><td class="w">⚠️ opaque</td><td class="w">⚠️ opaque</td></tr>
+      <tr><td>Undoable coding turns (checkpoint + rewind)</td><td class="y">✅ auto-checkpoint + reversible rewind</td><td class="w">⚠️ none documented</td><td class="w">⚠️ none documented</td></tr>
       <tr><td>Skill hub that can't ship malware</td><td class="y">✅ scanned + sha-pinned + never run</td><td class="w">⚠️</td><td class="n">❌ ~20% malware</td></tr>
       <tr><td>Proactive memory recall (every turn)</td><td class="y">✅ retrieves per turn</td><td class="w">⚠️ frozen snapshot</td><td class="w">⚠️ agent must search</td></tr>
       <tr><td>Generative UI that can't run code</td><td class="y">✅ sanitized canvas</td><td class="n">❌</td><td class="w">⚠️ renders agent HTML</td></tr>
@@ -328,7 +353,7 @@
     <h2>What's lightly tested</h2>
     <p class="lede">Honesty is a feature here, so this section exists on purpose.</p>
     <ul>
-      <li><b>Every feature is verified end-to-end</b> by an in-repo harness (<span class="mono">npm run e2e</span>) against a live daemon, plus <b>513 unit tests</b>, several of them frozen adversarial security regressions.</li>
+      <li><b>Every feature is verified end-to-end</b> by an in-repo harness (<span class="mono">npm run e2e</span>) against a live daemon, plus <b>514 unit tests</b>, several of them frozen adversarial security regressions.</li>
       <li><b>The Matrix, Signal and WhatsApp bridges</b>, the <b>eight native webhook channels</b> (Mattermost, Google Chat, SMS, DingTalk, Home Assistant, BlueBubbles, Feishu, WeCom), <b>Discord voice channels</b>, and the <b>Android/Termux</b> host are code-complete and reviewed, their parsing, verification, and allowlist logic unit-tested and frozen as benchmark checks, but not yet certified against live accounts or a real device. Treat them that way.</li>
       <li><b>A2UI canvas</b> ships as a protocol and a validator (unit-tested, benchmark-frozen as XSS-proof); live rendering of A2UI blocks in the dashboard and Console is the next increment, not yet built.</li>
       <li><b>Linux runs the full stack</b> but is newer than macOS and has less mileage; <b>real-world scale is small</b>, because this is a personal tool and we say so; the GUI is unsigned.</li>
@@ -357,7 +382,7 @@ cd app &amp;&amp; npm start # the Console opens</pre>
     <details><summary>Can I use a model other than Claude?</summary><div class="ans">Yes. Claude is native through your subscription, the one path billed to you with no per-token meter. Every other provider (OpenAI, Gemini, Llama, Mistral, DeepSeek, Groq, Ollama, LM Studio, NVIDIA NIM, OpenRouter, Bedrock, Vertex, Azure) runs through a documented Anthropic-compatible proxy such as claude-code-router or LiteLLM, with the same sandbox harness enforcing the boundaries. You can also switch models mid-conversation by just saying so: <code>switch to opus</code>.</div></details>
     <details><summary>Can it run fully offline, with nothing leaving my machine?</summary><div class="ans">Yes. Point it at a local model (Ollama or NVIDIA NIM) and use the local voice model, and nothing leaves the machine. See the Local-GPU guide. You trade some capability for total air-gap; that is your call to make, not ours.</div></details>
     <details><summary>Can it prove what it actually did?</summary><div class="ans">That is the trust suite, and it is real. Every action lands in a hash-chained Ledger of Record, so tampering is detectable. An ed25519 Sovereign Seal signs the chain head, so you can prove the record's authorship and integrity at a moment in time (it proves the record is authentic, not that every claim inside is true, we are precise about that). <code>urfael why</code> pickaxes the provenance of any lesson it learned. And <code>urfael forget</code> writes a tombstone for provable, consented deletion.</div></details>
-    <details><summary>How mature is this, honestly?</summary><div class="ans">macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the full stack but has far less mileage. The Matrix, Signal and WhatsApp bridges are code-complete and reviewed, with their parsing and allowlist logic unit-tested, but not yet battle-hardened against live accounts. Real-world scale is small, because this is a personal tool and we say so. There are 513 unit tests, an end-to-end harness against a live daemon, and adversarial security regressions frozen from real findings. What only time and users add is the one thing we cannot fake.</div></details>
+    <details><summary>How mature is this, honestly?</summary><div class="ans">macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the full stack but has far less mileage. The Matrix, Signal and WhatsApp bridges are code-complete and reviewed, with their parsing and allowlist logic unit-tested, but not yet battle-hardened against live accounts. Real-world scale is small, because this is a personal tool and we say so. There are 514 unit tests, an end-to-end harness against a live daemon, and adversarial security regressions frozen from real findings. What only time and users add is the one thing we cannot fake.</div></details>
     <details><summary>What is the Council?</summary><div class="ans">A multi-agent orchestration you can watch. Urfael decomposes a hard question, dispatches read-only sandboxed workers to gather what each needs, then synthesizes one answer. The workers cannot write, cannot run a shell, and cannot reach the network; they read and report. You see the whole thing happen rather than trusting a black box.</div></details>
     <details><summary>Is this affiliated with Anthropic?</summary><div class="ans">No. Urfael is an independent, open-source project under the MIT license. It runs on your Claude subscription but is not built, endorsed, or operated by Anthropic. The Urfael name and the Uruz mark are an original character drawn from the public-domain Elder Futhark.</div></details>
   </section>
@@ -374,7 +399,7 @@ cd app &amp;&amp; npm start # the Console opens</pre>
 
 <script>
 /* ---- ground truth: every number on this page reads from here, so it cannot drift from `npm run security` ---- */
-const URFAEL = { classes:10, checks:90, unitTests:399 };
+const URFAEL = { classes:10, checks:95, unitTests:514 };
 const RM = matchMedia('(prefers-reduced-motion:reduce)').matches;
 
 document.getElementById('navSeal').textContent = 'ᚢ '+URFAEL.classes+'/'+URFAEL.classes;
@@ -471,7 +496,7 @@ ANIMS.wheel=root=>{
       +(m.f?'<img class="mk" src="media/logos/'+m.f+'.svg" alt="" loading="lazy"/>':'<span class="tx">'+m.t+'</span>')+'</span></span>'; }).join(''); };
   const rad=()=>{ const w=root.clientWidth||380; return Math.round(w*0.42)+'px'; };
   place(r1,MODELS,rad());
-  place(r2,MODELS_TXT,'calc('+rad()+' - '+Math.round((root.clientWidth||380)*0.21)+'px)');
+  place(r2,MODELS_TXT,'calc('+rad()+' - '+Math.round((root.clientWidth||380)*0.15)+'px)');
   document.getElementById('introw').innerHTML=INTEG.map(f=>'<span class="lg '+(f.light?'light':'')+'" title="'+f.n+'"><img class="mk" src="media/logos/'+f.f+'.svg" alt="" loading="lazy"/><span class="nm">'+f.n+(f.light?'*':'')+'</span></span>').join('')
     + '<span class="lg"><span class="nm">OpenAI-API · Open WebUI · Slack · Teams</span></span>';
   // reduced-motion / small screen: a static labelled grid instead of an orbit

@@ -15,7 +15,7 @@ The "better Claude Code" release. Urfael's brain is the `claude` CLI, so this tu
 
 ### Changed
 
-- Test suite grows to 513 (the coding-mode modules `project.js` and `checkpoint.js` are pure and frozen with tests, plus the real-repo integration test).
+- Test suite grows to 514 (the coding-mode modules `project.js` and `checkpoint.js` are pure and frozen with tests, plus the real-repo integration test).
 
 ## [0.6.0] - 2026-06-21
 
