@@ -67,7 +67,8 @@ test('renderers produce plain text with identity helpers (pipe-safe shape)', () 
   const bare = reg.renderBare(ui);
   assert.match(bare, /start here/);
   assert.match(bare, /urfael "<anything>"/);          // line one is the first move
-  assert.match(bare, /more — the full reference/);     // honest overflow pointer
+  assert.match(bare, /more, the full reference/);      // honest overflow pointer (de-dashed for the no-em-dash rule)
+  assert.ok(!/[—–]/.test(bare), 'terminal help must carry no em/en dashes');
   const full = reg.renderFull(ui);
   for (const k of Object.keys(reg.GROUPS)) assert.ok(full.includes(k), 'full help missing group ' + k);
   const one = reg.renderOne('cron', ui);

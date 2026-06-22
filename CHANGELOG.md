@@ -4,6 +4,22 @@ All notable changes to Urfael are recorded here. The format follows [Keep a Chan
 
 Run `urfael version` to see what you are on, and `urfael update` to pull and reinstall the latest.
 
+## [0.8.0] - 2026-06-22
+
+The "prove it, and sell the proof" release. Turns the security and honesty posture into a single artifact, and hardens the public surface ahead of launch.
+
+### Added
+
+- **`urfael attest`, the Attestation Report.** One command bundles the facts that are each independently verifiable, the Ledger of Record hash-chain is intact, the ed25519 Sovereign Seal over its head is valid, and the no-egress posture is in force, into one human and JSON report a reviewer, auditor, or client can keep, anchored by the seal. It is scoped honestly: a test freezes the wording so it can never drift into "guarantees nothing leaves" overclaim, and it states plainly what it does not prove. See [docs/ATTEST.md](docs/ATTEST.md).
+- **An honest Editions page** on the landing: Sovereign (free, MIT, the whole single-user agent) available now; Pro/Teams and Managed-Sovereign labelled "coming". Paid editions never meter tokens. A Sponsor button, a watch-releases link, and an email-capture stub.
+
+### Changed
+
+- **Cost framing is now provider-agnostic.** The site leads with "runs on your Claude subscription, or any of 30 providers, or a local model", and a new FAQ states plainly that subscription use depends on Anthropic's terms (which Urfael does not control) and that the same product, with the same guarantees, runs on any provider if they change. The Anthropic dependency is a disclosed, mitigated tradeoff, not a hidden single point of failure.
+- **Breach narrative hedged.** Specific, unsourced incident statistics about named competitors were softened to attributed, hedged language; the fair-use capability comparison stays.
+- **Terminal help carries no em or en dashes** (a central de-dash, matching the generated CLI reference), frozen by a test.
+- The doc-consistency guard now fails loudly if it cannot find the files it polices (no vacuous pass), and the suite grows to 520.
+
 ## [0.7.0] - 2026-06-22
 
 The "better Claude Code" release. Urfael's brain is the `claude` CLI, so this turns it into a superior coding harness: a first-class coding session in your own repo, with a safety net the bare CLI does not have.
@@ -15,7 +31,7 @@ The "better Claude Code" release. Urfael's brain is the `claude` CLI, so this tu
 
 ### Changed
 
-- Test suite grows to 514 (the coding-mode modules `project.js` and `checkpoint.js` are pure and frozen with tests, plus the real-repo integration test).
+- Test suite grows to 520 (the coding-mode modules `project.js` and `checkpoint.js` are pure and frozen with tests, plus the real-repo integration test).
 
 ## [0.6.0] - 2026-06-21
 

@@ -359,7 +359,24 @@ urfael seal
 urfael seal --verify
 ```
 
-See also: `audit`
+See also: `audit` · `attest`
+
+### `urfael attest`
+
+an attestation report: ledger intact, seal valid, posture.
+
+```bash
+urfael attest [--json] [--out <file>]
+```
+
+Examples:
+
+```bash
+urfael attest
+urfael attest --json --out attestation.json
+```
+
+See also: `audit` · `seal`
 
 ## Skills
 
@@ -470,7 +487,7 @@ See also: `connect` · `skills`
 
 ## Serve
 
-_expose the brain, API, web console, webhooks_
+_expose the brain: API, web console, webhooks_
 
 ### `urfael serve`
 

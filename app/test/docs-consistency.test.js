@@ -31,6 +31,15 @@ test('the benchmark + class counts are derivable and sane', () => {
   assert.ok(CHECKS > 0 && CLASSES > 0, 'derived counts must be positive (checks=' + CHECKS + ', classes=' + CLASSES + ')');
 });
 
+// ── the policed docs must actually be found + non-empty, so this guard can never PASS VACUOUSLY (e.g. wrong cwd in
+//    CI). Without this, a missing file makes every regex match nothing and drift slips through silently. ──
+test('the policed docs are present and non-empty (no vacuous pass)', () => {
+  for (const rel of ['README.md', 'docs/index.html', 'docs/SECURITY-BENCHMARK.md', 'CHANGELOG.md']) {
+    assert.ok(read(rel).length > 500, rel + ' was not found or is too small; the consistency guard cannot run against it (cwd/path problem?)');
+  }
+  assert.ok(CHANNELS > 0, 'TEAM_CHANNELS must be derivable');
+});
+
 // ── no doc may cite a benchmark CHECK count other than the real one ──
 test('every "NN/NN checks" and "NN checks passed" in the docs equals the real benchmark count', () => {
   for (const rel of DOCS) {

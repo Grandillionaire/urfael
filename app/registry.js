@@ -31,9 +31,9 @@ const GROUPS = {
   SCHEDULE: 'SCHEDULE reminders, background jobs, and cron',
   TEAM:     'TEAM     the roster, the activity trail, the seal',
   SKILLS:   'SKILLS   install and share skills (scanned, never executed)',
-  CONNECT:  'CONNECT  optional integrations via MCP — previewed, owner turns only',
+  CONNECT:  'CONNECT  optional integrations via MCP, previewed, owner turns only',
   PLUGINS:  'PLUGINS  capability-scoped, sandboxed, signed extensions',
-  SERVE:    'SERVE    expose the brain — API, web console, webhooks',
+  SERVE:    'SERVE    expose the brain: API, web console, webhooks',
   SYSTEM:   'SYSTEM   setup, health, and the daemon',
 };
 
@@ -136,7 +136,11 @@ const COMMANDS = [
   { name: 'seal', group: 'TEAM',
     summary: 'owner ed25519 key signs the ledger head — attests, not proves',
     usage: 'urfael seal [--verify]',
-    examples: ['urfael seal', 'urfael seal --verify'], see: ['audit'] },
+    examples: ['urfael seal', 'urfael seal --verify'], see: ['audit', 'attest'] },
+  { name: 'attest', group: 'TEAM',
+    summary: 'an attestation report: ledger intact, seal valid, posture',
+    usage: 'urfael attest [--json] [--out <file>]',
+    examples: ['urfael attest', 'urfael attest --json --out attestation.json'], see: ['audit', 'seal'] },
 
   // ── SKILLS ───────────────────────────────────────────────────────────────────
   { name: 'skills', group: 'SKILLS', starter: true, bareLabel: 'urfael skills list', bareSummary: 'your skills (scanned, never run)',
@@ -256,17 +260,21 @@ const visible = () => COMMANDS.filter((c) => !c.hidden);
 
 // tier 1 — bare `urfael`: a short "start here" card. Line one is the first move (asking is
 // the default verb and the product). Then the starters, then an HONEST overflow count.
+// terminal help is user-facing, so strip em/en dashes from summaries the same way the cli.md generator does (the
+// no-dash house rule). Width calcs run on the de-dashed text, so alignment stays correct.
+const desum = (s) => String(s == null ? '' : s).replace(/\s*[–—]\s*/g, ', ');
+
 function renderBare(ui) {
   const { banner, frame, gold, dim } = ui;
   const starters = COMMANDS.filter((c) => c.starter);
   const label = (c) => c.bareLabel || ('urfael ' + c.name);
   const W = Math.max(...starters.map((c) => ui.visLen(label(c))));
-  const row = (c) => gold(label(c)) + pad(label(c), W, ui) + dim('  ' + (c.bareSummary || c.summary));
+  const row = (c) => gold(label(c)) + pad(label(c), W, ui) + dim('  ' + desum(c.bareSummary || c.summary));
   const overflow = COMMANDS.filter((c) => !c.hidden && c.name !== 'help' && !c.starter).length;
   const ask = starters.find((c) => c.name === 'ask');
   const lines = [row(ask), ''];
   for (const c of starters) if (c.name !== 'ask') lines.push(row(c));
-  lines.push('', dim('and ' + overflow + ' more — the full reference:  ') + gold('urfael help'));
+  lines.push('', dim('and ' + overflow + ' more, the full reference:  ') + gold('urfael help'));
   return banner() + '\n' + frame('start here', lines);
 }
 
@@ -280,7 +288,7 @@ function renderFull(ui) {
     const cmds = COMMANDS.filter((c) => c.group === key && !c.hidden);
     if (!cmds.length) continue;
     const W = Math.max(...cmds.map((c) => ui.visLen(c.name)));
-    const rows = cmds.map((c) => gold(c.name) + pad(c.name, W, ui) + dim('  ' + c.summary));
+    const rows = cmds.map((c) => gold(c.name) + pad(c.name, W, ui) + dim('  ' + desum(c.summary)));
     inner = Math.max(inner, ui.visLen(GROUPS[key]) + 4, ...rows.map((r) => ui.visLen(r) + 2));
     blocks.push({ key, rows });
   }
@@ -303,7 +311,7 @@ function renderOne(name, ui) {
     return frame('unknown command', lines);
   }
   const usage = String(c.usage).split('\n').map((u) => '  ' + gold(u));   // long usages are pre-wrapped to stay ≤80 cols
-  const lines = [dim(c.summary), '', dim('usage'), ...usage, '', dim('examples'), ...c.examples.map((e) => '  ' + gold(e))];
+  const lines = [dim(desum(c.summary)), '', dim('usage'), ...usage, '', dim('examples'), ...c.examples.map((e) => '  ' + gold(e))];
   if (c.see && c.see.length) lines.push('', dim('related:  ') + c.see.map((s) => gold('urfael ' + s)).join(dim('   ')));
   return frame('urfael ' + c.name, lines);
 }

@@ -71,7 +71,15 @@
    "name": "What does it cost to run?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Your existing Claude subscription, flat-rate. There is no per-token meter, no Urfael account, no server you rent from us. Point it at a local model on your own GPU instead and it costs you electricity. We do not see your traffic; there is nothing to see."
+    "text": "By default, your existing Claude subscription, flat-rate. There is no Urfael account and no server you rent from us. You can also point it at any of 30 providers (you pay their per-token rate) or at a local model on your own GPU, where it costs you only electricity. We do not see your traffic; there is nothing to see. On the subscription path, see the next answer about Anthropic's terms."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Does Urfael depend on Anthropic, and what if their terms change?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Urfael is not built, endorsed, or operated by Anthropic, and running it on a flat-rate Claude subscription depends on Anthropic's consumer terms, which we do not control. We say so plainly. It is not a single point of failure: the same Urfael, with the same security guarantees, also runs on any of 30 providers through a documented proxy, or on a local model on your own GPU, with one config line. So if those terms ever change, your cost model changes, not the product."
    }
   },
   {
@@ -119,7 +127,7 @@
    "name": "Why is there no inbound port? Doesn't that limit it?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "It is the whole point. The brain listens on a 0600 unix socket only, never a TCP port. The topology is one-way: Urfael reaches out (to your Claude login, to chat APIs it polls); nothing reaches in. There is no gateway to expose, no token to leak over a socket, no DM endpoint to spray. The 20,000-plus exposed gateways that got owned in 2026 were owned because they were reachable. This one is not."
+    "text": "It is the whole point. The brain listens on a 0600 unix socket only, never a TCP port. The topology is one-way: Urfael reaches out (to your Claude login, to chat APIs it polls); nothing reaches in. There is no gateway to expose, no token to leak over a socket, no DM endpoint to spray. The agent gateways that got owned in 2026, reported in the tens of thousands, were owned because they were reachable. This one is not."
    }
   },
   {
@@ -151,7 +159,7 @@
    "name": "How mature is this, honestly?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the full stack but has far less mileage. The Matrix, Signal and WhatsApp bridges are code-complete and reviewed, with their parsing and allowlist logic unit-tested, but not yet battle-hardened against live accounts. Real-world scale is small, because this is a personal tool and we say so. There are 514 unit tests, an end-to-end harness against a live daemon, and adversarial security regressions frozen from real findings. What only time and users add is the one thing we cannot fake."
+    "text": "macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the full stack but has far less mileage. The Matrix, Signal and WhatsApp bridges are code-complete and reviewed, with their parsing and allowlist logic unit-tested, but not yet battle-hardened against live accounts. Real-world scale is small, because this is a personal tool and we say so. There are 520 unit tests, an end-to-end harness against a live daemon, and adversarial security regressions frozen from real findings. What only time and users add is the one thing we cannot fake."
    }
   },
   {
@@ -335,7 +343,7 @@
   <div class="nlinks">
     <a href="#proof">Proof</a><a href="#council">Council</a><a href="#cockpit">Cockpit</a>
     <a href="#coding">Coding</a><a href="#personas">Personas</a><a href="#trust">Trust</a><a href="#wheel">Connects</a>
-    <a href="#honesty">Honesty</a><a href="#install">Install</a><a href="manual/">Manual</a>
+    <a href="#honesty">Honesty</a><a href="#editions">Editions</a><a href="#install">Install</a><a href="manual/">Manual</a>
   </div>
   <span class="nseal" id="navSeal">ᚢ 10/10</span>
 </nav>
@@ -348,7 +356,7 @@
     <div class="brandmark">ᚢ ᚱ ᚠ ᚨ ᛖ ᛚ</div>
     <img class="words" src="media/urfael-runes.svg" alt="URFAEL in Elder Futhark runes" />
     <h1 class="tagline">Liquid Intelligence.<br/><b style="color:var(--gold-soft)">At your service.</b></h1>
-    <p class="sub">A personal, voice-capable AI you run on your own machine, on the flat-rate Claude subscription you already pay for. No inbound port to attack. No per-token meter. And it can prove what it did.</p>
+    <p class="sub">A personal, voice-capable AI you run on your own machine. No inbound port to attack. It runs on the flat-rate Claude subscription you already pay for, or any of 30 providers, or a local model. And it can prove what it did.</p>
     <div class="badges" id="heroBadges"></div>
     <div class="cta">
       <a class="btn primary" href="#proof">Read the benchmark</a>
@@ -361,13 +369,13 @@
   </div>
 </header>
 
-<div class="strip">On the Claude subscription you already pay for. No inbound port. No per-token meter. And <b>it can prove what it did.</b></div>
+<div class="strip">No inbound port. Runs on the Claude subscription you already pay for, or any provider, or a local model. And <b>it can prove what it did.</b></div>
 
 <div class="wrap">
 
   <section id="villain">
     <h2>The agents got owned. In production.</h2>
-    <p class="lede">Self-hosted AI agents were not compromised hypothetically in 2026. OpenClaw's <span class="mono">ClawJacked</span> flaw (<span class="mono">CVE-2026-25253</span>, a one-click RCE) leaked a gateway token over a WebSocket and drove the agent. Censys and Bitsight found <b style="color:var(--ember)">20,000 to 42,000</b> gateways exposed to the open internet; China's CNCERT issued a national warning. Around <b style="color:var(--ember)">20 percent</b> of the skill registry was malicious, stealers, SSH-key and token exfiltration, typosquats. A single poisoned email exfiltrated a private key from a linked inbox. Urfael was built blast-radius-first against exactly these, and the difference is not an adjective. It is a command.</p>
+    <p class="lede">Self-hosted AI agents were not compromised hypothetically in 2026. Public reporting documented a one-click RCE in a widely used agent that leaked a gateway token over a WebSocket and drove it; security scanners put the count of agent gateways exposed to the open internet in the <b style="color:var(--ember)">tens of thousands</b>; and a meaningful share of one popular skill registry was found serving stealers and token-exfiltration payloads. A single poisoned email pulled a private key from a linked inbox. Urfael was built blast-radius-first against exactly these, and the difference is not an adjective. It is a command.</p>
   </section>
 
   <section id="proof">
@@ -515,7 +523,7 @@ This restores your tracked files to that snapshot. The current state is checkpoi
       <tr><td>Can prove what it did (ledger + seal)</td><td class="y">✅</td><td class="n">❌</td><td class="n">❌</td></tr>
       <tr><td>Live, watchable multi-agent Council</td><td class="y">✅</td><td class="w">⚠️ opaque</td><td class="w">⚠️ opaque</td></tr>
       <tr><td>Undoable coding turns (checkpoint + rewind)</td><td class="y">✅ auto-checkpoint + reversible rewind</td><td class="w">⚠️ none documented</td><td class="w">⚠️ none documented</td></tr>
-      <tr><td>Skill hub that can't ship malware</td><td class="y">✅ scanned + sha-pinned + never run</td><td class="w">⚠️</td><td class="n">❌ ~20% malware</td></tr>
+      <tr><td>Skill hub that can't ship malware</td><td class="y">✅ scanned + sha-pinned + never run</td><td class="w">⚠️</td><td class="n">❌ no scan gate</td></tr>
       <tr><td>Proactive memory recall (every turn)</td><td class="y">✅ retrieves per turn</td><td class="w">⚠️ frozen snapshot</td><td class="w">⚠️ agent must search</td></tr>
       <tr><td>Generative UI that can't run code</td><td class="y">✅ sanitized canvas</td><td class="n">❌</td><td class="w">⚠️ renders agent HTML</td></tr>
       <tr><td>Chat-channel breadth</td><td class="y">✅ 19 (11 native + 8 webhook)</td><td class="y">✅ many</td><td class="y">✅ 20+</td></tr>
@@ -528,7 +536,7 @@ This restores your tracked files to that snapshot. The current state is checkpoi
     <h2>What's lightly tested</h2>
     <p class="lede">Honesty is a feature here, so this section exists on purpose.</p>
     <ul>
-      <li><b>Every feature is verified end-to-end</b> by an in-repo harness (<span class="mono">npm run e2e</span>) against a live daemon, plus <b>514 unit tests</b>, several of them frozen adversarial security regressions.</li>
+      <li><b>Every feature is verified end-to-end</b> by an in-repo harness (<span class="mono">npm run e2e</span>) against a live daemon, plus <b>520 unit tests</b>, several of them frozen adversarial security regressions.</li>
       <li><b>The Matrix, Signal and WhatsApp bridges</b>, the <b>eight native webhook channels</b> (Mattermost, Google Chat, SMS, DingTalk, Home Assistant, BlueBubbles, Feishu, WeCom), <b>Discord voice channels</b>, and the <b>Android/Termux</b> host are code-complete and reviewed, their parsing, verification, and allowlist logic unit-tested and frozen as benchmark checks, but not yet certified against live accounts or a real device. Treat them that way.</li>
       <li><b>A2UI canvas</b> ships as a protocol and a validator (unit-tested, benchmark-frozen as XSS-proof); live rendering of A2UI blocks in the dashboard and Console is the next increment, not yet built.</li>
       <li><b>Linux runs the full stack</b> but is newer than macOS and has less mileage; <b>real-world scale is small</b>, because this is a personal tool and we say so; the GUI is unsigned.</li>
@@ -546,20 +554,84 @@ cd app &amp;&amp; npm start # the Console opens</pre>
     <p class="center" style="margin-top:22px"><a class="btn primary" href="https://github.com/Grandillionaire/urfael">★ Star it on GitHub</a></p>
   </section>
 
+  <style>
+    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:10px 0 6px}
+    @media(max-width:760px){.grid3{grid-template-columns:1fr}}
+    .ed{border:1px solid var(--line);border-radius:12px;padding:18px;background:rgba(212,168,90,.03);display:flex;flex-direction:column}
+    .ed.lead{border-color:rgba(212,168,90,.45);background:rgba(212,168,90,.06)}
+    .ed-name{font-variant:small-caps;letter-spacing:1px;font-size:19px;color:var(--gold-soft)}
+    .ed-tag{font:11px var(--mono);color:var(--dim);margin:3px 0 13px;letter-spacing:.5px}
+    .ed ul{flex:1;padding-left:18px;margin:0 0 16px}.ed li{font-size:14px;color:var(--body);margin:6px 0}
+    .ed .btn{align-self:flex-start;margin:0}
+    .stay{margin-top:34px;border-top:1px solid var(--line);padding-top:26px}
+    .emailcap{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;max-width:540px;margin:0 auto}
+    .emailcap input{flex:1;min-width:220px;background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:11px 14px;color:var(--body);font:15px var(--serif)}
+    .emailcap input:focus{outline:2px solid var(--gold);outline-offset:1px}
+  </style>
+  <section id="editions">
+    <h2>Editions, honest about what each one is</h2>
+    <p class="lede center">The full single-user agent is free and MIT, forever. Paid editions add what teams and regulated work need: governance, a signed attestation an auditor accepts, and managed operation. None of them ever meter your tokens.</p>
+    <div class="grid3">
+      <div class="ed lead">
+        <div class="ed-name">Sovereign</div><div class="ed-tag">free · MIT · available now</div>
+        <ul>
+          <li>The whole agent: 19 channels, local voice, the Council, <span class="mono">urfael code</span>, the runnable benchmark</li>
+          <li>Your machine, your subscription, no inbound port</li>
+          <li>The tamper-evident ledger and ed25519 seal</li>
+        </ul>
+        <a class="btn primary" href="#install">Install free</a>
+      </div>
+      <div class="ed">
+        <div class="ed-name">Pro / Teams</div><div class="ed-tag">coming</div>
+        <ul>
+          <li>Multi-principal team mode and SSO</li>
+          <li>Signed audit-export to your SIEM</li>
+          <li>A scheduled, signed compliance attestation</li>
+          <li>A notarized one-click installer and priority support</li>
+        </ul>
+        <a class="btn" href="#stay">Get notified</a>
+      </div>
+      <div class="ed">
+        <div class="ed-name">Managed-Sovereign</div><div class="ed-tag">coming</div>
+        <ul>
+          <li>We operate Urfael inside your own infrastructure</li>
+          <li>We never hold your data or your keys</li>
+          <li>A monthly signed attestation that it stayed home</li>
+          <li>Onboarding and an SLA</li>
+        </ul>
+        <a class="btn" href="#stay">Talk to us</a>
+      </div>
+    </div>
+    <p class="cap">Paid editions never meter tokens. You always bring your own subscription, provider, or local model.</p>
+    <div id="stay" class="stay">
+      <p class="lede center">Get the launch, the benchmark results, and release notes.</p>
+      <!-- Email capture: create a free form at formspree.io or buttondown.email, then replace the action URL below with your form endpoint. Until then, the Watch-releases button works with no setup. -->
+      <form class="emailcap" action="https://formspree.io/f/REPLACE_WITH_YOUR_FORM_ID" method="POST">
+        <input type="email" name="email" required placeholder="you@example.com" aria-label="Email address" />
+        <button class="btn primary" type="submit">Keep me posted</button>
+      </form>
+      <p class="center" style="margin-top:14px">
+        <a class="btn" href="https://github.com/sponsors/Grandillionaire">Sponsor on GitHub</a>
+        <a class="btn" href="https://github.com/Grandillionaire/urfael/releases">Watch releases</a>
+      </p>
+    </div>
+  </section>
+
   <section id="faq">
     <h2>Every question, answered</h2>
     <details><summary>Is this just a wrapper around Claude?</summary><div class="ans">The brain is the Claude you already pay for, reached through the <code>claude</code> CLI you are already signed into. Urfael is everything around that brain a wrapper is not: a tamper-evident ledger of every action, an ed25519 seal over it, a read-only sandbox for untrusted messages, a credential-deny boundary, nineteen hardened chat channels, voice in and out, proactive active recall over your own notes, a multi-agent Council, and a security benchmark you can run in one command. The model is rented. The sovereignty, the memory, and the safety are yours, on your machine, under MIT.</div></details>
-    <details><summary>What does it cost to run?</summary><div class="ans">Your existing Claude subscription, flat-rate. There is no per-token meter, no Urfael account, no server you rent from us. Point it at a local model on your own GPU instead and it costs you electricity. We do not see your traffic; there is nothing to see.</div></details>
+    <details><summary>What does it cost to run?</summary><div class="ans">By default, your existing Claude subscription, flat-rate. There is no Urfael account and no server you rent from us. You can also point it at any of 30 providers (you pay their per-token rate) or at a local model on your own GPU, where it costs you only electricity. We do not see your traffic; there is nothing to see. On the subscription path, see the next answer about Anthropic's terms.</div></details>
+    <details><summary>Does Urfael depend on Anthropic, and what if their terms change?</summary><div class="ans">Urfael is not built, endorsed, or operated by Anthropic, and running it on a flat-rate Claude subscription depends on Anthropic's consumer terms, which we do not control. We say so plainly. It is not a single point of failure: the same Urfael, with the same security guarantees, also runs on any of 30 providers through a documented proxy, or on a local model on your own GPU, with one config line. So if those terms ever change, your cost model changes, not the product.</div></details>
     <details><summary>Is it actually secure, or is that just a word?</summary><div class="ans">It is a command: <code>npm run security</code>. It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists <b>10 of 10</b> real-world attack classes across <b>95 of 95</b> checks. You do not take our word for it. You run it.</div></details>
     <details><summary>Is Urfael an alternative to OpenClaw or Hermes Agent?</summary><div class="ans">Yes, and an honest one. OpenClaw and Hermes Agent optimize for channel count and model breadth, and they are genuinely good at it. Urfael optimizes for what matters when a machine lives on your desk and acts for you: the smallest blast radius, a flat bill, local voice, and not overstating what it does. Where the others default to optional sandboxes and an inbound surface, Urfael opens <b>no network port</b>, allowlists every sender <i>before</i> the brain sees a token, and runs remote turns read-only by default. It ships a security benchmark you run yourself (<b>10/10</b> attack classes, <b>95/95</b> checks) and a tamper-evident ledger so it can prove what it did. The full comparison, every win and every gap in the same table, is <a href="#compare">above</a>.</div></details>
     <details><summary>What is the most secure self-hosted AI agent?</summary><div class="ans">Security is something you should be able to <i>verify</i>, not a word you read. Urfael was built blast-radius-first: no inbound network port (a <code>0600</code> unix socket only), fail-closed allowlists on every channel, read-only sandboxed remote turns, and autonomous work confined to throwaway containers with no secrets mounted. The proof is a command, <code>npm run security</code>, which boots the real daemon and runs the actual attacks that compromised other self-hosted agents in 2026, landing on <b>10/10</b> attack classes and <b>95/95</b> checks. Run it yourself rather than take anyone's word for it.</div></details>
     <details><summary>A prompt injection got other agents to leak secrets. Why not this one?</summary><div class="ans">Because the containment is structural, not a clever prompt. Remote and untrusted turns run a read-only profile: read and search your notes, no shell, no write, and critically no network-egress tool. The vault also denies the agent reading your credential stores outright, a hard boundary that holds even in Full mode. So an injected "read a secret and send it somewhere" has nothing to read and nowhere to send.</div></details>
     <details><summary>So is there any mode where an injection could leak something?</summary><div class="ans">Yes, and we will not hide it. The default Fortress posture has no egress, so untrusted content cannot exfiltrate at all. If you deliberately enable Full mode the agent can fetch the web, which means a successful injection could exfiltrate notes you have given it, though never your credentials, because the credential-deny boundary still holds. Run Full mode only in a VM, a container, or a throwaway account. The benchmark, the docs, and this answer all say the same thing on purpose.</div></details>
-    <details><summary>Why is there no inbound port? Doesn't that limit it?</summary><div class="ans">It is the whole point. The brain listens on a <code>0600</code> unix socket only, never a TCP port. The topology is one-way: Urfael reaches out (to your Claude login, to chat APIs it polls); nothing reaches in. There is no gateway to expose, no token to leak over a socket, no DM endpoint to spray. The 20,000-plus exposed gateways that got owned in 2026 were owned because they were reachable. This one is not.</div></details>
+    <details><summary>Why is there no inbound port? Doesn't that limit it?</summary><div class="ans">It is the whole point. The brain listens on a <code>0600</code> unix socket only, never a TCP port. The topology is one-way: Urfael reaches out (to your Claude login, to chat APIs it polls); nothing reaches in. There is no gateway to expose, no token to leak over a socket, no DM endpoint to spray. The agent gateways that got owned in 2026, reported in the tens of thousands, were owned because they were reachable. This one is not.</div></details>
     <details><summary>Can I use a model other than Claude?</summary><div class="ans">Yes. Claude is native through your subscription, the one path billed to you with no per-token meter. Every other provider (OpenAI, Gemini, Llama, Mistral, DeepSeek, Groq, Ollama, LM Studio, NVIDIA NIM, OpenRouter, Bedrock, Vertex, Azure) runs through a documented Anthropic-compatible proxy such as claude-code-router or LiteLLM, with the same sandbox harness enforcing the boundaries. You can also switch models mid-conversation by just saying so: <code>switch to opus</code>.</div></details>
     <details><summary>Can it run fully offline, with nothing leaving my machine?</summary><div class="ans">Yes. Point it at a local model (Ollama or NVIDIA NIM) and use the local voice model, and nothing leaves the machine. See the Local-GPU guide. You trade some capability for total air-gap; that is your call to make, not ours.</div></details>
     <details><summary>Can it prove what it actually did?</summary><div class="ans">That is the trust suite, and it is real. Every action lands in a hash-chained Ledger of Record, so tampering is detectable. An ed25519 Sovereign Seal signs the chain head, so you can prove the record's authorship and integrity at a moment in time (it proves the record is authentic, not that every claim inside is true, we are precise about that). <code>urfael why</code> pickaxes the provenance of any lesson it learned. And <code>urfael forget</code> writes a tombstone for provable, consented deletion.</div></details>
-    <details><summary>How mature is this, honestly?</summary><div class="ans">macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the full stack but has far less mileage. The Matrix, Signal and WhatsApp bridges are code-complete and reviewed, with their parsing and allowlist logic unit-tested, but not yet battle-hardened against live accounts. Real-world scale is small, because this is a personal tool and we say so. There are 514 unit tests, an end-to-end harness against a live daemon, and adversarial security regressions frozen from real findings. What only time and users add is the one thing we cannot fake.</div></details>
+    <details><summary>How mature is this, honestly?</summary><div class="ans">macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the full stack but has far less mileage. The Matrix, Signal and WhatsApp bridges are code-complete and reviewed, with their parsing and allowlist logic unit-tested, but not yet battle-hardened against live accounts. Real-world scale is small, because this is a personal tool and we say so. There are 520 unit tests, an end-to-end harness against a live daemon, and adversarial security regressions frozen from real findings. What only time and users add is the one thing we cannot fake.</div></details>
     <details><summary>What is the Council?</summary><div class="ans">A multi-agent orchestration you can watch. Urfael decomposes a hard question, dispatches read-only sandboxed workers to gather what each needs, then synthesizes one answer. The workers cannot write, cannot run a shell, and cannot reach the network; they read and report. You see the whole thing happen rather than trusting a black box.</div></details>
     <details><summary>Is this affiliated with Anthropic?</summary><div class="ans">No. Urfael is an independent, open-source project under the MIT license. It runs on your Claude subscription but is not built, endorsed, or operated by Anthropic. The Urfael name and the Uruz mark are an original character drawn from the public-domain Elder Futhark.</div></details>
   </section>
@@ -576,7 +648,7 @@ cd app &amp;&amp; npm start # the Console opens</pre>
 
 <script>
 /* ---- ground truth: every number on this page reads from here, so it cannot drift from `npm run security` ---- */
-const URFAEL = { classes:10, checks:95, unitTests:514 };
+const URFAEL = { classes:10, checks:95, unitTests:520 };
 const RM = matchMedia('(prefers-reduced-motion:reduce)').matches;
 
 document.getElementById('navSeal').textContent = 'ᚢ '+URFAEL.classes+'/'+URFAEL.classes;

@@ -1109,6 +1109,33 @@ function printPluginPreview(ph, m) {
     console.log(dim('  verify anytime:  ') + gold('urfael seal --verify') + dim('   ·   public key committed at ~/Urfael-memory/seal.pub'));
     return;
   }
+  if (cmd === 'attest') {
+    // Attestation Report: bundle the independently-verifiable facts (ledger hash-chain, ed25519 seal, posture in
+    // force) into one human + JSON artifact a reviewer/auditor/client can keep, anchored by the seal. The wording is
+    // scoped honestly in attest.js: it proves integrity + authorship + posture, NOT the truth of any recorded claim
+    // and NOT an absolute no-egress guarantee.
+    const at = require('./attest');
+    const lv = await req('GET', '/audit/verify').catch(() => null);
+    const sv = await req('GET', '/seal/verify').catch(() => null);
+    const ledger = lv ? { verified: !!lv.ok, count: lv.count, through: lv.through, head: lv.head, reason: lv.ok ? undefined : lv.reason, brokenSeq: lv.brokenSeq } : { verified: false, reason: 'daemon unreachable' };
+    const seal = (!sv || sv.reason === 'no_seal') ? { present: false, valid: false } : { present: true, valid: !!sv.ok, fp: sv.fp, seq: sv.seq, headStillInChain: sv.headStillInChain, reason: sv.ok ? undefined : sv.reason };
+    const posture = { noInboundPort: true, untrustedProfile: 'read-only, no shell, no write, no egress, credential-deny', mode: process.env.URFAEL_YOLO === '1' ? 'Full' : 'Fortress' };
+    const report = at.buildReport({ subject: os.hostname() + ' (Urfael)', ledger, seal, posture }, new Date().toISOString());
+    const v = at.verdict(report);
+    const bundle = JSON.stringify({ verdict: v, id: at.fingerprint(report), ...report }, null, 2);
+    const out = flag(rest, '--out');
+    if (rest.includes('--json')) {
+      console.log(bundle);
+      if (out) { try { fs.writeFileSync(out, bundle); console.error(dim('  wrote ' + out)); } catch (e) { console.error('✗ ' + (e && e.message)); } }
+      return;
+    }
+    const lines = at.render(report).split('\n');
+    console.log((v === 'NOT ATTESTED' ? '\x1b[31m' + lines[0] + '\x1b[0m' : gold(lines[0])));
+    console.log(dim(lines.slice(1).join('\n')));
+    if (out) { try { fs.writeFileSync(out, bundle); console.log(dim('\n  bundle written to ' + out + ' (anchored by the Sovereign Seal)')); } catch (e) { console.error('✗ ' + (e && e.message)); } }
+    console.log(dim('\n  machine-readable:  ') + gold('urfael attest --json --out attestation.json') + dim('   ·   re-verify the anchor:  ') + gold('urfael seal --verify'));
+    return;
+  }
   if (cmd === 'forget') {
     // consented forgetting with a provable tombstone. No arg → show the tombstone record (auditable deletions).
     const phrase = rest.filter((a) => !a.startsWith('--')).join(' ').trim();
