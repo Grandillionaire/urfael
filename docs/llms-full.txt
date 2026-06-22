@@ -422,6 +422,12 @@ The table above is the short list. Urfael reads many more `URFAEL_*` variables (
 
 This is the map. Each entry is one honest sentence and a link to the page that goes deep. Everything below ships **off by default** unless noted, and you turn power on deliberately.
 
+## Coding
+
+`urfael code "<task>"` runs Claude Code in your own repo with three things the bare CLI lacks: per-repo memory loaded every turn (so it keeps your conventions instead of relearning them), an automatic checkpoint of the working tree onto a private git shadow ref before it touches anything (your branch and index untouched), and a one-command, itself-reversible undo with `urfael rewind`.
+
+See [features/coding.md](features/coding.md).
+
 ## Memory and active recall
 
 Every conversation is archived as plain JSONL and searchable through a persistent BM25 index over the **whole** archive, not just a recent window; with a local embedder configured, the lexical shortlist is re-ranked by semantic vectors so a paraphrase still surfaces. Active recall goes one step further: before every owner turn it injects a small, fenced block of the past turns and trusted lessons that bear on your message, so you do not have to remind it. It is on by default; set `URFAEL_ACTIVE_RECALL=0` to turn it off.
@@ -485,6 +491,85 @@ See [security/model.md](security/model.md). The full Threat Model and benchmark 
 ## Where to go next
 
 New here? Start with [start/quickstart.md](start/quickstart.md). Want the whole architecture in one read? See [developer/architecture.md](developer/architecture.md).
+
+
+================================================================================
+# FILE: docs/manual/features/coding.md
+================================================================================
+
+# Coding
+
+Urfael's brain is the `claude` CLI, so it makes a sharper coding tool than the bare CLI. `urfael code "<task>"` runs Claude Code in your own repo with three things stacked on it: it remembers each repo, it checkpoints the whole working tree before it touches anything, and it gives you a one-command undo.
+
+```bash
+urfael code "add a retry to the API client"
+urfael checkpoints
+urfael rewind            # undo the last coding turn
+```
+
+## What a coding turn does
+
+Run from inside a git repo (or point at one with `--dir`):
+
+1. **Resolves the repo and its memory.** The project id derives from the git remote, so the same repo shares one memory across clones. With no remote it falls back to the directory name plus a hash of the path, so two repos with the same basename never collide.
+2. **Loads per-project memory.** A `CONVENTIONS.md` and `HISTORY.md` for that repo live under the private memory repo (`~/Urfael-memory/projects/<id>/`). The conventions load as context every turn, fenced as reference, not instructions. The first run seeds a `CONVENTIONS.md` for you to fill in.
+3. **Checkpoints first.** Before the brain runs, the working tree (tracked and untracked, the set `git add -A` stages) is snapshotted onto a private git shadow ref (`refs/urfael/checkpoints/<id>`) through a temporary index. This captures that set yet touches nothing live: not your branch, not your index, not your working tree.
+4. **Runs Claude Code in the repo,** seeded with the project conventions and your task.
+5. **Records the turn.** The task and its checkpoint id are appended to the repo's `HISTORY.md` and an append-only log, both inside the git-versioned memory repo.
+
+## Per-project memory
+
+Claude Code forgets each repo between sessions. Urfael keeps a stable memory per repo so it picks up your conventions instead of relearning them:
+
+- `CONVENTIONS.md` is yours to edit. Put the stack, the layout, the conventions, and the gotchas that bit you before. It loads every turn.
+- `HISTORY.md` is appended automatically, one entry per coding turn, each with the checkpoint to rewind to.
+
+Edit the conventions file at the path the command prints after a run. Disable memory for one run with `--no-memory`.
+
+## Checkpoints and rewind
+
+A checkpoint is a snapshot of your whole working tree, stored as a commit on a private shadow ref. It does not appear in `git log`, does not move your branch, and does not touch your index. List them:
+
+```bash
+urfael checkpoints
+```
+
+Rewind restores your tracked files to a snapshot:
+
+```bash
+urfael rewind                 # the latest checkpoint
+urfael rewind k3xq9z-1a2b     # a specific one
+```
+
+Rewind is safe by construction:
+
+- It **checkpoints the current state first**, so the rewind is itself reversible. The command prints the id that undoes it. If that pre-checkpoint cannot be made (so the rewind would be irreversible), it refuses rather than overwrite your files; `--force` overrides.
+- It **keeps files you created since** the snapshot rather than deleting them, and lists them. It never runs a destructive clean.
+- It **leaves only your working tree changed.** After restoring, it unstages, so `git status` shows the restored files as ordinary working-tree edits for you to review, not a surprise staged commit.
+- It asks before it touches anything. Pass `--yes` to skip the prompt in a script.
+
+## Flags
+
+- `--dir <path>` run against a repo other than the current directory.
+- `--no-checkpoint` skip the snapshot for this run.
+- `--no-memory` skip loading and writing per-project memory.
+- `--no-run` checkpoint and load memory but do not run the brain (a quick way to take a snapshot).
+- `--yes` (on `rewind`) skip the confirmation prompt.
+- `--force` (on `rewind`) proceed even if the pre-rewind checkpoint of the current state could not be made.
+
+## Honest scope
+
+The checkpoint mechanism relies on git, so `urfael code` needs a git repo (it tells you to run `git init` if you are not in one).
+
+A checkpoint covers tracked and untracked files, the same set as `git add -A`. Files matched by `.gitignore` (often `.env`, local config, build output) are deliberately left out, so a secret is never copied into a shadow ref. If the agent might change an ignored file you care about, back it up yourself.
+
+Rewind restores files to a snapshot and keeps newer files rather than deleting them, which is the safe default but means a rewind is an overlay, not a byte-for-byte mirror. For unattended, self-committing work, that is the separate, sandboxed `/goal` loop, not this. `urfael code` is the supervised, undoable coding session.
+
+## Related
+
+- [features/memory.md](features/memory.md)
+- [features/automation.md](features/automation.md)
+- [reference/cli.md](reference/cli.md)
 
 
 ================================================================================
@@ -1977,6 +2062,60 @@ urfael stop
 ```
 
 See also: `shutdown`
+
+## Code
+
+_Claude Code in your repo, with memory, checkpoints, and rewind_
+
+### `urfael code`
+
+run Claude Code in your repo with memory + a safety net.
+
+```bash
+urfael code "<task>" [--dir <path>] [--no-checkpoint] [--no-memory] [--no-run]
+```
+
+Examples:
+
+```bash
+urfael code "add a retry to the API client"
+urfael code "fix the failing auth test" --dir ~/work/app
+```
+
+See also: `checkpoints` · `rewind`
+
+### `urfael checkpoints`
+
+list repo snapshots taken before each coding turn.
+
+```bash
+urfael checkpoints [--dir <path>]
+```
+
+Examples:
+
+```bash
+urfael checkpoints
+```
+
+See also: `code` · `rewind`
+
+### `urfael rewind`
+
+restore your repo to a checkpoint (undo a coding turn).
+
+```bash
+urfael rewind [<id>] [--dir <path>] [--yes]
+```
+
+Examples:
+
+```bash
+urfael rewind
+urfael rewind k3xq9z-1a2b
+```
+
+See also: `code` · `checkpoints`
 
 ## Memory
 

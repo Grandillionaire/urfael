@@ -60,6 +60,60 @@ urfael stop
 
 See also: `shutdown`
 
+## Code
+
+_Claude Code in your repo, with memory, checkpoints, and rewind_
+
+### `urfael code`
+
+run Claude Code in your repo with memory + a safety net.
+
+```bash
+urfael code "<task>" [--dir <path>] [--no-checkpoint] [--no-memory] [--no-run]
+```
+
+Examples:
+
+```bash
+urfael code "add a retry to the API client"
+urfael code "fix the failing auth test" --dir ~/work/app
+```
+
+See also: `checkpoints` · `rewind`
+
+### `urfael checkpoints`
+
+list repo snapshots taken before each coding turn.
+
+```bash
+urfael checkpoints [--dir <path>]
+```
+
+Examples:
+
+```bash
+urfael checkpoints
+```
+
+See also: `code` · `rewind`
+
+### `urfael rewind`
+
+restore your repo to a checkpoint (undo a coding turn).
+
+```bash
+urfael rewind [<id>] [--dir <path>] [--yes] [--force]
+```
+
+Examples:
+
+```bash
+urfael rewind
+urfael rewind k3xq9z-1a2b
+```
+
+See also: `code` · `checkpoints`
+
 ## Memory
 
 _what it knows about you, and where each belief came from_

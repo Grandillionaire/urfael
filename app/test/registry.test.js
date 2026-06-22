@@ -56,7 +56,7 @@ test('every command has an honest one-line summary and 1–3 real examples', () 
 
 test('the bare card shows only first-use starters, and renders without the comment-scrape', () => {
   const starters = reg.COMMANDS.filter((c) => c.starter).map((c) => c.name);
-  assert.deepEqual(starters, ['ask', 'sessions', 'remind', 'skills', 'setup', 'status', 'doctor']);
+  assert.deepEqual(starters, ['ask', 'sessions', 'code', 'remind', 'skills', 'setup', 'status', 'doctor']);
   // the renderers are pure functions of the registry + an injected ui bag (no __filename scrape anywhere)
   assert.ok(!/readFileSync\(__filename/.test(src), 'cli.js must not scrape its own file for help text');
 });

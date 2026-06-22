@@ -13,6 +13,7 @@
 
 - Features
   - [Overview](features/overview.md)
+  - [Coding](features/coding.md)
   - [Memory & active recall](features/memory.md)
   - [Skills](features/skills.md)
   - [Connectors (MCP)](features/connectors.md)

@@ -26,6 +26,7 @@
 // only for the ᚢᚱᚠᚨᛖᛚ wordmark and ᚦ for fortress mode). Plain labels only.
 const GROUPS = {
   ASK:      'ASK      put a question to it',
+  CODE:     'CODE     Claude Code in your repo, with memory, checkpoints, and rewind',
   MEMORY:   'MEMORY   what it knows about you, and where each belief came from',
   SCHEDULE: 'SCHEDULE reminders, background jobs, and cron',
   TEAM:     'TEAM     the roster, the activity trail, the seal',
@@ -51,6 +52,21 @@ const COMMANDS = [
   { name: 'stop', group: 'ASK',
     summary: 'abort the current in-flight turn (or Ctrl+C while it answers)',
     usage: 'urfael stop', examples: ['urfael stop'], see: ['shutdown'] },
+
+  // ── CODE ─────────────────────────────────────────────────────────────────────
+  { name: 'code', group: 'CODE', starter: true, bareLabel: 'urfael code "<task>"', bareSummary: 'Claude Code in your repo, with a safety net',
+    summary: 'run Claude Code in your repo with memory + a safety net',
+    usage: 'urfael code "<task>" [--dir <path>] [--no-checkpoint] [--no-memory] [--no-run]',
+    examples: ['urfael code "add a retry to the API client"', 'urfael code "fix the failing auth test" --dir ~/work/app'],
+    see: ['checkpoints', 'rewind'] },
+  { name: 'checkpoints', group: 'CODE',
+    summary: 'list repo snapshots taken before each coding turn',
+    usage: 'urfael checkpoints [--dir <path>]',
+    examples: ['urfael checkpoints'], see: ['code', 'rewind'] },
+  { name: 'rewind', group: 'CODE',
+    summary: 'restore your repo to a checkpoint (undo a coding turn)',
+    usage: 'urfael rewind [<id>] [--dir <path>] [--yes] [--force]',
+    examples: ['urfael rewind', 'urfael rewind k3xq9z-1a2b'], see: ['code', 'checkpoints'] },
 
   // ── MEMORY ───────────────────────────────────────────────────────────────────
   { name: 'why', group: 'MEMORY',

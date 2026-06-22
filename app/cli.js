@@ -380,6 +380,111 @@ function printPluginPreview(ph, m) {
     return;
   }
 
+  // coding mode: Claude Code in YOUR repo with Urfael's layers, per-project memory + auto-checkpoint + a rewind.
+  // The brain is the claude CLI; this wraps a coding session so it (a) remembers each repo, (b) snapshots the working
+  // tree (tracked + untracked, the set `git add -A` stages) before it touches anything, and (c) lets you undo. The
+  // CHECKPOINT is pure git surgery on a private shadow ref: it never touches your branch, index, or working tree.
+  // Rewind deliberately rewrites your working tree (then unstages, leaving only worktree changes), and is itself
+  // reversible. Runs BEFORE ensureDaemon (it spawns its own claude in the repo).
+  if (cmd === 'code' || cmd === 'rewind' || cmd === 'checkpoints') {
+    const proj = require('./project');
+    const ckpt = require('./checkpoint');
+    const { spawnSync } = require('child_process');
+    const dirArg = flag(rest, '--dir');
+    const dir = path.resolve(dirArg || process.cwd());
+    let root;
+    try { root = execFileSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); }
+    catch { console.error('✗ ' + dir + ' is not a git repo. `urfael code` needs one (run `git init` first) so it can checkpoint and rewind safely.'); process.exit(1); }
+    const gitc = (a) => { try { return execFileSync('git', ['-C', root, ...a], { stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 24 }).toString(); } catch { return ''; } };
+    const hasHead = () => { try { execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { stdio: 'ignore' }); return true; } catch { return false; } };
+
+    // snapshot the working tree (tracked + untracked, the set `git add -A` stages) onto refs/urfael/checkpoints/<id>
+    // via a temp index, so it captures that set yet touches nothing live. Gitignored files (e.g. .env) are deliberately
+    // NOT included, so secrets never land in a shadow ref. Returns the commit sha, or '' if git refused.
+    function snapshot(id, task) {
+      const idx = path.join(os.tmpdir(), 'urfael-cpidx-' + process.pid + '-' + id);
+      const genv = { ...process.env, GIT_INDEX_FILE: idx }; delete genv.ELECTRON_RUN_AS_NODE;
+      try {
+        if (hasHead()) execFileSync('git', ['-C', root, 'read-tree', 'HEAD'], { env: genv, stdio: 'ignore' });
+        execFileSync('git', ['-C', root, 'add', '-A'], { env: genv, stdio: 'ignore' });
+        const tree = execFileSync('git', ['-C', root, 'write-tree'], { env: genv, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+        const parents = hasHead() ? ['-p', gitc(['rev-parse', 'HEAD']).trim()] : [];
+        const commit = execFileSync('git', ['-C', root, 'commit-tree', tree, ...parents, '-m', ckpt.msgFor(id, task)], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+        execFileSync('git', ['-C', root, 'update-ref', ckpt.ref(id), commit], { stdio: 'ignore' });
+        return commit;
+      } catch { return ''; } finally { try { fs.rmSync(idx, { force: true }); } catch {} }
+    }
+    const listCheckpoints = () => ckpt.parseList(gitc(['for-each-ref', '--sort=-creatordate', '--format=' + ckpt.LIST_FORMAT, ckpt.REF_PREFIX]));
+
+    if (cmd === 'checkpoints') {
+      const rows = listCheckpoints();
+      if (!rows.length) { console.log(dim('no checkpoints in this repo yet. `urfael code "<task>"` takes one before each turn.')); return; }
+      console.log(gold('Checkpoints') + dim('  (' + path.basename(root) + ')'));
+      for (const r of rows) console.log('  ' + gold(r.id.padEnd(14)) + dim((r.date.slice(0, 16).replace('T', ' ')) + '  ') + r.task);
+      console.log(dim('\n  rewind:  ') + gold('urfael rewind <id>') + dim('   restores your files to that snapshot (files created since are kept)'));
+      return;
+    }
+
+    if (cmd === 'rewind') {
+      const rows = listCheckpoints();
+      if (!rows.length) { console.error('✗ no checkpoints to rewind to in this repo'); process.exit(1); }
+      const want = rest.find((a) => !a.startsWith('--') && a !== dirArg);
+      const target = want ? rows.find((r) => r.id === want) : rows[0];
+      if (!target) { console.error('✗ no checkpoint "' + want + '" here. Run `urfael checkpoints`.'); process.exit(1); }
+      console.log(dim('rewind ' + path.basename(root) + ' → ') + gold(target.id) + dim('  "' + target.task + '"  (' + target.date.slice(0, 16).replace('T', ' ') + ')'));
+      if (!rest.includes('--yes') && !(await promptYesNo('This restores your tracked files to that snapshot. The current state is checkpointed first, so it is undoable. Proceed?'))) { console.log(dim('aborted')); return; }
+      // checkpoint the current state first so the rewind is itself reversible. If that fails, REFUSE: overwriting the
+      // working tree with no way back would betray the undo promise. --force overrides for the rare deliberate case.
+      const back = ckpt.newId();
+      const backSha = snapshot(back, 'before rewind to ' + target.id);
+      if (!backSha && !rest.includes('--force')) { console.error('✗ could not checkpoint the current state, so a rewind would be irreversible. Refusing. Re-run with --force to override.'); process.exit(1); }
+      // the files present now but absent from the snapshot, the ones a restore KEEPS. Computed BEFORE the checkout and
+      // untracked-aware (git diff would not see new untracked files), so the report is actually true.
+      const inSnap = new Set(gitc(['ls-tree', '-r', '--name-only', target.sha]).split('\n').filter(Boolean));
+      const nowFiles = new Set(gitc(['ls-files']).split('\n').concat(gitc(['ls-files', '--others', '--exclude-standard']).split('\n')).filter(Boolean));
+      const kept = [...nowFiles].filter((f) => !inSnap.has(f));
+      try { execFileSync('git', ['-C', root, 'checkout', target.sha, '--', '.'], { stdio: ['ignore', 'ignore', 'inherit'] }); }
+      catch (e) { console.error('✗ rewind failed: ' + ((e && e.message) || e)); process.exit(1); }
+      if (hasHead()) { try { execFileSync('git', ['-C', root, 'reset', '-q'], { stdio: 'ignore' }); } catch {} }   // unstage, so only the working tree differs (the index is left as it was)
+      console.log(gold('✓ restored to ' + target.id));
+      if (kept.length) console.log(dim('  ' + kept.length + ' file(s) created since the snapshot were KEPT (not deleted): ') + kept.slice(0, 8).join(', ') + (kept.length > 8 ? ' …' : ''));
+      if (backSha) console.log(dim('  undo this rewind:  ') + gold('urfael rewind ' + back));
+      return;
+    }
+
+    // urfael code "<task>"
+    const task = rest.filter((a, i) => !a.startsWith('--') && rest[i - 1] !== '--dir').join(' ').trim();
+    if (!task) { console.error('usage: urfael code "<task>" [--dir <path>] [--no-checkpoint] [--no-memory] [--no-run]'); process.exit(1); }
+    const remote = gitc(['remote', 'get-url', 'origin']).trim();
+    const id = proj.idFor(root, remote);
+    const pmem = proj.memDir(MEMORY_DIR, id);
+    let conventions = '';
+    if (!rest.includes('--no-memory')) {
+      try { fs.mkdirSync(pmem, { recursive: true }); } catch {}
+      const cpath = path.join(pmem, proj.CONVENTIONS);
+      try { conventions = fs.readFileSync(cpath, 'utf8'); } catch { try { fs.writeFileSync(cpath, proj.conventionsTemplate(id)); } catch {} }
+    }
+    let cpId = '';
+    if (!rest.includes('--no-checkpoint')) { cpId = ckpt.newId(); if (!snapshot(cpId, task)) { console.error(dim('  (could not checkpoint, proceeding without one)')); cpId = ''; } }
+    const ctx = proj.contextBlock(conventions);
+    const prompt = (ctx ? ctx + '\n\n' : '') + task;
+    console.log(gold('● urfael code') + dim('  repo ' + path.basename(root) + '  ·  memory ' + id + (cpId ? '  ·  checkpoint ' + cpId : '  ·  no checkpoint')));
+    if (!rest.includes('--no-run')) {                                            // --no-run: just checkpoint + load memory, skip the brain
+      const cenv = { ...process.env }; delete cenv.ELECTRON_RUN_AS_NODE;
+      // `--` so a task that begins with a dash (e.g. "-c") is always the prompt, never parsed as a claude flag.
+      spawnSync('claude', ['--', prompt], { cwd: root, stdio: 'inherit', env: cenv });
+    }
+    // record the session: a HISTORY.md entry + an append-only code-log line, both in the git-versioned memory repo.
+    if (!rest.includes('--no-memory')) {
+      try { fs.appendFileSync(path.join(pmem, proj.HISTORY), proj.historyEntry(task, '', cpId, new Date().toISOString())); } catch {}
+      try { fs.appendFileSync(path.join(pmem, 'code-log.jsonl'), JSON.stringify({ at: new Date().toISOString(), task: task.slice(0, 300), checkpoint: cpId, root }) + '\n'); } catch {}
+    }
+    console.log('');
+    if (cpId) console.log(dim('  undo this session:  ') + gold('urfael rewind ' + cpId) + dim('   ·   all:  ') + gold('urfael checkpoints'));
+    console.log(dim('  teach it about this repo:  ') + gold(path.join(pmem, proj.CONVENTIONS).replace(os.homedir(), '~')));
+    return;
+  }
+
   // skills: a paranoid share/install hub for VAULT/_urfael/skills/. Pure CLI — no brain needed, runs
   // BEFORE ensureDaemon. Install never executes a skill; it only stores the markdown after you confirm.
   if (cmd === 'skills') {

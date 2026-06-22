@@ -4,6 +4,19 @@ All notable changes to Urfael are recorded here. The format follows [Keep a Chan
 
 Run `urfael version` to see what you are on, and `urfael update` to pull and reinstall the latest.
 
+## [0.7.0] - 2026-06-22
+
+The "better Claude Code" release. Urfael's brain is the `claude` CLI, so this turns it into a superior coding harness: a first-class coding session in your own repo, with a safety net the bare CLI does not have.
+
+### Added
+
+- **Coding mode (`urfael code "<task>"`).** Runs Claude Code in your repo with three layers stacked on. **Per-project memory:** a stable, per-repo `CONVENTIONS.md` plus a `HISTORY.md`, kept under the private memory repo and loaded as context every time, so it picks up that repo's conventions instead of relearning them each session. The project id derives from the git remote, so the same repo shares one memory across clones. **Auto-checkpoint:** before the brain touches a file, the whole working tree (tracked and untracked) is snapshotted onto a private git shadow ref (`refs/urfael/checkpoints/`) through a temp index, capturing everything yet never touching your branch, index, or working tree. **A record of the turn:** each run appends to the project `HISTORY.md` and an append-only log, both inside the git-versioned memory repo.
+- **Checkpoints and rewind (`urfael checkpoints`, `urfael rewind [<id>]`).** An undo for the agent. `rewind` restores your tracked files to a snapshot; it checkpoints the current state first, so a rewind is itself reversible, and files created since the snapshot are kept, never silently deleted. The ids, refs, message encoding, and list parsing are pure and unit-tested; the git surgery has a real-repo integration test that proves a checkpoint captures the tree, a rewind restores it, new files survive, and your branch history is never polluted.
+
+### Changed
+
+- Test suite grows to 513 (the coding-mode modules `project.js` and `checkpoint.js` are pure and frozen with tests, plus the real-repo integration test).
+
 ## [0.6.0] - 2026-06-21
 
 The "match or beat the field" release. Every addition ships with unit tests, and the security-critical paths are frozen as benchmark checks (`npm run security`, now 95/95 across 10 attack classes).

@@ -58,6 +58,19 @@ test('every "N/N" or "N of N" attack-class count in the docs equals the real cla
   }
 });
 
+// ── no doc may cite a TOTAL channel count other than the real one. Sub-counts ("8 native webhook channels",
+//    "11 native bridges") keep a qualifier word before "channels"/"bridges", so the `(\d+) channels` /
+//    `(\d+) first-class` patterns only ever match a stated total. ──
+test('every total-channel-count claim in the docs equals the real channel count', () => {
+  const pats = [/(\d+)\s+channels\b/gi, /(\d+)\s+first-class\b/gi, /channel count is now (\d+)/gi];
+  for (const rel of DOCS) {
+    const txt = read(rel);
+    for (const re of pats) for (const m of txt.matchAll(re)) {
+      assert.equal(Number(m[1]), CHANNELS, rel + ' cites "' + m[0].trim() + '" but there are ' + CHANNELS + ' channels');
+    }
+  }
+});
+
 // ── the SECURITY-BENCHMARK scorecard must detail every attack class (no undercount vs the headline) ──
 test('the security-benchmark scorecard lists every attack class', () => {
   const rows = (read('docs/SECURITY-BENCHMARK.md').match(/^\| \d+ \|/gm) || []).length;

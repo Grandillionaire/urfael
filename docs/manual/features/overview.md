@@ -2,6 +2,12 @@
 
 This is the map. Each entry is one honest sentence and a link to the page that goes deep. Everything below ships **off by default** unless noted, and you turn power on deliberately.
 
+## Coding
+
+`urfael code "<task>"` runs Claude Code in your own repo with three things the bare CLI lacks: per-repo memory loaded every turn (so it keeps your conventions instead of relearning them), an automatic checkpoint of the working tree onto a private git shadow ref before it touches anything (your branch and index untouched), and a one-command, itself-reversible undo with `urfael rewind`.
+
+See [features/coding.md](features/coding.md).
+
 ## Memory and active recall
 
 Every conversation is archived as plain JSONL and searchable through a persistent BM25 index over the **whole** archive, not just a recent window; with a local embedder configured, the lexical shortlist is re-ranked by semantic vectors so a paraphrase still surfaces. Active recall goes one step further: before every owner turn it injects a small, fenced block of the past turns and trusted lessons that bear on your message, so you do not have to remind it. It is on by default; set `URFAEL_ACTIVE_RECALL=0` to turn it off.

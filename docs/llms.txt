@@ -17,6 +17,7 @@ This is the documentation index. The human-readable manual is at https://urfael.
 
 ## Features
 - [Overview](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/overview.md): This is the map. Each entry is one honest sentence and a link to the page that goes deep. Everything below ships off by default unless noted, and you turn power
+- [Coding](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/coding.md): Urfael's brain is the claude CLI, so it makes a sharper coding tool than the bare CLI. urfael code "<task>" runs Claude Code in your own repo with three things 
 - [Memory & active recall](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/memory.md): Urfael remembers across sessions. Every turn is archived, the whole archive is indexed for ranked search, and the most relevant past turns plus trusted lessons 
 - [Skills](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/skills.md): A skill is a procedure Urfael writes down and reuses. When it solves something with a non-obvious path, the brain saves the steps as a short markdown file under
 - [Connectors (MCP)](https://raw.githubusercontent.com/Grandillionaire/urfael/main/docs/manual/features/connectors.md): Channels are how people reach Urfael. Connectors are how Urfael reaches your tools: GitHub, Notion, Slack, Postgres, Stripe, your calendar, a vector store, more
