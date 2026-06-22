@@ -55,13 +55,12 @@
   },
   "devDependencies": {
     "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^26.15.3"
   },
-  "dependencies": {
+  "dependencies": {},
+  "optionalDependencies": {
     "@picovoice/porcupine-node": "^4.0.2",
-    "@picovoice/porcupine-web": "^4.0.0",
-    "@picovoice/pvrecorder-node": "^1.2.8",
-    "@picovoice/web-voice-processor": "^4.0.10"
+    "@picovoice/pvrecorder-node": "^1.2.8"
   },
   "bin": {
     "urfael": "./cli.js"
