@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FAQ, Urfael</title>
+<meta name="description" content="Every question about Urfael, answered: cost, security, the Anthropic dependency, alternatives to OpenClaw and Hermes Agent, models, offline use, and how it proves what it did." />
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://urfael.com/faq" />
+<link rel="icon" href="/favicon.ico" sizes="32x32" />
+<link rel="icon" type="image/svg+xml" href="/media/favicon.svg" />
+<meta name="theme-color" content="#0d0c0a" />
+<style>
+  :root{--bg:#0d0c0a;--bg2:#161109;--gold:#d4a85a;--gold-soft:#ecd3a0;--body:#e8e0cf;--dim:#a99b78;--line:rgba(212,168,90,.20);--serif:"Iowan Old Style","Palatino","Book Antiqua",Georgia,serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--body);font:17px/1.7 var(--serif);background-image:radial-gradient(1100px 540px at 50% -8%,var(--bg2),var(--bg) 62%);-webkit-font-smoothing:antialiased}
+  a{color:var(--gold-soft);text-decoration:none}a:hover{color:var(--gold)}
+  nav{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:13px;padding:13px 22px;background:rgba(13,12,10,.86);backdrop-filter:saturate(140%) blur(8px);border-bottom:1px solid var(--line)}
+  nav .logo{display:inline-flex;align-items:center;gap:11px}nav .logo svg{width:34px;height:34px}nav .logo b{color:var(--gold);font-size:20px;font-variant:small-caps;letter-spacing:1px}
+  nav .spacer{flex:1}nav .back{font:13px var(--mono);color:var(--dim)}nav .back:hover{color:var(--gold-soft)}
+  main{max-width:780px;margin:0 auto;padding:44px 22px 30px}
+  h1{font-size:34px;color:var(--gold);font-variant:small-caps;letter-spacing:1.2px;font-weight:600;margin:6px 0 6px}
+  .lead{font-size:18px;color:var(--dim);margin:0 0 26px}
+  details{border:1px solid var(--line);border-radius:11px;background:rgba(212,168,90,.03);margin:10px 0;padding:0 18px;overflow:hidden}
+  summary{cursor:pointer;list-style:none;padding:15px 0;font-variant:small-caps;letter-spacing:.5px;font-size:17px;color:var(--gold-soft)}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"+";float:right;color:var(--dim);font-family:var(--mono)}
+  details[open] summary::after{content:"\2212"}
+  details[open] summary{color:var(--gold)}
+  .ans{padding:0 0 17px;color:var(--body);font-size:15.5px;line-height:1.66}
+  .ans code{font-family:var(--mono);font-size:.9em;color:var(--gold-soft)}
+  footer{color:var(--dim);font-size:13px;text-align:center;padding:40px 22px 60px;border-top:1px solid var(--line);margin-top:40px}
+  footer .fl{margin-top:10px;font:12px var(--mono);letter-spacing:.4px}footer .fl a{margin:0 7px;color:var(--dim)}footer .fl a:hover{color:var(--gold-soft)}
+  @media(max-width:680px){body{font-size:16px}h1{font-size:28px}main{padding:34px 18px 24px}}
+</style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is this just a wrapper around Claude?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The brain is the Claude you already pay for, reached through the claude CLI you are already signed into. Urfael is everything around that brain a wrapper is not: a tamper-evident ledger of every action, an ed25519 seal over it, a read-only sandbox for untrusted messages, a credential-deny boundary, nineteen hardened chat channels, voice in and out, proactive active recall over your own notes, a multi-agent Council, and a security benchmark you can run in one command. The model is rented. The sovereignty, the memory, and the safety are yours, on your machine, under MIT."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What does it cost to run?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "By default, your existing Claude subscription, flat-rate. There is no Urfael account and no server you rent from us. You can also point it at any of 30 providers (you pay their per-token rate) or at a local model on your own GPU, where it costs you only electricity. We do not see your traffic; there is nothing to see. On the subscription path, see the next answer about Anthropic's terms."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does Urfael depend on Anthropic, and what if their terms change?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Urfael is not built, endorsed, or operated by Anthropic, and running it on a flat-rate Claude subscription depends on Anthropic's consumer terms, which we do not control. We say so plainly. It is not a single point of failure: the same Urfael, with the same security guarantees, also runs on any of 30 providers through a documented proxy, or on a local model on your own GPU, with one config line. So if those terms ever change, your cost model changes, not the product."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is it actually secure, or is that just a word?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "It is a command: npm run security . It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists 10 of 10 real-world attack classes across 95 of 95 checks. You do not take our word for it. You run it."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is Urfael an alternative to OpenClaw or Hermes Agent?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, and an honest one. OpenClaw and Hermes Agent optimize for channel count and model breadth, and they are genuinely good at it. Urfael optimizes for what matters when a machine lives on your desk and acts for you: the smallest blast radius, a flat bill, local voice, and not overstating what it does. Where the others default to optional sandboxes and an inbound surface, Urfael opens no network port , allowlists every sender before the brain sees a token, and runs remote turns read-only by default. It ships a security benchmark you run yourself ( 10/10 attack classes, 95/95 checks) and a tamper-evident ledger so it can prove what it did. The full comparison, every win and every gap in the same table, is above ."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What is the most secure self-hosted AI agent?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Security is something you should be able to verify , not a word you read. Urfael was built blast-radius-first: no inbound network port (a 0600 unix socket only), fail-closed allowlists on every channel, read-only sandboxed remote turns, and autonomous work confined to throwaway containers with no secrets mounted. The proof is a command, npm run security , which boots the real daemon and runs the actual attacks that compromised other self-hosted agents in 2026, landing on 10/10 attack classes and 95/95 checks. Run it yourself rather than take anyone's word for it."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "A prompt injection got other agents to leak secrets. Why not this one?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Because the containment is structural, not a clever prompt. Remote and untrusted turns run a read-only profile: read and search your notes, no shell, no write, and critically no network-egress tool. The vault also denies the agent reading your credential stores outright, a hard boundary that holds even in Full mode. So an injected \"read a secret and send it somewhere\" has nothing to read and nowhere to send."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "So is there any mode where an injection could leak something?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, and we will not hide it. The default Fortress posture has no egress, so untrusted content cannot exfiltrate at all. If you deliberately enable Full mode the agent can fetch the web, which means a successful injection could exfiltrate notes you have given it, though never your credentials, because the credential-deny boundary still holds. Run Full mode only in a VM, a container, or a throwaway account. The benchmark, the docs, and this answer all say the same thing on purpose."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Why is there no inbound port? Doesn't that limit it?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "It is the whole point. The brain listens on a 0600 unix socket only, never a TCP port. The topology is one-way: Urfael reaches out (to your Claude login, to chat APIs it polls); nothing reaches in. There is no gateway to expose, no token to leak over a socket, no DM endpoint to spray. The agent gateways that got owned in 2026, reported in the tens of thousands, were owned because they were reachable. This one is not."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I use a model other than Claude?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Claude is native through your subscription, the one path billed to you with no per-token meter. Every other provider (OpenAI, Gemini, Llama, Mistral, DeepSeek, Groq, Ollama, LM Studio, NVIDIA NIM, OpenRouter, Bedrock, Vertex, Azure) runs through a documented Anthropic-compatible proxy such as claude-code-router or LiteLLM, with the same sandbox harness enforcing the boundaries. You can also switch models mid-conversation by just saying so: switch to opus ."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can it run fully offline, with nothing leaving my machine?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Point it at a local model (Ollama or NVIDIA NIM) and use the local voice model, and nothing leaves the machine. See the Local-GPU guide. You trade some capability for total air-gap; that is your call to make, not ours."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can it prove what it actually did?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "That is the trust suite, and it is real. Every action lands in a hash-chained Ledger of Record, so tampering is detectable. An ed25519 Sovereign Seal signs the chain head, so you can prove the record's authorship and integrity at a moment in time (it proves the record is authentic, not that every claim inside is true, we are precise about that). urfael why pickaxes the provenance of any lesson it learned. And urfael forget writes a tombstone for provable, consented deletion."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How mature is this, honestly?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the full stack but has far less mileage. The Matrix, Signal and WhatsApp bridges are code-complete and reviewed, with their parsing and allowlist logic unit-tested, but not yet battle-hardened against live accounts. Real-world scale is small, because this is a personal tool and we say so. There are 520 unit tests, an end-to-end harness against a live daemon, and adversarial security regressions frozen from real findings. What only time and users add is the one thing we cannot fake."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What is the Council?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "A multi-agent orchestration you can watch. Urfael decomposes a hard question, dispatches read-only sandboxed workers to gather what each needs, then synthesizes one answer. The workers cannot write, cannot run a shell, and cannot reach the network; they read and report. You see the whole thing happen rather than trusting a black box."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is this affiliated with Anthropic?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Urfael is an independent, open-source project under the MIT license. It runs on your Claude subscription but is not built, endorsed, or operated by Anthropic. The Urfael name and the Uruz mark are an original character drawn from the public-domain Elder Futhark."
+      }
+    }
+  ],
+  "url": "https://urfael.com/faq",
+  "@id": "https://urfael.com/faq#faqpage"
+}
+</script>
+</head>
+<body>
+<nav aria-label="primary">
+  <a class="logo" href="/" aria-label="Urfael home"><svg viewBox="0 0 128 128" aria-hidden="true"><circle cx="64" cy="64" r="58" fill="#16110a" stroke="#d4a85a" stroke-width="2.5"/><g stroke="#e7c280" stroke-width="7" fill="none"><path d="M47 30 L47 98"/><path d="M47 30 L81 52"/><path d="M81 52 L81 98"/></g></svg><b>Urfael</b></a>
+  <span class="spacer"></span>
+  <a class="back" href="/">back to the site &rsaquo;</a>
+</nav>
+<main>
+  <h1>Every question, answered</h1>
+  <p class="lead">Honest answers about cost, security, the Anthropic dependency, models, and how Urfael proves what it did. Still stuck? <a href="https://github.com/Grandillionaire/urfael">Ask on GitHub.</a></p>
+  <details><summary>Is this just a wrapper around Claude?</summary><div class="ans">The brain is the Claude you already pay for, reached through the <code>claude</code> CLI you are already signed into. Urfael is everything around that brain a wrapper is not: a tamper-evident ledger of every action, an ed25519 seal over it, a read-only sandbox for untrusted messages, a credential-deny boundary, nineteen hardened chat channels, voice in and out, proactive active recall over your own notes, a multi-agent Council, and a security benchmark you can run in one command. The model is rented. The sovereignty, the memory, and the safety are yours, on your machine, under MIT.</div></details>
+  <details><summary>What does it cost to run?</summary><div class="ans">By default, your existing Claude subscription, flat-rate. There is no Urfael account and no server you rent from us. You can also point it at any of 30 providers (you pay their per-token rate) or at a local model on your own GPU, where it costs you only electricity. We do not see your traffic; there is nothing to see. On the subscription path, see the next answer about Anthropic's terms.</div></details>
+  <details><summary>Does Urfael depend on Anthropic, and what if their terms change?</summary><div class="ans">Urfael is not built, endorsed, or operated by Anthropic, and running it on a flat-rate Claude subscription depends on Anthropic's consumer terms, which we do not control. We say so plainly. It is not a single point of failure: the same Urfael, with the same security guarantees, also runs on any of 30 providers through a documented proxy, or on a local model on your own GPU, with one config line. So if those terms ever change, your cost model changes, not the product.</div></details>
+  <details><summary>Is it actually secure, or is that just a word?</summary><div class="ans">It is a command: <code>npm run security</code>. It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists <b>10 of 10</b> real-world attack classes across <b>95 of 95</b> checks. You do not take our word for it. You run it.</div></details>
+  <details><summary>Is Urfael an alternative to OpenClaw or Hermes Agent?</summary><div class="ans">Yes, and an honest one. OpenClaw and Hermes Agent optimize for channel count and model breadth, and they are genuinely good at it. Urfael optimizes for what matters when a machine lives on your desk and acts for you: the smallest blast radius, a flat bill, local voice, and not overstating what it does. Where the others default to optional sandboxes and an inbound surface, Urfael opens <b>no network port</b>, allowlists every sender <i>before</i> the brain sees a token, and runs remote turns read-only by default. It ships a security benchmark you run yourself (<b>10/10</b> attack classes, <b>95/95</b> checks) and a tamper-evident ledger so it can prove what it did. The full comparison, every win and every gap in the same table, is <a href="#compare">above</a>.</div></details>
+  <details><summary>What is the most secure self-hosted AI agent?</summary><div class="ans">Security is something you should be able to <i>verify</i>, not a word you read. Urfael was built blast-radius-first: no inbound network port (a <code>0600</code> unix socket only), fail-closed allowlists on every channel, read-only sandboxed remote turns, and autonomous work confined to throwaway containers with no secrets mounted. The proof is a command, <code>npm run security</code>, which boots the real daemon and runs the actual attacks that compromised other self-hosted agents in 2026, landing on <b>10/10</b> attack classes and <b>95/95</b> checks. Run it yourself rather than take anyone's word for it.</div></details>
+  <details><summary>A prompt injection got other agents to leak secrets. Why not this one?</summary><div class="ans">Because the containment is structural, not a clever prompt. Remote and untrusted turns run a read-only profile: read and search your notes, no shell, no write, and critically no network-egress tool. The vault also denies the agent reading your credential stores outright, a hard boundary that holds even in Full mode. So an injected "read a secret and send it somewhere" has nothing to read and nowhere to send.</div></details>
+  <details><summary>So is there any mode where an injection could leak something?</summary><div class="ans">Yes, and we will not hide it. The default Fortress posture has no egress, so untrusted content cannot exfiltrate at all. If you deliberately enable Full mode the agent can fetch the web, which means a successful injection could exfiltrate notes you have given it, though never your credentials, because the credential-deny boundary still holds. Run Full mode only in a VM, a container, or a throwaway account. The benchmark, the docs, and this answer all say the same thing on purpose.</div></details>
+  <details><summary>Why is there no inbound port? Doesn't that limit it?</summary><div class="ans">It is the whole point. The brain listens on a <code>0600</code> unix socket only, never a TCP port. The topology is one-way: Urfael reaches out (to your Claude login, to chat APIs it polls); nothing reaches in. There is no gateway to expose, no token to leak over a socket, no DM endpoint to spray. The agent gateways that got owned in 2026, reported in the tens of thousands, were owned because they were reachable. This one is not.</div></details>
+  <details><summary>Can I use a model other than Claude?</summary><div class="ans">Yes. Claude is native through your subscription, the one path billed to you with no per-token meter. Every other provider (OpenAI, Gemini, Llama, Mistral, DeepSeek, Groq, Ollama, LM Studio, NVIDIA NIM, OpenRouter, Bedrock, Vertex, Azure) runs through a documented Anthropic-compatible proxy such as claude-code-router or LiteLLM, with the same sandbox harness enforcing the boundaries. You can also switch models mid-conversation by just saying so: <code>switch to opus</code>.</div></details>
+  <details><summary>Can it run fully offline, with nothing leaving my machine?</summary><div class="ans">Yes. Point it at a local model (Ollama or NVIDIA NIM) and use the local voice model, and nothing leaves the machine. See the Local-GPU guide. You trade some capability for total air-gap; that is your call to make, not ours.</div></details>
+  <details><summary>Can it prove what it actually did?</summary><div class="ans">That is the trust suite, and it is real. Every action lands in a hash-chained Ledger of Record, so tampering is detectable. An ed25519 Sovereign Seal signs the chain head, so you can prove the record's authorship and integrity at a moment in time (it proves the record is authentic, not that every claim inside is true, we are precise about that). <code>urfael why</code> pickaxes the provenance of any lesson it learned. And <code>urfael forget</code> writes a tombstone for provable, consented deletion.</div></details>
+  <details><summary>How mature is this, honestly?</summary><div class="ans">macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the full stack but has far less mileage. The Matrix, Signal and WhatsApp bridges are code-complete and reviewed, with their parsing and allowlist logic unit-tested, but not yet battle-hardened against live accounts. Real-world scale is small, because this is a personal tool and we say so. There are 520 unit tests, an end-to-end harness against a live daemon, and adversarial security regressions frozen from real findings. What only time and users add is the one thing we cannot fake.</div></details>
+  <details><summary>What is the Council?</summary><div class="ans">A multi-agent orchestration you can watch. Urfael decomposes a hard question, dispatches read-only sandboxed workers to gather what each needs, then synthesizes one answer. The workers cannot write, cannot run a shell, and cannot reach the network; they read and report. You see the whole thing happen rather than trusting a black box.</div></details>
+  <details><summary>Is this affiliated with Anthropic?</summary><div class="ans">No. Urfael is an independent, open-source project under the MIT license. It runs on your Claude subscription but is not built, endorsed, or operated by Anthropic. The Urfael name and the Uruz mark are an original character drawn from the public-domain Elder Futhark.</div></details>
+  <p style="margin-top:30px"><a href="/">&lsaquo; Back to urfael.com</a></p>
+</main>
+<footer>
+  An independent open-source project (MIT), not affiliated with Anthropic.
+  <div class="fl"><a href="/">Home</a> &middot; <a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a> &middot; <a href="/imprint">Imprint</a> &middot; <a href="https://github.com/Grandillionaire/urfael">GitHub</a></div>
+  <div style="margin-top:8px;font:11px var(--mono);color:var(--dim);opacity:.75">&copy; 2026 MYG Media SRL</div>
+</footer>
+</body>
+</html>
