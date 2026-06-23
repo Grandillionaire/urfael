@@ -26,7 +26,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
+const { MODELS, classifyError, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
 const personas = require('./personas');
 const recall = require('./recall');
 const ridx = require('./recall-index');         // persistent BM25 inverted index — recall AT SCALE (FTS5-equivalent)
@@ -234,9 +234,10 @@ function sendSay(p) { emit({ kind: 'say', ...p }); }
 // Only true em/en dashes are touched; hyphens in CLI flags like --model are left alone.
 const deDash = (s) => String(s == null ? '' : s).replace(/\s*[–—]\s*/g, ', ');
 
-// One warm Claude process per model (stdin kept open). stderr ignored so its pipe can't stall the child.
+// One warm Claude process per model (stdin kept open). stderr is drained into a small ring buffer so a failed
+// turn can be classified (why it failed), without ever stalling the child.
 class Session {
-  constructor(model) { this.model = model; this.proc = null; this.queue = []; this.current = null; this.buf = ''; this.acc = ''; this.spokenSent = false; this.spokenDone = false; this.spokenEmitted = 0; this.spokenChars = 0; this.speakCur = false; this.curSilent = false; this.curTurn = 0; }
+  constructor(model) { this.model = model; this.proc = null; this.queue = []; this.current = null; this.buf = ''; this.acc = ''; this.errBuf = ''; this.lastFailed = false; this.spokenSent = false; this.spokenDone = false; this.spokenEmitted = 0; this.spokenChars = 0; this.speakCur = false; this.curSilent = false; this.curTurn = 0; }
   _ensure() {
     if (this.proc && !this.proc.killed) return;
     const overlayArgs = currentOverlay ? ['--append-system-prompt', currentOverlay] : [];   // active PERSONA voice; [] on the anchor → byte-identical spawn
@@ -246,16 +247,17 @@ class Session {
       ...MEMDIR_ADD,   // the brain can READ its own memory (it lives outside the vault/project root)
       ...overlayArgs,  // persona = a VOICE overlay only; the moat is PERM_MODE + the vault settings, not this text
       ...pluginMcpArgs(),  // enabled plugins on the WARM (owner) session only; [] when none → byte-identical spawn. Scoped/remote/cron spawns stay --strict-mcp-config, so a plugin never reaches an untrusted turn.
-    ], { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: ['pipe', 'pipe', 'ignore'] });
+    ], { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: ['pipe', 'pipe', 'pipe'] });
     const p = this.proc; // bind handlers to THIS proc identity so a stale exit can't clobber a freshly-spawned one
     recordBrainPid(p.pid);
     p.stdout.on('data', (d) => this._onData(d));
-    p.on('exit', () => { logEvent({ ev: 'brain_exit', model: this.model }); if (this.proc !== p) return; this.proc = null; if (this.current) { this.current.cb('(restarted — try again)'); this.current = null; } });
+    if (p.stderr) p.stderr.on('data', (d) => { try { this.errBuf = (this.errBuf + d).slice(-2048); } catch {} });   // drained (consumed) so it can't stall; last 2KB kept for classification
+    p.on('exit', () => { logEvent({ ev: 'brain_exit', model: this.model, cat: classifyError(this.errBuf).category }); if (this.proc !== p) return; this.proc = null; if (this.current) { this.lastFailed = true; this.current.cb('(' + (classifyError(this.errBuf).hint || 'restarted, try again') + ')'); this.current = null; } });
     p.on('error', (e) => { // spawn failure (claude missing / bad cwd) must never crash the daemon
-      logEvent({ ev: 'brain_spawn_error', model: this.model, err: String((e && e.message) || e) });
+      logEvent({ ev: 'brain_spawn_error', model: this.model, err: String((e && e.message) || e), cat: classifyError(this.errBuf || String((e && e.message) || e)).category });
       if (this.proc !== p) return;
       this.proc = null;
-      if (this.current) { const c = this.current; this.current = null; clearTimeout(c.timer); c.cb('(brain spawn failed — is claude installed?)'); }
+      if (this.current) { const c = this.current; this.current = null; this.lastFailed = true; clearTimeout(c.timer); c.cb('(' + (classifyError(this.errBuf || String((e && e.message) || e)).hint || 'brain spawn failed, is claude installed?') + ')'); }
     });
   }
   _onData(d) {
@@ -318,10 +320,10 @@ class Session {
     this._ensure();
     this.current = this.queue.shift();
     this.speakCur = !!this.current.speak; this.curSilent = !!this.current.silent; this.curTurn = this.current.turnId || 0;
-    this.acc = ''; this.spokenSent = false; this.spokenDone = false; this.spokenEmitted = 0; this.spokenChars = 0;
+    this.acc = ''; this.errBuf = ''; this.lastFailed = false; this.spokenSent = false; this.spokenDone = false; this.spokenEmitted = 0; this.spokenChars = 0;
     this.current.timer = setTimeout(() => {
       if (!this.current) return;
-      const c = this.current; this.current = null;
+      const c = this.current; this.current = null; this.lastFailed = true;
       try { this.proc && this.proc.kill('SIGKILL'); } catch {} this.proc = null; // discard hung process
       c.cb('(timed out)'); this._next();
     }, TURN_TIMEOUT_MS);
@@ -447,7 +449,7 @@ const brain = {
       transcript.push({ user: text, urfael: reply });
       recordSession({ t: new Date().toISOString(), channel: 'local', model, user: text, urfael: reply, ms });
       // only a normally-completed turn warrants a per-turn review — never aborts/timeouts/spawn failures
-      if (reply && reply !== '(timed out)' && reply !== '(restarted — try again)' && reply !== '(brain spawn failed — is claude installed?)') { reviewTurn(text, reply); modelUser(text, reply); reinforceSurfaced(mem.surfaced); }
+      if (reply && !session.lastFailed) { reviewTurn(text, reply); modelUser(text, reply); reinforceSurfaced(mem.surfaced); }   // never review an aborted/timed-out/failed turn
     }
     return { text: reply, model, ms, aborted: reply === '(stopped)',
       usage: { input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read_input_tokens: u.cache_read_input_tokens || 0 } };

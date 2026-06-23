@@ -522,3 +522,18 @@ test('hook: secret is checked by HASH, constant-time, and a wrong/garbage secret
   for (const badStore of ['', '0'.repeat(64), 'zz', stored.toUpperCase(), null])
     assert.equal(hookSecretOk(secret, badStore), false, JSON.stringify(badStore));
 });
+
+test('classifyError names common claude failures and marks the retryable ones', () => {
+  const { classifyError } = require('../lib');
+  assert.equal(classifyError('spawn claude ENOENT').category, 'not-installed');
+  assert.equal(classifyError('Error: 429 Too Many Requests').category, 'rate-limit');
+  assert.equal(classifyError('overloaded_error: 529').category, 'overloaded');
+  assert.equal(classifyError('401 Unauthorized: please run claude login').category, 'auth');
+  assert.equal(classifyError('prompt is too long: exceeds maximum tokens').category, 'context-too-long');
+  assert.equal(classifyError('getaddrinfo ENOTFOUND api.anthropic.com').category, 'network');
+  assert.equal(classifyError('the requested model is unavailable').category, 'model-unavailable');
+  assert.equal(classifyError('something we have never seen').category, 'unknown');
+  assert.equal(classifyError('429 rate limit').retryable, true);
+  assert.equal(classifyError('spawn claude ENOENT').retryable, false);
+  assert.equal(classifyError(null).category, 'unknown');                          // total: never throws
+});

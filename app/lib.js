@@ -788,4 +788,20 @@ function sparkline(nums) {
   return a.map((n) => B[Math.min(B.length - 1, Math.round((n / max) * (B.length - 1)))]).join('');
 }
 
-module.exports = { MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+// classifyError(text) → { category, hint, retryable }. Reads a claude CLI error / stderr blob and names the
+// failure so the cockpit can say WHY a turn failed (and a future fallback can decide whether to retry). PURE.
+function classifyError(text) {
+  const t = String(text == null ? '' : text).toLowerCase();
+  const C = (category, hint, retryable) => ({ category, hint, retryable });
+  if (/invalid model|unknown model|no such model|model.{0,16}(not found|unavailable|does not exist)/.test(t)) return C('model-unavailable', 'that model is unavailable; try another', true);
+  if (/enoent|command not found|claude.{0,20}not found|no such file|is claude installed/.test(t)) return C('not-installed', 'claude CLI not found; install Claude Code', false);
+  if (/401|403|unauthorized|forbidden|authentication|invalid api key|not logged in|please (run|sign)|\blogin\b/.test(t)) return C('auth', 'not signed in; run claude once to authenticate', false);
+  if (/429|rate.?limit|too many requests|quota|usage limit/.test(t)) return C('rate-limit', 'rate limited; try again shortly', true);
+  if (/overloaded|529|503|capacity|temporarily unavailable|service unavailable/.test(t)) return C('overloaded', 'the model is overloaded; try again', true);
+  if (/context|too long|exceeds|maximum.{0,12}token|prompt is too large|token limit/.test(t)) return C('context-too-long', 'the conversation is too long; clear it and retry', false);
+  if (/econnrefused|etimedout|enotfound|getaddrinfo|socket hang|\bnetwork\b|\bdns\b/.test(t)) return C('network', 'network error reaching the model', true);
+  if (/timed out|timeout/.test(t)) return C('timeout', 'the turn timed out', true);
+  return C('unknown', '', false);
+}
+
+module.exports = { classifyError, MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
