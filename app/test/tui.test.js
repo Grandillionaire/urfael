@@ -131,6 +131,28 @@ test('layout: the worker row is always rows-3 across geometries (resize math can
   }
 });
 
+test('layout: a multi-line input grows upward, shifting worker/status up while staying bottom-anchored', () => {
+  const g = { cols: 60, rows: 24 };
+  const L1 = rend.layout(g, CFG(), 1);
+  assert.equal(L1.inputH, 1); assert.equal(L1.workerRow, 21); assert.equal(L1.statusRow, 22); assert.equal(L1.inputTop, 23);
+  const L3 = rend.layout(g, CFG(), 3);
+  assert.equal(L3.inputH, 3);
+  assert.equal(L3.inputTop, 21);          // input rows 21,22,23
+  assert.equal(L3.statusRow, 20);
+  assert.equal(L3.workerRow, 19);
+  assert.equal(L3.paneH, L1.paneH - 2);   // the pane gives up exactly the extra input rows
+});
+
+test('compose: multi-line inputLines render on the bottom rows, just above the status', () => {
+  const g = { cols: 40, rows: 16 };
+  const f = rend.compose({ theme: TH, cfg: CFG(), vitals: { model: 'opus' }, lines: ['a', 'b'], worker: null, statusText: 'STAT', inputLines: ['> one', '  two', '  three'], scroll: 0 }, g);
+  assert.equal(f.length, 16);
+  assert.equal(strip(f[15]).trim(), 'three');   // last row is the last input line (caret lives here)
+  assert.equal(strip(f[14]).trim(), 'two');
+  assert.equal(strip(f[13]).trim(), '> one');   // first input row keeps the prompt mark
+  assert.equal(strip(f[12]).trim(), 'STAT');    // status sits directly above the input block
+});
+
 test('clipPad: clips to cols visible cells (SGR is zero-width), pads short rows, always ends in RST', () => {
   assert.equal(strip(rend.clipPad('\x1b[33mhello\x1b[0m world!!!', 8, '\x1b[0m')), 'hello wo');
   assert.equal(rend.visLen(rend.clipPad('x', 5, '\x1b[0m')), 5);

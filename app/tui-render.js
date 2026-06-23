@@ -31,12 +31,14 @@ function clipPad(s, cols, RST) {
 
 // layout(geom, cfg): the row assignment, recomputed every render so resize stays correct.
 //   row 0 = title; row 1 = spacer (unless compact); pane; rows-3 = worker/divider; rows-2 = status; rows-1 = input.
-function layout(geom, cfg) {
+function layout(geom, cfg, inputH) {
   const rows = geom.rows;
-  const inputRow = rows - 1, statusRow = rows - 2, workerRow = rows - 3;
+  // input grows UPWARD for multi-line; always leave the title + at least one pane row + worker + status.
+  const ih = Math.max(1, Math.min(inputH || 1, Math.max(1, rows - 4)));
+  const inputTop = rows - ih, statusRow = inputTop - 1, workerRow = statusRow - 1;
   const spacerRow = cfg && cfg.compact ? -1 : 1;
   const paneTop = spacerRow < 0 ? 1 : 2;
-  return { titleRow: 0, spacerRow, paneTop, paneBot: workerRow, paneH: Math.max(1, workerRow - paneTop), workerRow, statusRow, inputRow };
+  return { titleRow: 0, spacerRow, paneTop, paneBot: workerRow, paneH: Math.max(1, workerRow - paneTop), workerRow, statusRow, inputTop, inputRow: rows - 1, inputH: ih };
 }
 
 // buildTitle: a rounded ╭─ … ─╮ rule with the rune wordmark + model + mode glyph + 7-day sparkline.
@@ -58,7 +60,8 @@ function buildTitle(theme, v, cols) {
 //   state = { theme, cfg, vitals, lines (all wrapped+coloured rows), worker|null, statusText, promptMark, inputView, scroll }
 function compose(state, geom) {
   const theme = state.theme, RST = theme.RST, cols = geom.cols, rows = geom.rows;
-  const L = layout(geom, state.cfg || {});
+  const inputLines = state.inputLines || [ (state.promptMark || '') + (state.inputView || '') ];   // multi-line input block, or back-compat single row
+  const L = layout(geom, state.cfg || {}, inputLines.length);
   const out = new Array(rows);
 
   out[L.titleRow] = clipPad(buildTitle(theme, state.vitals, cols), cols, RST);
@@ -82,7 +85,7 @@ function compose(state, geom) {
 
   out[L.workerRow] = clipPad(state.worker != null ? state.worker : theme.dim + '─'.repeat(cols) + RST, cols, RST);
   out[L.statusRow] = clipPad(state.statusText || '', cols, RST);
-  out[L.inputRow] = clipPad((state.promptMark || '') + (state.inputView || ''), cols, RST);
+  for (let i = 0; i < L.inputH; i++) out[L.inputTop + i] = clipPad(inputLines[i] || '', cols, RST);
 
   for (let i = 0; i < rows; i++) if (out[i] == null) out[i] = clipPad('', cols, RST);
   return out;

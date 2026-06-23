@@ -24,6 +24,8 @@ const ALT_ON = '\x1b[?1049h', ALT_OFF = '\x1b[?1049l';
 const CUR_HIDE = '\x1b[?25l', CUR_SHOW = '\x1b[?25h';
 // mouse wheel reporting (SGR) so the natural scroll gesture moves the transcript; off on every exit path.
 const MOUSE_ON = '\x1b[?1000h\x1b[?1006h', MOUSE_OFF = '\x1b[?1000l\x1b[?1006l';
+// bracketed paste: the terminal wraps a paste in 200~ … 201~, so a multi-line paste arrives as text instead of a flurry of Enters that each send.
+const PASTE_ON = '\x1b[?2004h', PASTE_OFF = '\x1b[?2004l';
 const stripSpoken = (t) => (t || '').replace(/\[\/?SPOKEN\]/gi, '');
 // drop ANSI/control bytes that would corrupt the layout, but keep tab→space
 const sanitize = (s) => String(s == null ? '' : s).replace(/\t/g, '  ').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '');
@@ -45,7 +47,8 @@ let scroll = 0;            // rows scrolled UP from the bottom (0 = pinned to ne
 let input = '';            // current input buffer
 let slashSel = 0;          // highlighted row in the /command typeahead (reset to top on every buffer edit)
 let picker = null;         // an open VALUE picker (persona/model/theme/anim) — owns all input while set; see openers below
-let lastSent = '';         // for Up-arrow recall
+let lastSent = '';         // for ^P recall
+let pasting = false;       // inside a bracketed paste (200~ … 201~): take everything as text, never send
 let inflight = false;      // a turn is streaming
 let vitals = { model: '', turnsToday: 0, warm: [] };
 let streamReq = null;      // the live POST /ask request, so a hard quit can tear it down
@@ -75,25 +78,39 @@ function workerLine(g, now) {
   const answerChars = (answerIdx >= 0 && lines[answerIdx] && lines[answerIdx].text || '').length;
   return anim.composeWorker(cfg, cfg.theme, { t0: turnT0, lastTool, answerChars, usageTokens }, g.cols, now);
 }
-function caretFor(g) { const markW = rend.visLen(promptMark()); const room = Math.max(1, g.cols - markW - 1); return markW + Math.min(input.length, room) + 1; }
+const MAX_INPUT_ROWS = 6;   // the prompt grows up to this many rows for multi-line input, then tails to keep the caret visible
+// inputBlock(g, T): the (possibly multi-line) prompt area as display rows + the caret column on the last row.
+function inputBlock(g, T) {
+  const mark = promptMark(), markW = rend.visLen(mark), width = Math.max(1, g.cols - markW - 1);
+  if (!inflight && !input) return { lines: [mark + T.dim + 'ask Liquid Intelligence anything…  (Shift+Enter = new line · / = commands)' + T.RST], caretCol: markW + 1 };
+  const indent = ' '.repeat(markW);
+  const disp = [];                                                   // one { text, first } per display row
+  const segs = input.split('\n');
+  for (let s = 0; s < segs.length; s++) {
+    const seg = segs[s];
+    if (!seg.length) { disp.push({ text: '', first: s === 0 }); continue; }
+    for (let i = 0; i < seg.length; i += width) disp.push({ text: seg.slice(i, i + width), first: s === 0 && i === 0 });
+  }
+  const shown = disp.length > MAX_INPUT_ROWS ? disp.slice(disp.length - MAX_INPUT_ROWS) : disp;
+  const lines = shown.map((d) => (d.first ? mark : indent) + d.text);
+  return { lines, caretCol: markW + shown[shown.length - 1].text.length + 1 };
+}
 
 function render() {
   if (!cfg) return;
   const g = geom(), T = cfg.theme;
   const all = rend.renderTranscript(lines, g.cols, T, { inflight, answerIdx });
-  const L = rend.layout(g, cfg);
+  const ib = inputBlock(g, T);
+  const L = rend.layout(g, cfg, ib.lines.length);
   const maxScroll = Math.max(0, all.length - L.paneH);
   if (scroll > maxScroll) scroll = maxScroll; if (scroll < 0) scroll = 0;
-  const mark = promptMark(), markW = rend.visLen(mark), room = Math.max(1, g.cols - markW - 1);
-  const buf = input.length > room ? input.slice(input.length - room) : input;
-  const inputView = (!inflight && !input) ? T.dim + 'ask Liquid Intelligence anything…  (/ for commands)' + T.RST : buf;
   let menu = null;
   if (!inflight) {
     if (picker) menu = buildPicker(picker, T);
     else { const sl = slash.resolve(input, slashSel); if (sl.active) menu = buildMenu(sl, T); }
   }
-  const frame = rend.compose({ theme: T, cfg, vitals, lines: all, worker: workerLine(g, Date.now()), statusText: statusLine(), promptMark: mark, inputView, scroll, menu }, g);
-  rend.flush(frame, caretFor(g), g, process.stdout);
+  const frame = rend.compose({ theme: T, cfg, vitals, lines: all, worker: workerLine(g, Date.now()), statusText: statusLine(), inputLines: ib.lines, scroll, menu }, g);
+  rend.flush(frame, ib.caretCol, g, process.stdout);
 }
 
 // ---- the /command typeahead: a palette that floats above the prompt (derived from slash.COMMANDS) ----
@@ -166,11 +183,11 @@ function completeSlash(c) { input = slash.completion(c); slashSel = 0; render();
 function acceptSlash(sl) {
   let cmd, arg;
   if (sl.mode === 'arg') {
-    if (!sl.valid) { input = ''; slashSel = 0; add('sys', '╶ no such command — type / to see the list'); render(); return; }
+    if (!sl.valid) { input = ''; slashSel = 0; add('sys', '╶ no such command, type / to see the list'); render(); return; }
     cmd = sl.cmd; arg = sl.arg.trim();
   } else {
     cmd = sl.exact || sl.items[sl.selected] || null;
-    if (!cmd) { input = ''; slashSel = 0; add('sys', '╶ no such command — type / to see the list'); render(); return; }
+    if (!cmd) { input = ''; slashSel = 0; add('sys', '╶ no such command, type / to see the list'); render(); return; }
     // a free-text-arg command (search) completes to text so you can type; a PICKER command falls through to run with
     // no arg, which opens its visual picker; a no-arg command runs straight away.
     if (!cmd.picker && !sl.exact && (cmd.arg || cmd.needsArg)) return completeSlash(cmd);
@@ -326,7 +343,7 @@ function runUsage() {
 
 // showSlashHelp → list the whole palette in the transcript (plain text; the 'sys' style is applied by the renderer).
 function showSlashHelp() {
-  add('sys', 'slash commands — type / then a name · ↑↓ choose · Tab complete · Enter run · Esc cancel');
+  add('sys', 'slash commands · type / then a name · ↑↓ choose · Tab complete · Enter run · Esc cancel');
   const W = Math.max(...slash.COMMANDS.map((c) => slash.sig(c).length));
   for (const c of slash.COMMANDS) add('sys', '  ' + slash.sig(c) + ' '.repeat(W + 3 - slash.sig(c).length) + c.summary + (c.key ? '  (' + c.key + ')' : ''));
   render();
@@ -411,13 +428,22 @@ function cleanup() {
   animTimer = anim.stopWorker(animTimer);                 // stop the worker BEFORE we tear down the screen
   try { if (process.stdin.isTTY) process.stdin.setRawMode(false); } catch {}
   try { process.stdin.pause(); } catch {}
-  try { process.stdout.write(RST + CUR_SHOW + MOUSE_OFF + ALT_OFF); } catch {}
+  try { process.stdout.write(RST + CUR_SHOW + MOUSE_OFF + PASTE_OFF + ALT_OFF); } catch {}
 }
 function quit(code) { cleanup(); process.exit(code || 0); }
 
 // ---- key handling ----
 function onKey(str, key) {
   key = key || {};
+  if (key.sequence === '\x1b[200~') { pasting = true; return; }                            // bracketed paste begins
+  if (key.sequence === '\x1b[201~') { pasting = false; slashSel = 0; render(); return; }    // paste ends: render the pasted block once
+  if (pasting) {                                                                            // inside a paste: text only, Enter is a newline, never a send
+    if (key.name === 'escape') { pasting = false; render(); return; }                       // escape hatch if the end marker is ever missed
+    if (key.name === 'return' || key.name === 'enter' || key.name === 'linefeed') input += '\n';
+    else if (str === '\t') input += '  ';
+    else if (str && str.charCodeAt(0) >= 32) input += str;
+    return;
+  }
   if (str && str.length > 1 && str.charCodeAt(0) === 27) return; // unparsed escape sequence (mouse, etc.); wheel scroll is handled on the data stream
   // an open value picker (persona/model/theme/anim) owns every key until it is picked or cancelled
   if (picker && !inflight) { pickerKey(str, key); return; }
@@ -441,7 +467,8 @@ function onKey(str, key) {
   }
 
   if (key.name === 'escape') { if (inflight) abortTurn(); return; }
-  if (key.name === 'return' || key.name === 'enter') { const text = input.trim(); if (!text) return; input = ''; sendTurn(text); return; }
+  if ((key.name === 'return' || key.name === 'enter') && (key.meta || key.shift)) { input += '\n'; slashSel = 0; render(); return; }   // Shift/Alt+Enter inserts a new line
+  if (key.name === 'return' || key.name === 'enter') { const text = input.replace(/\x1b\[20[01]~/g, '').trim(); if (!text) return; input = ''; sendTurn(text); return; }
   if (key.name === 'backspace') { input = input.slice(0, -1); slashSel = 0; render(); return; }
 
   if (key.name === 'up' && (key.shift || key.meta)) { scroll += 1; render(); return; }
@@ -466,7 +493,7 @@ function run() {
   baseEnv = (() => { let f = {}; try { f = require('./setup').readEnv() || {}; } catch {} return { ...f, ...process.env }; })();
   cfg = theme.readCfg(baseEnv, true);
 
-  process.stdout.write(ALT_ON + CUR_HIDE + MOUSE_ON);
+  process.stdout.write(ALT_ON + CUR_HIDE + MOUSE_ON + PASTE_ON);
   process.on('exit', cleanup);
   process.on('SIGINT', () => { if (inflight) abortTurn(); else quit(0); });
   process.on('SIGTERM', () => quit(0));
@@ -484,7 +511,7 @@ function run() {
   } catch {} });
   process.stdout.on('resize', () => { rend.resetFrame(); render(); });
 
-  add('sys', 'Urfael · type / for commands · scroll with the mouse wheel or ↑↓ PgUp (Home oldest, End newest) · ^P recalls your last message · Enter sends · Esc aborts · q quits · ^L clears');
+  add('sys', 'Urfael · type / for commands · scroll with the mouse wheel or ↑↓ PgUp (Home oldest, End newest) · Shift+Enter for a new line · ^P recalls your last message · Enter sends · Esc aborts · q quits · ^L clears');
   render();
   refreshVitals();
 }
