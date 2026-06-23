@@ -242,6 +242,7 @@ function printPluginPreview(ph, m) {
     if (behind === '0') { console.log(gold('✓ already up to date') + dim('  (' + branch + ')')); return; }
     console.log(gold(behind + ' new commit' + (behind === '1' ? '' : 's') + ':'));
     try { console.log(execFileSync('git', ['-C', root, 'log', '--oneline', '--no-decorate', 'HEAD..origin/' + branch], { stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 20 }).toString().replace(/^/gm, '  ')); } catch {}
+    if (rest.includes('--check')) { console.log(dim('  run ') + gold('urfael update') + dim(' to apply.')); return; }   // --check: report only, never pull
     const dirty = (() => { try { return !!execFileSync('git', ['-C', root, 'status', '--porcelain'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return false; } })();
     if (dirty) { console.error(dim('  you have local changes; commit or stash them first, then re-run ') + gold('urfael update')); process.exit(1); }
     if (!(await promptYesNo('Pull these and reinstall?'))) { console.log(dim('aborted, nothing changed')); return; }
@@ -765,13 +766,15 @@ function printPluginPreview(ph, m) {
     const { has, claudePath, VAULT, readEnv } = require('./setup');
     const probe = (p) => req('GET', p).catch(() => null);     // never spawns the brain; null if it's down
     let healthy = 0, attention = 0;
-    const rows = [];
+    const rows = [], checks = [];
+    const noAnsi = (s) => String(s == null ? '' : s).replace(/\x1b\[[0-9;]*m/g, '').trim();
     const add = (good, glyph, label, detail, fix) => {
       good ? healthy++ : attention++;
       rows.push('  ' + glyph + '  ' + label.padEnd(11) + ' ' + detail);
       if (!good && fix) rows.push('       ' + dim('↳ ' + fix));
+      checks.push({ component: noAnsi(label), ok: !!good, detail: noAnsi(detail), ...(good ? {} : { fix }) });
     };
-    const note = (label, detail) => rows.push('  ' + dim('·') + '  ' + label.padEnd(11) + ' ' + dim(detail));
+    const note = (label, detail) => { rows.push('  ' + dim('·') + '  ' + label.padEnd(11) + ' ' + dim(detail)); checks.push({ component: noAnsi(label), ok: true, detail: noAnsi(detail), note: true }); };
     // 1) the engine — Claude Code on PATH
     const cb = claudePath();
     add(!!cb, cb ? ok('✓') : bad('✗'), 'claude CLI', cb ? dim(cb) : bad('not found on PATH'), 'install Claude Code — https://claude.com/claude-code');
@@ -800,6 +803,7 @@ function printPluginPreview(ph, m) {
       if (sv && sv.reason !== 'no_seal') add(!!(sv && sv.ok), sv && sv.ok ? ok('✓') : bad('✗'), 'seal', sv && sv.ok ? dim('owner key ' + sv.fp + ' · sealed through seq ' + sv.seq) : bad('does not verify'), 'reseal:  urfael seal');
       else note('seal', 'unsealed (optional) — mint one:  urfael seal');
     } else { note('ledger', '— brain asleep; start it to check the ledger + seal'); }
+    if (rest.includes('--json')) { console.log(JSON.stringify({ ok: attention === 0, healthy, attention, checks }, null, 2)); return; }
     const head = attention === 0
       ? ok('✓ all ' + healthy + ' systems nominal')
       : ok(healthy + ' healthy') + dim(' · ') + warn(attention + (attention === 1 ? ' needs' : ' need') + ' attention');
