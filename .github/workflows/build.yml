@@ -44,15 +44,13 @@ jobs:
         # auto-publish on a tag, which collides with the explicit release step below and fails the build.
         run: npm run dist -- --publish never
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false   # no signing cert on CI: do not probe the keychain, just build unsigned
-          # signing — present only if you added the secrets above; absent => an unsigned build (still works)
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          # Unsigned build. CSC_IDENTITY_AUTO_DISCOVERY=false stops macOS from probing the keychain.
+          # The signing secrets are intentionally NOT passed here: an UNSET secret expands to an empty
+          # string, and an empty CSC_LINK makes electron-builder enter the signing path and fail with
+          # "app not a file". To sign later, add the certs as repo secrets and reintroduce CSC_LINK /
+          # CSC_KEY_PASSWORD / APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID (only when non-empty),
+          # and drop CSC_IDENTITY_AUTO_DISCOVERY.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4
         with:
           name: urfael-${{ matrix.os }}
