@@ -23,11 +23,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS Apple Silicon (macos-latest) + Intel (macos-13) + Linux.
+        # macOS Apple Silicon (macos-latest) + Linux. Intel macOS (macos-13) is omitted for now:
+        # the hosted Intel runners queued indefinitely here and blocked the whole release.
         # Native Windows is intentionally absent: the daemon's security boundary is a
         # 0600 unix-domain socket (a POSIX guarantee that does not hold on native
         # Windows), so Windows is supported via WSL, not a native build.
-        os: [macos-latest, macos-13, ubuntu-latest]
+        os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -39,9 +40,11 @@ jobs:
       - run: npm ci || npm install
       - run: npm test
       - name: Build installer
-        run: npm run dist
+        # --publish never: only BUILD here. With GH_TOKEN present, electron-builder would otherwise try to
+        # auto-publish on a tag, which collides with the explicit release step below and fails the build.
+        run: npm run dist -- --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false   # no signing cert on CI: do not probe the keychain, just build unsigned
           # signing — present only if you added the secrets above; absent => an unsigned build (still works)
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
