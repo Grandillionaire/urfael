@@ -22,6 +22,8 @@ const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
 const RST = '\x1b[0m';
 const ALT_ON = '\x1b[?1049h', ALT_OFF = '\x1b[?1049l';
 const CUR_HIDE = '\x1b[?25l', CUR_SHOW = '\x1b[?25h';
+// mouse wheel reporting (SGR) so the natural scroll gesture moves the transcript; off on every exit path.
+const MOUSE_ON = '\x1b[?1000h\x1b[?1006h', MOUSE_OFF = '\x1b[?1000l\x1b[?1006l';
 const stripSpoken = (t) => (t || '').replace(/\[\/?SPOKEN\]/gi, '');
 // drop ANSI/control bytes that would corrupt the layout, but keep tab→space
 const sanitize = (s) => String(s == null ? '' : s).replace(/\t/g, '  ').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '');
@@ -66,7 +68,7 @@ function statusLine() {
   const T = cfg.theme;
   const left = ' ' + T.gold + 'Urfael' + T.RST + T.dim + ' · ' + (vitals.model || '…') + ' · ' + (vitals.turnsToday || 0) + ' turns' +
     (inflight ? ' · ᚢ thinking' : (scroll ? ' · scrolled (End to pin)' : '')) + T.RST;
-  return left + '   ' + T.dim + 'Enter send · Esc abort · ^T theme · ^Y anim · q quit' + T.RST;
+  return left + '   ' + T.dim + 'Enter send · ↑↓ PgUp scroll · ^P recall · Esc abort · q quit' + T.RST;
 }
 function workerLine(g, now) {
   if (!inflight) return null;
@@ -409,13 +411,14 @@ function cleanup() {
   animTimer = anim.stopWorker(animTimer);                 // stop the worker BEFORE we tear down the screen
   try { if (process.stdin.isTTY) process.stdin.setRawMode(false); } catch {}
   try { process.stdin.pause(); } catch {}
-  try { process.stdout.write(RST + CUR_SHOW + ALT_OFF); } catch {}
+  try { process.stdout.write(RST + CUR_SHOW + MOUSE_OFF + ALT_OFF); } catch {}
 }
 function quit(code) { cleanup(); process.exit(code || 0); }
 
 // ---- key handling ----
 function onKey(str, key) {
   key = key || {};
+  if (str && str.length > 1 && str.charCodeAt(0) === 27) return; // unparsed escape sequence (mouse, etc.); wheel scroll is handled on the data stream
   // an open value picker (persona/model/theme/anim) owns every key until it is picked or cancelled
   if (picker && !inflight) { pickerKey(str, key); return; }
   if (key.ctrl && key.name === 'c') { if (inflight) { abortTurn(); return; } return quit(0); }
@@ -423,6 +426,7 @@ function onKey(str, key) {
   if (key.ctrl && key.name === 'l') { lines.length = 0; scroll = 0; rend.resetFrame(); render(); return; }
   if (key.ctrl && key.name === 't') { cfg = theme.withTheme(cfg, baseEnv, cfg.isTTY); rend.resetFrame(); render(); return; }   // cycle theme
   if (key.ctrl && key.name === 'y') { cfg = theme.withAnim(cfg); render(); return; }                                          // cycle animation
+  if (key.ctrl && key.name === 'p') { if (!inflight && lastSent) { input = lastSent; slashSel = 0; render(); } return; }       // recall last sent
 
   // ── /command typeahead: while the buffer is a /command (and nothing is streaming), the palette owns ↑↓ Tab Enter Esc ──
   if (!inflight && input.startsWith('/')) {
@@ -447,7 +451,7 @@ function onKey(str, key) {
   if (key.name === 'home') { scroll = 1e9; render(); return; }
   if (key.name === 'end') { scroll = 0; render(); return; }
 
-  if (key.name === 'up') { if (!input && lastSent) { input = lastSent; render(); } else { scroll += 1; render(); } return; }
+  if (key.name === 'up') { scroll += 1; render(); return; }
   if (key.name === 'down') { scroll = Math.max(0, scroll - 1); render(); return; }
 
   if (str === 'q' && input === '') { return quit(0); }
@@ -462,7 +466,7 @@ function run() {
   baseEnv = (() => { let f = {}; try { f = require('./setup').readEnv() || {}; } catch {} return { ...f, ...process.env }; })();
   cfg = theme.readCfg(baseEnv, true);
 
-  process.stdout.write(ALT_ON + CUR_HIDE);
+  process.stdout.write(ALT_ON + CUR_HIDE + MOUSE_ON);
   process.on('exit', cleanup);
   process.on('SIGINT', () => { if (inflight) abortTurn(); else quit(0); });
   process.on('SIGTERM', () => quit(0));
@@ -474,9 +478,13 @@ function run() {
   process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.on('keypress', (str, key) => { try { onKey(str, key); } catch {} });
+  process.stdin.on('data', (d) => { try {                          // mouse wheel scrolls the transcript (SGR: 64 = up, 65 = down, + modifier bits)
+    const m = /\x1b\[<(\d+);\d+;\d+[Mm]/.exec(d.toString());
+    if (m && (+m[1] & 64)) { if (+m[1] & 1) scroll = Math.max(0, scroll - 3); else scroll += 3; render(); }
+  } catch {} });
   process.stdout.on('resize', () => { rend.resetFrame(); render(); });
 
-  add('sys', 'Urfael — type / for commands · Enter sends · Esc aborts · q quits · ^L clears · ^T theme · ^Y anim · Up recalls');
+  add('sys', 'Urfael · type / for commands · scroll with the mouse wheel or ↑↓ PgUp (Home oldest, End newest) · ^P recalls your last message · Enter sends · Esc aborts · q quits · ^L clears');
   render();
   refreshVitals();
 }

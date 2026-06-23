@@ -229,6 +229,10 @@ let active = null;
 function emit(o) { if (active) { try { active.write(JSON.stringify(o) + '\n'); } catch {} } }
 function sendThinking(p) { emit({ kind: 'thinking', ...p }); }
 function sendSay(p) { emit({ kind: 'say', ...p }); }
+// House style: strip em/en dashes from everything the owner reads. The anchor spawn is byte-identical by
+// design (a moat invariant frozen by the benchmark), so this filters the brain's OUTPUT, never the prompt.
+// Only true em/en dashes are touched; hyphens in CLI flags like --model are left alone.
+const deDash = (s) => String(s == null ? '' : s).replace(/\s*[–—]\s*/g, ', ');
 
 // One warm Claude process per model (stdin kept open). stderr ignored so its pipe can't stall the child.
 class Session {
@@ -268,7 +272,7 @@ class Session {
     if (!this.current) return;
     if (e.type === 'stream_event' && e.event?.type === 'content_block_delta' && e.event.delta?.type === 'text_delta') {
       const t = e.event.delta.text;
-      if (!this.curSilent) sendThinking({ delta: t }); // HUD shows the full streaming answer (tags stripped client-side)
+      if (!this.curSilent) sendThinking({ delta: deDash(t) }); // HUD shows the full streaming answer, de-dashed (tags stripped client-side)
       if (this.speakCur) { this.acc += t; this._emitSpoken(false); } // voice = ONLY the [SPOKEN] comment, streamed by sentence
     }
     if (e.type === 'assistant' && !this.curSilent) { for (const b of (e.message?.content || [])) if (b.type === 'tool_use') sendThinking({ tool: b.name }); }
@@ -284,7 +288,7 @@ class Session {
         if (!this.spokenDone) { this.spokenDone = true; sendSay({ end: true, turnId: this.curTurn }); }
       }
       const c = this.current; this.current = null; clearTimeout(c.timer);
-      c.cb(typeof e.result === 'string' ? e.result : '');
+      c.cb(typeof e.result === 'string' ? deDash(e.result) : '');
       this._next();
     }
   }
