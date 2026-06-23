@@ -1895,6 +1895,20 @@ function listen() {
     // then persist dirty state every 60s so a restart loads it instead of re-tokenizing the whole archive.
     setTimeout(() => { try { refreshRecallIndex(); persistRecallIndex(); } catch {} }, 1500);
     { const t = setInterval(persistRecallIndex, 60000); if (t.unref) t.unref(); }
+    // heap watch: an always-on daemon can climb toward the V8 ceiling over a long session; warn (throttled) before
+    // it silently OOMs, and nudge a GC at the top. Watches OUR heap only — the brain subprocesses are separate.
+    { const v8 = require('v8'); let lastHeapWarn = 0;
+      const t = setInterval(() => { try {
+        const s = v8.getHeapStatistics(); const used = s.used_heap_size, limit = s.heap_size_limit || 0;
+        if (!limit) return; const pct = used / limit; const now = Date.now();
+        if (pct >= 0.7 && now - lastHeapWarn > 600000) {   // at most one warning every 10 min
+          lastHeapWarn = now;
+          logEvent({ ev: 'WARN', msg: 'heap at ' + Math.round(pct * 100) + '% of the V8 ceiling (' + Math.round(used / 1048576) + '/' + Math.round(limit / 1048576) + ' MB); restart with `urfael shutdown` if it keeps climbing.' });
+          if (pct >= 0.88 && global.gc) { try { global.gc(); } catch {} }
+        }
+      } catch {} }, 120000);
+      if (t.unref) t.unref();
+    }
   });
 }
 // single-instance: if a daemon already answers on the socket, don't double-run (safe for launchd + overlay both trying)
