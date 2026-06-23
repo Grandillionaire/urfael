@@ -26,7 +26,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
 const personas = require('./personas');
 const recall = require('./recall');
 const ridx = require('./recall-index');         // persistent BM25 inverted index — recall AT SCALE (FTS5-equivalent)
@@ -222,6 +222,7 @@ function councilStreamOne({ prompt, model, allowedTools, onDelta, onTool }) {
 // to web+write+search (Hermes-level reach) while still keeping no-shell, no-bypass, framing, and the credential
 // deny. It is the daemon's env — a remote sender can NEVER select it. Anything but 'full' is Fortress.
 const AGENT_MODE = String(process.env.URFAEL_MODE || 'fortress').toLowerCase() === 'full' ? 'full' : 'fortress';
+const FALLBACK_ON = process.env.URFAEL_FALLBACK !== '0';   // owner local turns retry once on the other tier after a retryable failure; URFAEL_FALLBACK=0 to disable
 if (AGENT_MODE === 'full') { try { logEvent({ ev: 'WARN', msg: 'URFAEL_MODE=full — remote owner/member turns can browse the web (still sandboxed: no write, no shell, no bypass, credential-deny holds).' }); } catch {} }
 
 // the in-flight /ask response stream — brain events are written to it as NDJSON
@@ -434,14 +435,28 @@ const brain = {
       return { text: msg, model: convoModel, ms: 0, aborted: true, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 } };
     }
     if (bw.state.level === 'warn') logEvent({ ev: 'budget_warn', peak: bw.state.peak, windowH: bw.limits.windowH });
-    const model = convoModel;
+    let model = convoModel;
     const turnId = ++turnCounter;
     lastLocalTurn = Date.now();   // heartbeat backs off while the owner is actively conversing
     sendThinking({ reset: true, model, turnId });
     const t0 = Date.now();
-    const session = getSession(model);
+    let session = getSession(model);
     const mem = await activeRecall(text);                             // proactively surface relevant memory for THIS turn
-    const reply = await session.ask(mem.promptText, { speak: true, turnId });
+    let reply = await session.ask(mem.promptText, { speak: true, turnId });
+    // automatic fallback: a turn that failed for a RETRYABLE reason (overload, model-unavailable, network, timeout)
+    // gets ONE retry on the other tier. An account-wide rate limit fails both, so we keep the original error; a
+    // model-specific issue clears. Owner local turns only; URFAEL_FALLBACK=0 disables it. The cross-PROVIDER
+    // env-swapped chain is a later extension of this same hook.
+    if (FALLBACK_ON && session.lastFailed && classifyError(session.errBuf).retryable) {
+      const fb = fallbackModelFor(model);
+      if (fb && fb !== model) {
+        logEvent({ ev: 'fallback', from: model, to: fb, cat: classifyError(session.errBuf).category });
+        sendThinking({ reset: true, model: fb, turnId });             // clear the failed partial, restart on the fallback
+        const fbSession = getSession(fb);
+        const fbReply = await fbSession.ask(mem.promptText, { speak: true, turnId });
+        if (!fbSession.lastFailed) { model = fb; session = fbSession; reply = fbReply; }   // adopt the fallback only if it actually succeeded
+      }
+    }
     const ms = Date.now() - t0;
     const u = session.lastUsage || {};
     logEvent({ ev: 'turn', model, in: text.length, out: (reply || '').length, ms, tokIn: u.input_tokens || 0, tokOut: u.output_tokens || 0, tokCache: u.cache_read_input_tokens || 0 });

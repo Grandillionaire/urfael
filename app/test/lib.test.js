@@ -537,3 +537,10 @@ test('classifyError names common claude failures and marks the retryable ones', 
   assert.equal(classifyError('spawn claude ENOENT').retryable, false);
   assert.equal(classifyError(null).category, 'unknown');                          // total: never throws
 });
+
+test('fallbackModelFor returns the other native tier', () => {
+  const { fallbackModelFor, MODELS } = require('../lib');
+  assert.equal(fallbackModelFor(MODELS.opus), MODELS.sonnet);
+  assert.equal(fallbackModelFor(MODELS.sonnet), MODELS.opus);
+  assert.ok(fallbackModelFor('some-unknown-model'));                               // unknown current still yields a real tier
+});

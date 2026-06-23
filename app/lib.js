@@ -804,4 +804,11 @@ function classifyError(text) {
   return C('unknown', '', false);
 }
 
-module.exports = { classifyError, MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+// fallbackModelFor(m) → the other native tier to retry a failed turn on. PURE.
+function fallbackModelFor(m) {
+  if (m === MODELS.opus) return MODELS.sonnet;
+  if (m === MODELS.sonnet) return MODELS.opus;
+  return MODELS.sonnet;
+}
+
+module.exports = { classifyError, fallbackModelFor, MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
