@@ -174,6 +174,22 @@ test('tui-history: back/fwd walk older then newer and return to the live draft',
   assert.equal(h.back({ list: [], idx: -1, draft: 'D' }).value, 'D');      // empty history yields the draft
 });
 
+test('tui sanitize: strips CSI, OSC and stray ESC (multi-pass), keeps newlines', () => {
+  const { sanitize } = require('../tui')._internals;
+  assert.equal(sanitize('a\x1b[31mb\x1b[0mc'), 'abc');                            // CSI colours
+  assert.equal(sanitize('x\x1b]8;;http://evil\x07link\x1b]8;;\x07y'), 'xlinky');  // OSC 8 hyperlink wrapper
+  assert.equal(sanitize('a\x1bZb'), 'ab');                                        // two-char C1 escape
+  assert.equal(sanitize('line1\nline2'), 'line1\nline2');                         // newlines survive
+  assert.equal(sanitize('a\x07\x00b'), 'ab');                                     // control bytes
+});
+
+test('tui dropLastGrapheme: removes a whole cluster, not one code unit', () => {
+  const { dropLastGrapheme } = require('../tui')._internals;
+  assert.equal(dropLastGrapheme('ab'), 'a');
+  assert.equal(dropLastGrapheme('a😀'), 'a');   // emoji = surrogate pair = one grapheme
+  assert.equal(dropLastGrapheme(''), '');
+});
+
 test('clipPad: clips to cols visible cells (SGR is zero-width), pads short rows, always ends in RST', () => {
   assert.equal(strip(rend.clipPad('\x1b[33mhello\x1b[0m world!!!', 8, '\x1b[0m')), 'hello wo');
   assert.equal(rend.visLen(rend.clipPad('x', 5, '\x1b[0m')), 5);

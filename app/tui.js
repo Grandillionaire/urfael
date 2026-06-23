@@ -29,7 +29,38 @@ const MOUSE_ON = '\x1b[?1000h\x1b[?1006h', MOUSE_OFF = '\x1b[?1000l\x1b[?1006l';
 const PASTE_ON = '\x1b[?2004h', PASTE_OFF = '\x1b[?2004l';
 const stripSpoken = (t) => (t || '').replace(/\[\/?SPOKEN\]/gi, '');
 // drop ANSI/control bytes that would corrupt the layout, but keep tab→space
-const sanitize = (s) => String(s == null ? '' : s).replace(/\t/g, '  ').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '');
+// strip ANSI/OSC/escape sequences (multi-pass, so a sequence revealed after one removal is also caught) and
+// control bytes from anything the brain or a tool emits, before it reaches the screen model. Keeps \n (multi-line
+// answers) and turns tabs into spaces. Hardens the cockpit against adversarial tool output.
+function sanitize(s) {
+  let t = String(s == null ? '' : s).replace(/\t/g, '  ');
+  for (let i = 0; i < 4; i++) {
+    const b = t;
+    t = t.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')   // OSC ... (BEL or ST): hyperlinks, clipboard, title
+         .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '')           // CSI ... final byte: colours, cursor moves
+         .replace(/\x1b[@-Z\\-_]/g, '')                        // two-char C1 escapes
+         .replace(/\x1b/g, '');                                // any stray / incomplete ESC
+    if (t === b) break;
+  }
+  return t.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');           // remaining control bytes (keeps \n)
+}
+// grapheme-aware backspace: drop a whole cluster (emoji, combining marks) instead of one code unit.
+const _grSeg = (() => { try { return new Intl.Segmenter(undefined, { granularity: 'grapheme' }); } catch { return null; } })();
+function dropLastGrapheme(s) {
+  s = String(s == null ? '' : s);
+  if (!_grSeg || !s) return s.slice(0, -1);
+  let last = 0; for (const g of _grSeg.segment(s)) last = g.index;
+  return s.slice(0, last);
+}
+// read the OS clipboard (fail-soft) for an explicit Ctrl+V paste on terminals without bracketed paste.
+function clipboard() {
+  const { execFileSync } = require('child_process');
+  const cmds = process.platform === 'darwin' ? [['pbpaste', []]]
+    : process.platform === 'win32' ? [['powershell', ['-noprofile', '-command', 'Get-Clipboard']]]
+    : [['wl-paste', ['--no-newline']], ['xclip', ['-selection', 'clipboard', '-o']], ['xsel', ['-b', '-o']]];
+  for (const [bin, args] of cmds) { try { return execFileSync(bin, args, { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }); } catch {} }
+  return '';
+}
 
 function req(method, p, body) {
   return new Promise((resolve, reject) => {
@@ -466,6 +497,12 @@ function onKey(str, key) {
     const s = hist.fwd({ list: history, idx: histIdx, draft: histDraft });
     histIdx = s.idx; input = s.value != null ? s.value : ''; slashSel = 0; render(); return;
   }
+  if (key.ctrl && key.name === 'v') {                                                                                          // explicit paste from the OS clipboard
+    if (inflight) return;
+    const t = clipboard().replace(/\r\n?/g, '\n').replace(/\x1b\[20[01]~/g, '');
+    if (t) { input += t; slashSel = 0; histIdx = -1; render(); }
+    return;
+  }
 
   // ── /command typeahead: while the buffer is a /command (and nothing is streaming), the palette owns ↑↓ Tab Enter Esc ──
   if (!inflight && input.startsWith('/')) {
@@ -482,7 +519,7 @@ function onKey(str, key) {
   if (key.name === 'escape') { if (inflight) abortTurn(); return; }
   if ((key.name === 'return' || key.name === 'enter') && (key.meta || key.shift)) { input += '\n'; slashSel = 0; render(); return; }   // Shift/Alt+Enter inserts a new line
   if (key.name === 'return' || key.name === 'enter') { const text = input.replace(/\x1b\[20[01]~/g, '').trim(); if (!text) return; input = ''; sendTurn(text); return; }
-  if (key.name === 'backspace') { input = input.slice(0, -1); slashSel = 0; histIdx = -1; render(); return; }
+  if (key.name === 'backspace') { input = dropLastGrapheme(input); slashSel = 0; histIdx = -1; render(); return; }
 
   if (key.name === 'up' && (key.shift || key.meta)) { scroll += 1; render(); return; }
   if (key.name === 'down' && (key.shift || key.meta)) { scroll = Math.max(0, scroll - 1); render(); return; }
@@ -530,6 +567,6 @@ function run() {
   refreshVitals();
 }
 
-module.exports = { run, _internals: { buildPicker, buildMenu } };
+module.exports = { run, _internals: { buildPicker, buildMenu, sanitize, dropLastGrapheme } };
 
 if (require.main === module) run();
