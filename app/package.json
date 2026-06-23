@@ -1,7 +1,8 @@
 {
   "name": "urfael-app",
-  "version": "0.8.0",
-  "description": "Urfael — voice overlay, brain daemon, and CLI on Claude Code + Obsidian",
+  "version": "0.8.1",
+  "description": "Urfael, voice overlay, brain daemon, and CLI on Claude Code + Obsidian",
+  "author": "MYG Media SRL <contact@myg-media.com>",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -27,7 +28,7 @@
         "dmg",
         "zip"
       ],
-      "icon": "renderer/urfael-logo.svg",
+      "icon": "icons/icon.icns",
       "hardenedRuntime": true,
       "gatekeeperAssess": false
     },
@@ -39,13 +40,13 @@
         "AppImage"
       ],
       "category": "Utility",
-      "icon": "renderer/urfael-logo.svg"
+      "icon": "icons/icon.png"
     },
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "renderer/urfael-logo.svg"
+      "icon": "icons/icon.png"
     },
     "nsis": {
       "oneClick": false,

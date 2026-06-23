@@ -23,7 +23,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        # macOS Apple Silicon (macos-latest) + Intel (macos-13) + Linux.
+        # Native Windows is intentionally absent: the daemon's security boundary is a
+        # 0600 unix-domain socket (a POSIX guarantee that does not hold on native
+        # Windows), so Windows is supported via WSL, not a native build.
+        os: [macos-latest, macos-13, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:

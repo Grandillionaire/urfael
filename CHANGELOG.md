@@ -4,6 +4,18 @@ All notable changes to Urfael are recorded here. The format follows [Keep a Chan
 
 Run `urfael version` to see what you are on, and `urfael update` to pull and reinstall the latest.
 
+## [0.8.1] - 2026-06-23
+
+The "it actually installs" release. Fixes the packaging pipeline so a published release carries real, downloadable installers.
+
+### Fixed
+
+- **The installer build now produces binaries.** electron-builder was pointed at an SVG icon, which it cannot consume, so every `npm run dist` failed and v0.8.0 shipped with no installers attached. The app icon is now a real raster set generated from the Uruz mark (a multi-resolution `.icns` for macOS, a 512px `.png` for Linux), and the macOS DMG and ZIP and the Linux AppImage build cleanly, verified locally before tagging.
+
+### Changed
+
+- **The build matrix matches the platforms Urfael actually supports.** macOS on Apple Silicon and Intel, plus Linux, build native installers. Native Windows is intentionally not a target: the daemon's whole security boundary is a `0600` unix-domain socket, a POSIX guarantee that does not hold on native Windows, so Windows is supported through WSL rather than a native build that would quietly weaken the model. The site's install section says so plainly.
+
 ## [0.8.0] - 2026-06-22
 
 The "prove it, and sell the proof" release. Turns the security and honesty posture into a single artifact, and hardens the public surface ahead of launch.
