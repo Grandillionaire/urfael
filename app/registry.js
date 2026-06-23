@@ -205,6 +205,9 @@ const COMMANDS = [
     examples: ['urfael script add backup "tar czf ~/bak.tgz ~/work"', 'urfael script run backup'], see: ['cron'] },
 
   // ── SYSTEM ───────────────────────────────────────────────────────────────────
+  { name: 'quickstart', group: 'SYSTEM', starter: true, aliases: ['quick'], bareSummary: 'the fast path: connect, then your whole moat',
+    summary: 'connect, then your whole moat with one line to try each',
+    usage: 'urfael quickstart', examples: ['urfael quickstart'], see: ['setup', 'status', 'doctor'] },
   { name: 'setup', group: 'SYSTEM', starter: true, aliases: ['init', 'onboard'], bareSummary: 'onboarding — auth + provider',
     summary: 'onboarding wizard — pick subscription / API key / local model',
     usage: 'urfael setup', examples: ['urfael setup'], see: ['doctor', 'status'] },

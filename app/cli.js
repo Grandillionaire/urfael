@@ -705,6 +705,8 @@ function printPluginPreview(ph, m) {
     return;
   }
 
+  // quickstart: the fast path. Connects you (or skips), then shows the moat. Pure CLI, runs BEFORE ensureDaemon.
+  if (cmd === 'quickstart' || cmd === 'quick') { await require('./quickstart').run(); return; }
   // setup: the onboarding wizard (auth mode + provider config). Pure CLI, runs BEFORE ensureDaemon.
   if (cmd === 'setup' || cmd === 'init' || cmd === 'onboard') { await require('./setup').run(); return; }
 
