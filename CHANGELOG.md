@@ -4,6 +4,22 @@ All notable changes to Urfael are recorded here. The format follows [Keep a Chan
 
 Run `urfael version` to see what you are on, and `urfael update` to pull and reinstall the latest.
 
+## [0.8.3] - 2026-06-23
+
+The "borrow the best, keep our edges" release. A source-level audit of Hermes Agent (MIT, Nous Research) surfaced a handful of genuinely useful improvements that fit Urfael's principles (zero runtime dependencies, no inbound port, fortress default); these are them. Prompt caching was investigated and dropped as a no-op, the `claude` CLI already caches the system prompt and conversation.
+
+### Added
+
+- **Persistent input history in the cockpit** (`^P` older, `^N` newer). It survives restarts, is multi-line-aware, and is stored `0600`; the navigation is pure and unit-tested.
+- **`urfael doctor --json`** for machine-readable health (cron, scripts, dashboards) and **`urfael update --check`** to report what is new without pulling.
+- **Ctrl+V pastes from the OS clipboard** (alongside bracketed paste), fail-soft across pbpaste / wl-paste / xclip / xsel / Get-Clipboard.
+
+### Changed
+
+- **The TUI sanitizer is hardened**: multi-pass, and now strips OSC sequences (hyperlinks, clipboard, title) and stray or incomplete escapes in addition to CSI, defending the cockpit against adversarial tool output while keeping newlines.
+- **Backspace is grapheme-aware** (Intl.Segmenter): it removes a whole cluster (emoji, combining marks) instead of a single code unit.
+- **The daemon watches its own V8 heap** and logs a throttled warning before it could silently run out of memory on a very long session.
+
 ## [0.8.2] - 2026-06-23
 
 The "real installers, and a smoother first hour" release.
