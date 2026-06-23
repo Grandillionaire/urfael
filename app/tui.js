@@ -16,6 +16,7 @@ const theme = require('./tui-theme');
 const anim = require('./tui-anim');
 const rend = require('./tui-render');
 const slash = require('./slash');
+const hist = require('./tui-history');
 
 const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
 
@@ -47,7 +48,9 @@ let scroll = 0;            // rows scrolled UP from the bottom (0 = pinned to ne
 let input = '';            // current input buffer
 let slashSel = 0;          // highlighted row in the /command typeahead (reset to top on every buffer edit)
 let picker = null;         // an open VALUE picker (persona/model/theme/anim) — owns all input while set; see openers below
-let lastSent = '';         // for ^P recall
+let history = [];          // persistent input history (loaded in run())
+let histIdx = -1;          // navigation position in `history`; -1 = at the live draft below
+let histDraft = '';        // the live input, saved when you start stepping back through history
 let pasting = false;       // inside a bracketed paste (200~ … 201~): take everything as text, never send
 let inflight = false;      // a turn is streaming
 let vitals = { model: '', turnsToday: 0, warm: [] };
@@ -71,7 +74,7 @@ function statusLine() {
   const T = cfg.theme;
   const left = ' ' + T.gold + 'Urfael' + T.RST + T.dim + ' · ' + (vitals.model || '…') + ' · ' + (vitals.turnsToday || 0) + ' turns' +
     (inflight ? ' · ᚢ thinking' : (scroll ? ' · scrolled (End to pin)' : '')) + T.RST;
-  return left + '   ' + T.dim + 'Enter send · ↑↓ PgUp scroll · ^P recall · Esc abort · q quit' + T.RST;
+  return left + '   ' + T.dim + 'Enter send · ↑↓ PgUp scroll · ^P/^N history · Esc abort · q quit' + T.RST;
 }
 function workerLine(g, now) {
   if (!inflight) return null;
@@ -360,7 +363,7 @@ function tickWorker() {
 // ---- streaming a turn: POST /ask NDJSON, render delta/tool/done live ----
 function sendTurn(text) {
   if (inflight) return;
-  lastSent = text;
+  history = hist.append(history, text); hist.persist(text); histIdx = -1;
   add('you', text);
   scroll = 0; inflight = true;
   turnT0 = Date.now(); lastTool = ''; usageTokens = null; answerIdx = -1; toolIdx = -1;
@@ -452,7 +455,17 @@ function onKey(str, key) {
   if (key.ctrl && key.name === 'l') { lines.length = 0; scroll = 0; rend.resetFrame(); render(); return; }
   if (key.ctrl && key.name === 't') { cfg = theme.withTheme(cfg, baseEnv, cfg.isTTY); rend.resetFrame(); render(); return; }   // cycle theme
   if (key.ctrl && key.name === 'y') { cfg = theme.withAnim(cfg); render(); return; }                                          // cycle animation
-  if (key.ctrl && key.name === 'p') { if (!inflight && lastSent) { input = lastSent; slashSel = 0; render(); } return; }       // recall last sent
+  if (key.ctrl && key.name === 'p') {                                                                                          // history: older
+    if (inflight) return;
+    if (histIdx < 0) histDraft = input;
+    const s = hist.back({ list: history, idx: histIdx, draft: histDraft });
+    histIdx = s.idx; if (s.value != null) input = s.value; slashSel = 0; render(); return;
+  }
+  if (key.ctrl && key.name === 'n') {                                                                                          // history: newer (back toward the live draft)
+    if (inflight) return;
+    const s = hist.fwd({ list: history, idx: histIdx, draft: histDraft });
+    histIdx = s.idx; input = s.value != null ? s.value : ''; slashSel = 0; render(); return;
+  }
 
   // ── /command typeahead: while the buffer is a /command (and nothing is streaming), the palette owns ↑↓ Tab Enter Esc ──
   if (!inflight && input.startsWith('/')) {
@@ -469,7 +482,7 @@ function onKey(str, key) {
   if (key.name === 'escape') { if (inflight) abortTurn(); return; }
   if ((key.name === 'return' || key.name === 'enter') && (key.meta || key.shift)) { input += '\n'; slashSel = 0; render(); return; }   // Shift/Alt+Enter inserts a new line
   if (key.name === 'return' || key.name === 'enter') { const text = input.replace(/\x1b\[20[01]~/g, '').trim(); if (!text) return; input = ''; sendTurn(text); return; }
-  if (key.name === 'backspace') { input = input.slice(0, -1); slashSel = 0; render(); return; }
+  if (key.name === 'backspace') { input = input.slice(0, -1); slashSel = 0; histIdx = -1; render(); return; }
 
   if (key.name === 'up' && (key.shift || key.meta)) { scroll += 1; render(); return; }
   if (key.name === 'down' && (key.shift || key.meta)) { scroll = Math.max(0, scroll - 1); render(); return; }
@@ -482,7 +495,7 @@ function onKey(str, key) {
   if (key.name === 'down') { scroll = Math.max(0, scroll - 1); render(); return; }
 
   if (str === 'q' && input === '') { return quit(0); }
-  if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { input += str; slashSel = 0; render(); return; }
+  if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { input += str; slashSel = 0; histIdx = -1; render(); return; }
 }
 
 function run() {
@@ -492,6 +505,7 @@ function run() {
   }
   baseEnv = (() => { let f = {}; try { f = require('./setup').readEnv() || {}; } catch {} return { ...f, ...process.env }; })();
   cfg = theme.readCfg(baseEnv, true);
+  history = hist.load();
 
   process.stdout.write(ALT_ON + CUR_HIDE + MOUSE_ON + PASTE_ON);
   process.on('exit', cleanup);
@@ -511,7 +525,7 @@ function run() {
   } catch {} });
   process.stdout.on('resize', () => { rend.resetFrame(); render(); });
 
-  add('sys', 'Urfael · type / for commands · scroll with the mouse wheel or ↑↓ PgUp (Home oldest, End newest) · Shift+Enter for a new line · ^P recalls your last message · Enter sends · Esc aborts · q quits · ^L clears');
+  add('sys', 'Urfael · type / for commands · scroll with the mouse wheel or ↑↓ PgUp (Home oldest, End newest) · Shift+Enter for a new line · ^P/^N walk your input history · Enter sends · Esc aborts · q quits · ^L clears');
   render();
   refreshVitals();
 }

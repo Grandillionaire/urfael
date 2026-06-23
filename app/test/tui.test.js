@@ -153,6 +153,27 @@ test('compose: multi-line inputLines render on the bottom rows, just above the s
   assert.equal(strip(f[12]).trim(), 'STAT');    // status sits directly above the input block
 });
 
+test('tui-history: append skips blanks and consecutive dupes', () => {
+  const h = require('../tui-history');
+  let l = [];
+  l = h.append(l, 'a'); l = h.append(l, 'a'); l = h.append(l, '   '); l = h.append(l, 'b');
+  assert.deepEqual(l, ['a', 'b']);
+});
+
+test('tui-history: back/fwd walk older then newer and return to the live draft', () => {
+  const h = require('../tui-history');
+  const list = ['one', 'two', 'three'];
+  let s = { list, idx: -1, draft: 'DRAFT' };
+  s = h.back(s); assert.equal(s.value, 'three'); assert.equal(s.idx, 2);   // first back = newest
+  s = h.back(s); assert.equal(s.value, 'two');
+  s = h.back(s); assert.equal(s.value, 'one'); assert.equal(s.idx, 0);
+  s = h.back(s); assert.equal(s.value, 'one'); assert.equal(s.idx, 0);     // clamps at the oldest
+  s = h.fwd(s);  assert.equal(s.value, 'two');
+  s = h.fwd(s);  assert.equal(s.value, 'three');
+  s = h.fwd(s);  assert.equal(s.value, 'DRAFT'); assert.equal(s.idx, -1);  // past the newest = the draft again
+  assert.equal(h.back({ list: [], idx: -1, draft: 'D' }).value, 'D');      // empty history yields the draft
+});
+
 test('clipPad: clips to cols visible cells (SGR is zero-width), pads short rows, always ends in RST', () => {
   assert.equal(strip(rend.clipPad('\x1b[33mhello\x1b[0m world!!!', 8, '\x1b[0m')), 'hello wo');
   assert.equal(rend.visLen(rend.clipPad('x', 5, '\x1b[0m')), 5);
