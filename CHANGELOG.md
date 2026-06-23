@@ -4,6 +4,12 @@ All notable changes to Urfael are recorded here. The format follows [Keep a Chan
 
 Run `urfael version` to see what you are on, and `urfael update` to pull and reinstall the latest.
 
+## [0.8.4] - 2026-06-23
+
+### Changed
+
+- **Failed turns now explain themselves.** The warm session drains `claude`'s stderr, and a pure, unit-tested classifier names the failure (not signed in, rate limited, model overloaded, context too long, network, model unavailable, claude not installed, timeout) with a retryable flag. Instead of a generic "(brain spawn failed)" you now get the actual reason, the category is logged for diagnostics, and the failure messages no longer carry em or en dashes. This also lays the groundwork for an automatic fallback retry.
+
 ## [0.8.3] - 2026-06-23
 
 The "borrow the best, keep our edges" release. A source-level audit of Hermes Agent (MIT, Nous Research) surfaced a handful of genuinely useful improvements that fit Urfael's principles (zero runtime dependencies, no inbound port, fortress default); these are them. Prompt caching was investigated and dropped as a no-op, the `claude` CLI already caches the system prompt and conversation.
