@@ -67,6 +67,7 @@ async function main() {
   if (i >= 0) { if (HS && TOKEN && ONLY_ROOM) { try { await send(ONLY_ROOM, process.argv[i + 1] || ''); } catch {} } process.exit(0); }
   if (!HS || !TOKEN || !OWNER) { console.error('matrix-bridge: set MATRIX_HOMESERVER, MATRIX_TOKEN and MATRIX_OWNER_USER_ID in ~/.claude/urfael/bridge.env'); process.exit(1); }
   if (!/^https:\/\//i.test(HS)) { console.error('matrix-bridge: MATRIX_HOMESERVER must be an https url (no inbound port is ever opened).'); process.exit(1); }
+  core.warnExperimental('matrix');
   core.audit({ ev: 'matrix_boot', room: ONLY_ROOM || '(all joined)' });
 
   let since = '';        // sync cursor (next_batch); empty on first call

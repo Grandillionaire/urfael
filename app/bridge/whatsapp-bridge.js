@@ -121,6 +121,7 @@ async function main() {
     console.error('whatsapp-bridge: set WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, WHATSAPP_OWNER_NUMBER, WHATSAPP_APP_SECRET and WHATSAPP_VERIFY_TOKEN in ~/.claude/urfael/bridge.env');
     process.exit(1);
   }
+  core.warnExperimental('whatsapp');
   const server = http.createServer((req, res) => {
     try {
       if (req.method === 'GET') return onVerify(req, res);
