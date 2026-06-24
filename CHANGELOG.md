@@ -4,6 +4,18 @@ All notable changes to Urfael are recorded here. The format follows [Keep a Chan
 
 Run `urfael version` to see what you are on, and `urfael update` to pull and reinstall the latest.
 
+## [0.8.5] - 2026-06-24
+
+The "stay ahead, honestly" release.
+
+### Added
+
+
+
+### Changed
+
+- **Automatic fallback retry.** A turn that fails for a retryable reason (model overloaded, model unavailable, network, timeout) retries once on the other native tier and adopts that result only if it succeeds. An account-wide rate limit fails both, so the original error is kept rather than giving false hope. The hop is logged, and `URFAEL_FALLBACK=0` disables it.
+
 ## [0.8.4] - 2026-06-23
 
 ### Changed
