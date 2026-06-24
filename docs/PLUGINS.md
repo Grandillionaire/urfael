@@ -4,7 +4,7 @@ A plugin is the most powerful way to extend Urfael: it can ship tools the brain 
 
 ## The thesis: better than in-process plugins, on purpose
 
-OpenClaw and Hermes load plugins as in-process code with broad host power. That is exactly why roughly 20% of the ClawHub registry shipped as malware in 2026: one poisoned plugin runs with the agent's full privileges. Urfael does not copy that model. A Urfael plugin is:
+OpenClaw and Hermes load plugins as in-process code with broad host power. That is exactly why a poisoned skill registry shipped malware in 2026: one poisoned plugin runs with the agent's full privileges. Urfael does not copy that model. A Urfael plugin is:
 
 - **Loaded as data, never `require()`d.** Plugin code never enters the daemon's address space, never inherits its environment, and never holds your Claude subscription token.
 - **Run only as a capability-scoped MCP server**, the open tool standard the `claude` brain already speaks, inside the existing `--network none` Docker cell.
@@ -75,5 +75,5 @@ This is an honest split. v1 ships the verified core; the live runtime is the nex
 
 - A capability-bearing plugin requires Docker. Without it those plugins refuse to enable. There is no in-process fallback, by design.
 - v1 does not run a competitor's plugin code, by design. `urfael plugin import <path>` brings an OpenClaw or Hermes plugin onto Urfael by reading its manifest as data only: a bundled `SKILL.md` routes to the skill scanner, a declared external MCP server becomes a previewed, unsigned, disabled draft manifest, and in-process code (hooks, slash/CLI commands, provider/channel/model adapters, direct host calls) is refused with a specific reason rather than stubbed. So most in-process foreign plugins will not port, and refusing them is the correct outcome. The importer never signs, never enables, and never executes anything; the owner still walks the full native six-gate pipeline on the draft.
-- Signing is ed25519 with trust-on-first-use plus a sha pin, which is more than ClawHub had, but not yet a full provenance attestation chain. The first install of a brand-new publisher is a human-judgement moment, surfaced as such.
+- Signing is ed25519 with trust-on-first-use plus a sha pin, which is more than the rival hubs had, but not yet a full provenance attestation chain. The first install of a brand-new publisher is a human-judgement moment, surfaced as such.
 - A plugin tool's result can still carry prompt injection back to the brain. Untrusted framing and owner-turns-only bound this; they do not eliminate it. This is a residual risk shared by all MCP tooling.

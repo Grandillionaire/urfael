@@ -73,7 +73,7 @@ Design rule for everything below: **a feature ships only when it routes through 
 
 ## Workstream 4 — Safe skill hub ✅ *(shipped)*
 
-**Gap.** OpenClaw's ClawHub shipped ~20% malware; Hermes uses an external standard. Both are "marketplaces with risk." Urfael already has the scanner + verifier + never-executes-a-skill, so it can offer the *only safe* version.
+**Gap.** Rival skill hubs have shipped malware; Hermes uses an external standard. Both are "marketplaces with risk." Urfael already has the scanner + verifier + never-executes-a-skill, so it can offer the *only safe* version.
 
 **Approach.** A lightweight hub (publish/browse/install) where **every skill passes the safety scanner and the verifier before it can be installed**, the body is always shown, and the agent never executes it. Reuse `app/skillhub.js` and the learning kernel; signed/provenanced skills; a confidence/usage signal from the ledger. Could be as simple as a curated git index to start.
 

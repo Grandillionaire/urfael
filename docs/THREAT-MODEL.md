@@ -24,7 +24,7 @@ control is verified. Paired with the runnable [Security Benchmark](SECURITY-BENC
 
 - **A network attacker / worm** scanning for exposed agents → there's nothing to find: the brain is a unix socket; the opt-in HTTP surfaces bind `127.0.0.1` only and are token-gated. *(Benchmark class 1, 2, 5.)*
 - **A prompt injector** hiding instructions in an email/web page/calendar invite the agent reads → remote turns run a read-only profile with no egress tool, content is nonce-framed as untrusted, and the sender allowlist can't be spoofed or coerced. *(Class 3.)*
-- **A malicious skill author** (the ClawHub failure) → skills are scanned, previewed, never auto-installed when flagged, never executed; install refuses SSRF; migration scans foreign skills too. *(Class 4.)*
+- **A malicious skill author** (the poisoned-registry failure) → skills are scanned, previewed, never auto-installed when flagged, never executed; install refuses SSRF; migration scans foreign skills too. *(Class 4.)*
 - **A runaway / injected autonomous turn** with a shell → it runs in a Docker sandbox that mounts only the claude auth files (never your secret store) and is network-isolated by default; the goal loop is iteration/wall/stale-capped and never pushes. *(Class 6.)*
 - **A local process without the token** trying to drive the dashboard/API → constant-time token, loopback-only, Host-allowlisted; rate-limited; no path from the URL. *(Class 2, 5.)*
 - **A misconfiguration** exposing more than intended → fail-closed defaults: unknown channels get the most-restricted profile; the unrestricted shell is opt-in and logged. *(Class 7.)*
