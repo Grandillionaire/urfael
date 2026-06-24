@@ -156,7 +156,8 @@ if [ "$OS" = "Darwin" ]; then
   ${AM}ᛚ${R}  ${GB}FIRST STEPS${R}   ${D}you choose what runs — nothing was started for you${R}
 1. Voice works out of the box — FREE & local (macOS \`say\` + whisper.cpp), no API key needed.
    Optional: edit "$JDIR/tts.env" for a higher-quality local voice (Kokoro) or to add an ElevenLabs key.
-2. Open ~/Urfael as a vault in Obsidian → enable community plugins → install "Local REST API",
+2. ${D}Optional, not needed to start: the brain already reads + writes ~/Urfael with its file tools.${R}
+   For Obsidian-native vault ops, open ~/Urfael in Obsidian, enable community plugins, install "Local REST API",
    then register it:  cd ~/Urfael && claude mcp add -s local --transport http obsidian \\
       http://127.0.0.1:27123/mcp/ --header "Authorization: Bearer <your REST key>"
 3. ${GB}urfael setup${R} auto-detects + fills your name / city / timezone / language into ~/Urfael/CLAUDE.md (no hand-editing)
@@ -228,7 +229,8 @@ else
   ${AM}ᛚ${R}  ${GB}FIRST STEPS${R}   ${D}you choose what runs — nothing was started for you${R}
 1. Voice works out of the box — FREE & local (espeak-ng/spd-say + whisper.cpp), no API key needed.
    Optional: edit "$JDIR/tts.env" for a higher-quality local voice (Kokoro) or to add an ElevenLabs key.
-2. Open ~/Urfael as a vault in Obsidian → enable community plugins → install "Local REST API",
+2. ${D}Optional, not needed to start: the brain already reads + writes ~/Urfael with its file tools.${R}
+   For Obsidian-native vault ops, open ~/Urfael in Obsidian, enable community plugins, install "Local REST API",
    then register it:  cd ~/Urfael && claude mcp add -s local --transport http obsidian \\
       http://127.0.0.1:27123/mcp/ --header "Authorization: Bearer <your REST key>"
 3. ${GB}urfael setup${R} auto-detects + fills your name / city / timezone / language into ~/Urfael/CLAUDE.md (no hand-editing)
