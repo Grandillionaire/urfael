@@ -1926,6 +1926,14 @@ function listen() {
       } catch {} }, 120000);
       if (t.unref) t.unref();
     }
+    // internal tool (opt-in URFAEL_INTERNAL_DAYS): every N days, run maintenance and notify the owner if a new
+    // one was analyzed. It only writes a REPORT to review; it never implements or ships anything on its own.
+    { const days = parseInt(process.env.URFAEL_INTERNAL_DAYS, 10) || 0;
+      if (days > 0) {
+        const scan = async () => { try { const r = await require('./radar').run({ claudeBin: CLAUDE_BIN, env: process.env }); if (r.analyzed) notifyOwner('Radar: ' + r.analyzed + ' new rival release(s) analyzed. Review: ' + r.reportPath, {}); } catch {} };
+        const t = setInterval(scan, days * 86400000); if (t.unref) t.unref();
+      }
+    }
   });
 }
 // single-instance: if a daemon already answers on the socket, don't double-run (safe for launchd + overlay both trying)
