@@ -710,6 +710,17 @@ function printPluginPreview(ph, m) {
   if (cmd === 'quickstart' || cmd === 'quick') { await require('./quickstart').run(); return; }
   // setup: the onboarding wizard (auth mode + provider config). Pure CLI, runs BEFORE ensureDaemon.
   if (cmd === 'setup' || cmd === 'init' || cmd === 'onboard') { await require('./setup').run(); return; }
+  // radar: internal maintenance scan; writes a report to approve. Pure CLI.
+  if (cmd === 'radar') {
+    const radar = require('./radar'); const setup = require('./setup');
+    const claudeBin = setup.claudePath();
+    if (!claudeBin) { console.error(bad('✗') + ' the claude CLI is required for the analysis. ' + dim('Install Claude Code first: https://claude.com/claude-code')); process.exit(1); }
+    process.stdout.write(dim('working…\n'));
+    const r = await radar.run({ claudeBin, env: { ...process.env, ...setup.readEnv() } });
+    if (!r.analyzed) console.log(gold('✓ no new releases') + dim('  (watching ' + r.repos.join(', ') + '; needs `gh` installed + authed)'));
+    else { console.log(gold('✓ analyzed ' + r.analyzed + ' new release' + (r.analyzed === 1 ? '' : 's')) + dim('  →  ') + (r.reportPath || '(report write failed)')); console.log(dim('  Review and approve the worthwhile items, then I implement them in our style.')); }
+    return;
+  }
 
   // stop is best-effort BEFORE ensureDaemon — never spawn a brain just to abort nothing
   if (cmd === 'stop') { const r = await req('POST', '/abort').catch(() => ({ ok: false })); console.log(r && r.ok ? gold('stopped') : dim('nothing to stop')); return; }
