@@ -83,6 +83,7 @@ async function main() {
   }
   if (!ACCOUNT || !OWNER) { console.error('signal-bridge: set SIGNAL_ACCOUNT (+E164) and SIGNAL_OWNER_NUMBER (+E164) in ~/.claude/urfael/bridge.env'); process.exit(1); }
   if (!cliPresent()) { console.error('signal-bridge: `' + CLI + '` not found or not runnable. Install signal-cli (https://github.com/AsamK/signal-cli) and register/link SIGNAL_ACCOUNT, or set SIGNAL_CLI_PATH.'); process.exit(1); }
+  core.warnExperimental('signal');
   core.audit({ ev: 'signal_boot', account: ACCOUNT });
 
   let backoff = 1000;
