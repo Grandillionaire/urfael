@@ -92,6 +92,23 @@ test('the landing page JS counts (const URFAEL) match the real benchmark', () =>
   assert.equal(Number(chk[1]), CHECKS, 'const URFAEL.checks is ' + chk[1] + ' but the benchmark has ' + CHECKS + ' checks');
 });
 
+// ── the unit-test count is cited in several places (README, the site, the cockpit const). The real count can't be
+//    derived statically (some tests run in a loop), so the cockpit const URFAEL.unitTests is the single source of
+//    truth and every other "(N) unit tests" / "frozen by (N) tests" claim must match it. This is the guard that was
+//    missing when "520" silently drifted from the real 532; update the const (to the `npm test` count) and every
+//    doc must follow, or this fails. ──
+test('every unit-test-count claim in the docs matches the cockpit const (no silent drift)', () => {
+  const html = read('docs/index.html');
+  const u = (html.match(/const URFAEL\s*=\s*\{([^}]*)\}/) || [, ''])[1].match(/unitTests:\s*(\d+)/);
+  assert.ok(u, 'const URFAEL must define unitTests: so the test count has one source of truth');
+  const N = Number(u[1]);
+  const pats = [/(\d+)\s+unit tests/gi, /frozen by (\d+) tests/gi];
+  for (const rel of [...DOCS, 'docs/honesty.html', 'docs/faq.html', 'ARCHITECTURE.md']) {
+    const t = read(rel);
+    for (const re of pats) { let m; while ((m = re.exec(t))) assert.equal(Number(m[1]), N, rel + ' cites "' + m[0].trim() + '" but const URFAEL.unitTests is ' + N); }
+  }
+});
+
 // ── the SECURITY-BENCHMARK scorecard must detail every attack class (no undercount vs the headline) ──
 test('the security-benchmark scorecard lists every attack class', () => {
   const rows = (read('docs/SECURITY-BENCHMARK.md').match(/^\| \d+ \|/gm) || []).length;
