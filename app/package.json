@@ -1,6 +1,6 @@
 {
   "name": "urfael-app",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "Urfael, voice overlay, brain daemon, and CLI on Claude Code + Obsidian",
   "author": "MYG Media SRL <contact@myg-media.com>",
   "main": "main.js",
@@ -17,6 +17,7 @@
   "build": {
     "appId": "com.urfael.app",
     "productName": "Urfael",
+    "artifactName": "${productName}-${arch}.${ext}",
     "files": [
       "**/*",
       "!test/**",
