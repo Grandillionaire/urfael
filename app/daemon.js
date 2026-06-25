@@ -44,6 +44,7 @@ const bridge = require('./bridge/bridge-core');
 const learn = require('./learn');               // the evidence ledger (verify-before-trust learning loop)
 const learnVerify = require('./learn-verify');  // the independent self-verifier (prompt + fail-closed parse)
 const providerSessions = require('./provider-sessions');
+const providers = require('./providers');   // secretNeeded(entry): is a key required for this provider, and which env holds it
 // Pure engine for concurrent provider-bound chats (sessionKey, registry, scoped child env). Side-effect-free.
 const chatRegistry = new providerSessions.ChatRegistry();
 // Lazy-loaded provider registry from config/providers.json (re-read on each /providers GET so an edit is picked up).
@@ -266,7 +267,7 @@ const deDash = (s) => String(s == null ? '' : s).replace(/\s*[–—]\s*/g, ', '
 // One warm Claude process per model (stdin kept open). stderr is drained into a small ring buffer so a failed
 // turn can be classified (why it failed), without ever stalling the child.
 class Session {
-  constructor(model) { this.model = model; this.proc = null; this.queue = []; this.current = null; this.buf = ''; this.acc = ''; this.errBuf = ''; this.lastFailed = false; this.spokenSent = false; this.spokenDone = false; this.spokenEmitted = 0; this.spokenChars = 0; this.speakCur = false; this.curSilent = false; this.curTurn = 0; }
+  constructor(model) { this.model = model; this.proc = null; this.queue = []; this.current = null; this.buf = ''; this.acc = ''; this.errBuf = ''; this.lastFailed = false; this.spokenSent = false; this.spokenDone = false; this.spokenEmitted = 0; this.spokenChars = 0; this.speakCur = false; this.curSilent = false; this.curTurn = 0; this.spawnErr = null; }
   _ensure() {
     if (this.proc && !this.proc.killed) return;
     const overlayArgs = currentOverlay ? ['--append-system-prompt', currentOverlay] : [];   // active PERSONA voice; [] on the anchor → byte-identical spawn
@@ -274,7 +275,18 @@ class Session {
     // the unchanged {...process.env}, so the warm spawn stays byte-identical. resolveScopedEnv returns a NEW object,
     // so process.env is never mutated and the provider secret stays scoped to this child (never logged, never global).
     let childEnv = { ...process.env, URFAEL_OVERLAY: '1' };
-    if (this.providerId) { const e = providerSessions.findProvider(providerList(), this.providerId); if (e) { try { childEnv = providerSessions.resolveScopedEnv(childEnv, e, secretStore[e.authEnv]); } catch (err) { logEvent({ ev: 'chat_provider_no_secret', provider: this.providerId }); } childEnv.URFAEL_OVERLAY = '1'; } }
+    this.spawnErr = null;
+    if (this.providerId) {
+      const e = providerSessions.findProvider(providerList(), this.providerId);
+      if (e) {
+        // FAIL-CLOSED: a key-auth provider missing its stored secret must NEVER fall back to the daemon's own
+        // (base-env) credentials — that would silently answer this chat on the MAIN provider. Refuse to spawn and
+        // surface the failure to the waiter (drained in _next); never spawn a provider-bound child on the base env.
+        try { childEnv = providerSessions.resolveScopedEnv(childEnv, e, secretStore[e.authEnv]); }
+        catch (err) { logEvent({ ev: 'chat_provider_no_secret', provider: this.providerId }); this.spawnErr = 'provider ' + this.providerId + ' needs its key, set it with: urfael plugin secret ' + (e.authEnv || ''); return; }
+        childEnv.URFAEL_OVERLAY = '1';
+      }
+    }
     this.proc = spawn(CLAUDE_BIN, [
       '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
       '--model', this.model, '--verbose', '--include-partial-messages', '--permission-mode', PERM_MODE,
@@ -357,12 +369,17 @@ class Session {
   _next() {
     if (this.current || !this.queue.length) return;
     this._ensure();
+    if (this.spawnErr) {   // fail-closed: provider env unresolved (missing key) — fail this turn, never spawn on the base env
+      const c = this.queue.shift(); const reason = this.spawnErr; this.spawnErr = null; this.lastFailed = true;
+      c.cb('(' + reason + ')'); this._next(); return;
+    }
     this.current = this.queue.shift();
     this.speakCur = !!this.current.speak; this.curSilent = !!this.current.silent; this.curTurn = this.current.turnId || 0;
     this.acc = ''; this.errBuf = ''; this.lastFailed = false; this.spokenSent = false; this.spokenDone = false; this.spokenEmitted = 0; this.spokenChars = 0;
     this.current.timer = setTimeout(() => {
       if (!this.current) return;
       const c = this.current; this.current = null; this.lastFailed = true;
+      this.errBuf = 'timed out';   // record a RETRYABLE reason so the fallback gate (classifyError -> timeout/retryable) fires; re-zeroed in _next on the next turn
       try { this.proc && this.proc.kill('SIGKILL'); } catch {} this.proc = null; // discard hung process
       c.cb('(timed out)'); this._next();
     }, TURN_TIMEOUT_MS);
@@ -1132,6 +1149,9 @@ function fireChain(job, prevResult) {
 // single-flight + afterCron (deliver + chain). opts (webhook 'ask'): intro = a TRUSTED preamble BEFORE the
 // untrusted envelope; allowedTools = a tighter allowlist; ev = the log event. Defaults reproduce the original.
 function deliverCron(job, opts) {
+  // off-switch disarms ALL script execution, not just creation/chaining: a persisted (boot-re-armed) script cron AND
+  // POST /cron/:id/run for one both flow through here. Gate BEFORE the single-flight so a blocked script never touches cronRunning.
+  if (job && job.kind === 'script' && !SCRIPT_CRON_ON) { logEvent({ ev: 'cron_blocked', id: job.id, why: 'script_off' }); return; }
   if (cronRunning) { logEvent({ ev: 'cron_skip', id: job.id, why: 'busy' }); return; } // a prior run is still going
   cronRunning = true;
   if (job.kind === 'script') return runScriptCron(job);
@@ -1442,19 +1462,24 @@ async function verifyLearnings() {
   try {
     let items = learn.load(MEMORY_DIR);
     const trusted = [], rejected = [];
-    for (const s of staged.slice(0, 12)) {                               // cap per pass
-      if (!s || typeof s.ref !== 'string' || !s.ref.trim()) continue;
-      const r = learn.upsert(items, { type: s.type === 'skill' || s.type === 'user' ? s.type : 'lesson', ref: s.ref.trim(), source: 'distill', now: Date.now() });
-      items = r.items;
-      if (!r.item) continue;
-      // RECURRENCE = real positive-usage evidence: a lesson the distiller re-derived is one that keeps mattering,
-      // so reinforce it (helped++/lastUsed, confidence climbs) instead of just skipping. This is what makes the
-      // ledger's confidence — and the curator's pruning — genuinely usage-weighted, not age-only. (audit fix)
-      if (!r.isNew) { items = learn.reinforce(items, r.item.id, Date.now()); continue; } // already trusted → don't re-verify
-      const verdict = await verifyOne(r.item);                           // INDEPENDENT judgement (new lessons only)
-      items = learn.applyVerdict(items, r.item.id, verdict, Date.now());
-      const it = items.find((x) => x.id === r.item.id);
-      if (it && it.status === 'trusted') trusted.push(it); else rejected.push({ ref: r.item.ref, note: (verdict && verdict.note) || 'unverified' });
+    // Drain ALL staged lessons in this single invocation — the 12 is only a per-batch verifier-spawn throttle, never a
+    // hard cap. We can't rely on "the next pass" to pick up a remainder: verifyLearnings runs right after a distill/review
+    // child overwrites .learned.json, so any tail left on disk would be clobbered before the next read (lessons silently lost).
+    for (let i = 0; i < staged.length; i += 12) {
+      for (const s of staged.slice(i, i + 12)) {
+        if (!s || typeof s.ref !== 'string' || !s.ref.trim()) continue;
+        const r = learn.upsert(items, { type: s.type === 'skill' || s.type === 'user' ? s.type : 'lesson', ref: s.ref.trim(), source: 'distill', now: Date.now() });
+        items = r.items;
+        if (!r.item) continue;
+        // RECURRENCE = real positive-usage evidence: a lesson the distiller re-derived is one that keeps mattering,
+        // so reinforce it (helped++/lastUsed, confidence climbs) instead of just skipping. This is what makes the
+        // ledger's confidence — and the curator's pruning — genuinely usage-weighted, not age-only. (audit fix)
+        if (!r.isNew) { items = learn.reinforce(items, r.item.id, Date.now()); continue; } // already trusted → don't re-verify
+        const verdict = await verifyOne(r.item);                           // INDEPENDENT judgement (new lessons only)
+        items = learn.applyVerdict(items, r.item.id, verdict, Date.now());
+        const it = items.find((x) => x.id === r.item.id);
+        if (it && it.status === 'trusted') trusted.push(it); else rejected.push({ ref: r.item.ref, note: (verdict && verdict.note) || 'unverified' });
+      }
     }
     learn.save(MEMORY_DIR, items);
     if (trusted.length) fs.appendFileSync(LESSONS_FILE, '\n' + trusted.map((it) => `- ${it.ref}`).join('\n') + '\n');
@@ -1928,6 +1953,10 @@ const server = http.createServer(async (req, res) => {
     if ('channel' in parsed && parsed.channel) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'chat sessions are local-only' })); return; }
     const entry = providerSessions.findProvider(providerList(), parsed.providerId);
     if (parsed.providerId && !entry) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'unknown provider' })); return; }
+    // fail-closed: a key-auth provider with no stored secret must be REFUSED here, not silently answered on the daemon's
+    // own (base-env) credentials. Reject before registering so the tile never opens against a provider it can't reach.
+    const need = entry ? providers.secretNeeded(entry) : null;
+    if (need && !secretStore[need.env]) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'provider ' + entry.id + ' needs its key, set it with: urfael plugin secret ' + need.env })); return; }
     const model = (parsed.model === 'opus' || parsed.model === 'sonnet') ? MODELS[parsed.model] : MODELS.sonnet;
     const c = chatRegistry.register(null, { model, providerId: (entry && entry.id) || '' });
     logEvent({ ev: 'chat_open', chatId: c.chatId, model: c.model, provider: c.providerId });
@@ -1940,6 +1969,11 @@ const server = http.createServer(async (req, res) => {
     const id = (req.url.match(/^\/chat\/([A-Za-z0-9-]{4,80})\/ask$/) || [])[1];
     const rec = chatRegistry.get(id);
     if (!rec || !rec.connected) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'no such chat' })); return; }
+    // mirror the open-time guard: a chat bound to a key-auth provider whose secret is still absent must fail loudly,
+    // never route onto the daemon's own credentials (Session._ensure also fails closed, so this is the friendly surface).
+    const _entry = rec.providerId ? providerSessions.findProvider(providerList(), rec.providerId) : null;
+    const _need = _entry ? providers.secretNeeded(_entry) : null;
+    if (_need && !secretStore[_need.env]) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'provider ' + rec.providerId + ' needs its key, set it with: urfael plugin secret ' + _need.env })); return; }
     chatRegistry.markActivity(id);
     const body = await readBody(req);
     let parsed = {}; try { parsed = JSON.parse(body); } catch {}

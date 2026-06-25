@@ -67,6 +67,7 @@ async function main() {
   }
 
   const bucket = new core.TokenBucket(8, 20); // 8 burst, ~20/min sustained — bounds a flood/injection loop
+  const pairBucket = new core.TokenBucket(5, 5); // 5 burst, ~5/min — bounds anonymous /pair/redeem floods from non-roster senders
   let offset = 0;
   core.audit({ ev: 'telegram_start', principals: roster.telegram.length });
   for (;;) {
@@ -82,6 +83,7 @@ async function main() {
       if (!msg || !msg.chat) continue;
       const principal = core.resolvePrincipal('telegram', msg.chat.id, roster); // ALLOWLIST, before the brain
       if (!principal) {
+        if (!pairBucket.take()) continue; // throttle anonymous pairing-redeem attempts: drop silently when exhausted (no tryPair round-trip, no audit, no reply)
         // self-enroll: a non-roster sender's message might be a pairing code → enroll as guest (daemon-decided)
         if (msg.text) { const pr = await core.tryPair('telegram', msg.chat.id, msg.text); if (pr && pr.ok) { core.audit({ ev: 'telegram_pair', from: msg.chat.id }); try { await core.telegramSend(TOKEN, msg.chat.id, 'You are paired as a guest. Send a message to begin.'); } catch {} continue; } }
         core.audit({ ev: 'telegram_drop', from: msg.chat && msg.chat.id }); continue;

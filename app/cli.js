@@ -82,30 +82,32 @@ async function ensureDaemon() {
   return false;
 }
 
-function ask(text) {
+function ask(text, pathOverride, useFinalText) {
   return new Promise((resolve) => {
     // While the turn runs, show a live one-line "oracle" status on stderr (a changing rune + thinking-word +
     // elapsed + token estimate + the current tool), then render the FULL answer as Markdown → ANSI on stdout —
-    // so it reads like Claude Code's terminal (headings/bold/lists/code), never raw ## / ** .
+    // so it reads like Claude Code's terminal (headings/bold/lists/code), never raw ## / ** . pathOverride lets a
+    // sibling channel (e.g. the schedule channel's /schedule) reuse this exact NDJSON stream; default is /ask.
     const ttyErr = !!process.stderr.isTTY;
     const anim = ttyErr ? require('./tui-anim') : null;
     const TH = COLOR ? { accent: '\x1b[38;5;214m', gold: '\x1b[33m', dim: '\x1b[2m', RST: '\x1b[0m' } : { accent: '', gold: '', dim: '', RST: '' };
     const acfg = { anim: 'oracle', frameMs: 83, reduceMotion: false };
     const t0 = Date.now();
-    let buf = '', started = false, lastTool = '', acc = '', timer = null;
+    let buf = '', started = false, lastTool = '', acc = '', timer = null, rendered = false;
     const cols = () => Math.max(20, process.stdout.columns || process.stderr.columns || 80);
     const drawStatus = () => { if (ttyErr) process.stderr.write('\r' + anim.composeWorker(acfg, TH, { t0, lastTool, answerChars: acc.length, usageTokens: null }, cols(), Date.now()) + '\x1b[K'); };
     const clearStatus = () => { if (timer) { clearInterval(timer); timer = null; } if (ttyErr) process.stderr.write('\r\x1b[K'); };
     const onSigint = () => { clearStatus(); Promise.race([req('POST', '/abort').catch(() => {}), new Promise((r) => setTimeout(r, 1500))]).then(() => process.exit(0)); };
     process.on('SIGINT', onSigint);
-    const done = () => { clearStatus(); process.removeListener('SIGINT', onSigint); resolve(); };
+    const done = () => { clearStatus(); process.removeListener('SIGINT', onSigint); resolve(acc); };   // resolves with the raw answer so a caller (schedule) can detect a staged-confirm reply
     if (ttyErr) { timer = setInterval(drawStatus, acfg.frameMs); if (timer.unref) timer.unref(); }
     const render = (e) => {
+      rendered = true;                                                     // a done event arrived; the end/timeout paths must NOT then claim a dropped stream
       const answer = acc.replace(/\[\/?SPOKEN\]/gi, '').replace(/[ \t\r\n]+$/, '');
       if (answer) process.stdout.write(require('./md').toAnsi(answer, { color: COLOR, base: COLOR ? '\x1b[33m' : '' }) + (COLOR ? '\x1b[0m' : '') + '\n');
       process.stdout.write(dim(`— ${e.aborted ? 'stopped' : (e.model || '')}${e.ms ? ' · ' + (e.ms / 1000).toFixed(1) + 's' : ''}`) + '\n');
     };
-    const r = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 300000 }, (res) => {
+    const r = http.request({ socketPath: SOCK, method: 'POST', path: pathOverride || '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 300000 }, (res) => {
       res.on('data', (d) => {
         buf += d.toString(); let i;
         while ((i = buf.indexOf('\n')) >= 0) {
@@ -114,13 +116,17 @@ function ask(text) {
           let e; try { e = JSON.parse(ln); } catch { continue; }
           if (e.kind === 'thinking' && e.tool) lastTool = e.tool;
           else if (e.kind === 'thinking' && e.delta) { started = true; acc += e.delta; }
-          else if (e.kind === 'done') { if (!started && e.text) acc = e.text; clearStatus(); render(e); done(); }
+          // normally the de-dashed streamed deltas are the answer; useFinalText (the schedule channel) prefers the
+          // done event's text instead, because the daemon strips its <<urfael:…>> directives + appends the confirm
+          // marker only on that final text — streaming it raw would leak the tokens and hide "Say yes to apply."
+          else if (e.kind === 'done') { if (e.text && (useFinalText || !started)) acc = e.text; clearStatus(); render(e); done(); }
         }
       });
-      res.on('end', done);
+      // a stream that ends WITHOUT a done event = the brain dropped it mid-turn; fail loudly + non-zero rather than vanish
+      res.on('end', () => { clearStatus(); if (!rendered) { console.error(bad('✗') + ' the turn ended without a reply (the brain dropped the stream).' + dim('  run  ') + gold('urfael doctor')); process.exitCode = 1; } done(); });
     });
     r.on('error', () => { clearStatus(); console.error(bad('✗') + ' the brain is unreachable, sir.' + dim('  run  ') + gold('urfael doctor') + dim('  to diagnose it')); done(); });
-    r.on('timeout', () => { clearStatus(); r.destroy(); done(); }); // a wedged daemon mid-stream shouldn't hang the CLI forever
+    r.on('timeout', () => { clearStatus(); r.destroy(); if (!rendered) { console.error(bad('✗') + ' the turn timed out without a reply.' + dim('  run  ') + gold('urfael doctor')); process.exitCode = 1; } done(); }); // a wedged daemon mid-stream shouldn't hang the CLI forever
     r.end(JSON.stringify({ text }));
   });
 }
@@ -1207,8 +1213,39 @@ function printPluginPreview(ph, m) {
     return;
   }
   if (cmd === 'jobs') { for (const j of await req('GET', '/jobs')) console.log(`${j.id}  ${j.kind}  ${gold(j.state)}  ${dim(j.createdAt || '')}`); return; }
-  if (cmd === 'job' && rest[0]) { const j = await req('GET', '/job/' + rest[0]); console.log(JSON.stringify({ ...j, log: undefined }, null, 2)); if (j.log) console.log(dim('--- log tail ---\n') + j.log); return; }
-  if (cmd === 'cancel' && rest[0]) { console.log(JSON.stringify(await req('POST', `/job/${rest[0]}/cancel`))); return; }
+  if (cmd === 'job') { if (!rest[0]) { console.log('usage: urfael job <id>'); return; } const j = await req('GET', '/job/' + rest[0]); console.log(JSON.stringify({ ...j, log: undefined }, null, 2)); if (j.log) console.log(dim('--- log tail ---\n') + j.log); return; }
+  if (cmd === 'cancel') { if (!rest[0]) { console.log('usage: urfael cancel <id>'); return; } console.log(JSON.stringify(await req('POST', `/job/${rest[0]}/cancel`))); return; }
+  if (cmd === 'schedule') {
+    // the dedicated Reminders & Calendar channel: add / move / cancel a reminder or calendar event in plain English.
+    // It streams /schedule exactly like ask() streams /ask. The daemon (LOCAL-only; it 403s any channel key) stages
+    // the directives and ends its reply with "Say yes to apply." — a follow-up `urfael schedule yes` / `no`, or the
+    // inline y/N prompt below on a TTY, sends the second turn that makes applyScheduleDirectives run. Fail-closed:
+    // on a non-TTY it never auto-applies, it just prints how to confirm by hand.
+    const text = rest.filter((a, i) => !a.startsWith('--') && !(rest[i - 1] || '').startsWith('--')).join(' ').trim();
+    if (!text) { console.log('usage: urfael schedule "<add/move/cancel a reminder or event, in plain English>"   ·   confirm with  urfael schedule yes'); return; }
+    const reply = await ask(text, '/schedule', true);                      // true: render the daemon's final cleaned text (tokens stripped, confirm marker present), not the raw deltas
+    if (reply && /say yes to apply/i.test(reply)) {                         // the daemon's exact confirm marker (describeScheduleDirectives staged something)
+      if (process.stdin.isTTY) await ask((await promptYesNo('Apply this?')) ? 'yes' : 'no', '/schedule', true);
+      else console.log(dim('  confirm:  ') + gold('urfael schedule yes') + dim('   ·   drop it:  ') + gold('urfael schedule no'));
+    }
+    return;
+  }
+  if (cmd === 'calendar' || cmd === 'cal') {
+    // READ-ONLY view of upcoming events (GET /calendar; no brain turn, no mutate path). The apply path (add / move /
+    // cancel) lives only on the confirm-gated schedule channel above. --ics prints an iCalendar export; --n caps it.
+    if (rest.includes('--ics')) {
+      const ics = await req('GET', '/calendar?format=ics&n=200');
+      process.stdout.write(typeof ics === 'string' ? (ics.endsWith('\n') ? ics : ics + '\n') : JSON.stringify(ics) + '\n');
+      return;
+    }
+    const n = flag(rest, '--n');
+    const evs = await req('GET', '/calendar' + (n ? '?n=' + encodeURIComponent(n) : ''));
+    if (!Array.isArray(evs) || !evs.length) { console.log(dim('no upcoming events.  add one:  ') + gold('urfael schedule "add <event> on <date> at <time>"')); return; }
+    console.log(gold('Calendar') + dim('  ·  next ' + evs.length + ' event' + (evs.length === 1 ? '' : 's')));
+    for (const e of evs) console.log('  ' + gold((e.start || '').replace('T', ' ').slice(0, 16)) + '  ' + (e.title || '') + (e.location ? dim('  @ ' + e.location) : ''));
+    console.log(dim('  add / move / cancel:  ') + gold('urfael schedule "<plain English>"'));
+    return;
+  }
   if (cmd === 'reminders') {
     const rs = await req('GET', '/reminders');
     if (!rs.length) { console.log('no reminders scheduled'); return; }
@@ -1218,17 +1255,21 @@ function printPluginPreview(ph, m) {
   if (cmd === 'remind') {
     const text = rest.filter((a, i) => !a.startsWith('--') && !(rest[i - 1] || '').startsWith('--')).join(' ');
     const spec = { text };
+    // a bare HH:MM --at is a time-of-DAY (the recurrence clock), not a one-shot ISO anchor. With --days/--cron present
+    // it sets the recurrence time; if left as spec.at the daemon would reject the whole reminder. --days-at still wins.
+    const atRaw = flag(rest, '--at');
+    const isHM = atRaw && /^\d{1,2}:\d{2}$/.test(atRaw.trim());
     if (flag(rest, '--in') != null) spec.inMins = Number(flag(rest, '--in'));
-    if (flag(rest, '--at')) spec.at = flag(rest, '--at');
     if (flag(rest, '--cron')) spec.repeat = { cron: flag(rest, '--cron') };                            // full 5-field cron
-    else if (flag(rest, '--days')) spec.repeat = { days: flag(rest, '--days'), at: flag(rest, '--days-at') || '09:00' }; // "mon,wed,fri" / "weekdays"
+    else if (flag(rest, '--days')) spec.repeat = { days: flag(rest, '--days'), at: flag(rest, '--days-at') || (isHM ? atRaw.trim() : '09:00') }; // "mon,wed,fri" / "weekdays"
+    if (atRaw && !(isHM && (flag(rest, '--days') || flag(rest, '--cron')))) spec.at = atRaw;            // keep an ISO --at as the one-shot anchor; never double-use a bare HH:MM already consumed by a recurrence
     const rep = flag(rest, '--repeat');
     if (!spec.repeat) { if (rep === 'daily' || rep === 'weekly') spec.repeat = rep; else if (rep) spec.repeat = { everyMins: Number(rep) }; }
     const r = await req('POST', '/remind', spec);
     console.log(r.error ? '✗ ' + r.error : `✓ reminder ${r.id} fires at ${r.at}`);
     return;
   }
-  if (cmd === 'unremind' && rest[0]) { console.log(JSON.stringify(await req('POST', `/reminder/${rest[0]}/cancel`))); return; }
+  if (cmd === 'unremind') { if (!rest[0]) { console.log('usage: urfael unremind <id>'); return; } console.log(JSON.stringify(await req('POST', `/reminder/${rest[0]}/cancel`))); return; }
 
   // default: everything is a question for the brain — UNLESS a lone word is an obvious command typo, in which
   // case suggest the fix instead of silently spending a turn on it. You can always force it as a real question.

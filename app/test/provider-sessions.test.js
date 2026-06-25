@@ -114,14 +114,17 @@ test('resolveScopedEnv throws on a null provider', () => {
 });
 
 // ── ChatRegistry: many concurrent chats, none disconnects unless asked ──────────────────────────────
-test('register opens a chat with safe metadata and a sessionKey bound to (model, provider)', () => {
+test('register opens a chat with safe metadata and a PER-CHAT sessionKey (model, provider, chatId)', () => {
   const reg = new ps.ChatRegistry();
   const c = reg.register('chat-1', { model: 'sonnet', providerId: 'claude' });
   assert.strictEqual(c.chatId, 'chat-1');
   assert.strictEqual(c.model, 'sonnet');
   assert.strictEqual(c.providerId, 'claude');
   assert.strictEqual(c.connected, true);
-  assert.strictEqual(c.key, ps.sessionKey('sonnet', 'claude'));
+  // the warm bucket folds in the chatId so every tile is its OWN child process, never the shared main-brain bucket
+  // (sessionKey(model,'')); this isolates context between tiles and keeps disconnect from reaping the main brain.
+  assert.strictEqual(c.key, ps.sessionKey('sonnet', 'claude') + '#chat-1');
+  assert.notStrictEqual(c.key, ps.sessionKey('sonnet', 'claude'));
 });
 
 test('register mints an unguessable chatId when none is given', () => {
@@ -145,21 +148,20 @@ test('many chats coexist on different providers; opening one never disconnects a
   for (const id of ['a', 'b', 'c']) assert.strictEqual(reg.get(id).connected, true);
 });
 
-test('disconnect drops ONLY the named chat and reports whether the key is still in use', () => {
+test('disconnect drops ONLY the named chat; each tile owns its OWN bucket (per-chat isolation)', () => {
   const reg = new ps.ChatRegistry();
-  // two chats sharing the SAME (model, provider) → same session bucket
+  // even two chats on the SAME (model, provider) get DISTINCT per-chat buckets now (key folds in the chatId), so a
+  // tile is never shared with another tile or with the main brain. disconnect therefore frees only that tile's child.
   reg.register('a', { model: 'sonnet', providerId: 'claude' });
   reg.register('b', { model: 'sonnet', providerId: 'claude' });
   reg.register('c', { model: 'opus', providerId: 'claude' });
+  assert.notStrictEqual(reg.get('a').key, reg.get('b').key, 'same model+provider, but distinct per-chat buckets');
   const r = reg.disconnect('a');
   assert.strictEqual(r.chatId, 'a');
-  assert.strictEqual(r.keyStillInUse, true, 'chat b still routes through this bucket');
+  assert.strictEqual(r.keyStillInUse, false, "a's bucket is unique to a, so it is free to reap (never the main brain)");
   assert.strictEqual(reg.get('a').connected, false);
   assert.strictEqual(reg.get('b').connected, true);          // untouched
   assert.strictEqual(reg.get('c').connected, true);          // untouched
-  // now drop b too — the bucket is free
-  const r2 = reg.disconnect('b');
-  assert.strictEqual(r2.keyStillInUse, false);
 });
 
 test('disconnect on an unknown chat returns null (no throw)', () => {
@@ -207,5 +209,5 @@ test('register with an unknown providerId still keys cleanly (fail-soft, slugifi
   const reg = new ps.ChatRegistry();
   const c = reg.register('x', { model: 'sonnet', providerId: 'Weird Name!!' });
   assert.strictEqual(c.providerId, 'weird-name');
-  assert.strictEqual(c.key, ps.sessionKey('sonnet', 'weird-name'));
+  assert.strictEqual(c.key, ps.sessionKey('sonnet', 'weird-name') + '#x');
 });
