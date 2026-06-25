@@ -2069,7 +2069,9 @@ const server = http.createServer(async (req, res) => {
       const id = typeof p.clientId === 'string' ? p.clientId : '';
       if (!id) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'need {clientId}' })); return; }
       if (p.disconnect) { clients.disconnect(id); watchBus.publish({ kind: 'client.gone', clientId: sessionBus.summarize(id, sessionBus.CLIENTID_MAX), t: Date.now() }); }
-      else if (p.beat) clients.heartbeat(id);
+      // self-heal: a beat for an id the registry has forgotten (e.g. the daemon restarted under a still-running
+      // terminal) re-registers it, so the terminal reappears in presence instead of silently vanishing forever.
+      else if (p.beat) { if (!clients.heartbeat(id)) clients.connect(id, { surface: p.surface, startedAt: Date.now() }); }
       else { const row = clients.connect(id, { surface: p.surface, startedAt: Date.now() }); if (row) watchBus.publish({ kind: 'client.join', clientId: row.clientId, surface: row.surface, t: Date.now() }); }
       res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true }));
       return;
@@ -2464,6 +2466,12 @@ function listen() {
         const t = setInterval(refreshUpdateStatus, days * 86400000); if (t.unref) t.unref();
       }
     }
+    // chat-tile reaper: a chat whose client vanished without a clean /disconnect (hard browser/tab kill, crash) would
+    // otherwise leak its warm child forever. Every minute, disconnect chats idle > 30 min and SIGKILL their (unique)
+    // per-chat buckets. Never touches the main-brain buckets (those have no chatId suffix). unref'd.
+    { const t = setInterval(() => { try {
+        for (const key of chatRegistry.reapIdle(30 * 60000)) { const s = sessions.get(key); if (s) { try { s.proc && s.proc.kill('SIGKILL'); } catch {} sessions.delete(key); } logEvent({ ev: 'chat_reap', key }); }
+      } catch {} }, 60000); if (t.unref) t.unref(); }
   });
 }
 // single-instance: if a daemon already answers on the socket, don't double-run (safe for launchd + overlay both trying)

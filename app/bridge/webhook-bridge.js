@@ -15,6 +15,7 @@ const HOST = '127.0.0.1';
 const PORT = Math.min(Math.max(parseInt(process.env.URFAEL_WEBHOOK_PORT, 10) || 7719, 1), 65535);
 const MAX_BODY = 262144;                                                        // 256KB (chat payloads + media metadata)
 const limiter = new core.TokenBucket(120, 600);                                // bounds raw POST volume (loopback shares one ip)
+const pairBucket = new core.TokenBucket(5, 5);                                  // ~5/min: bounds anonymous pairing-redeem floods from non-roster senders (parity with the other bridges)
 
 function readBody(req) {
   return new Promise((resolve) => { let b = '', over = false;
@@ -69,6 +70,9 @@ const server = http.createServer(async (req, res) => {
   // THE ALLOWLIST, before the brain: an unknown sender is dropped, every channel, fail-closed.
   const principal = core.resolvePrincipal(channel, d.senderId);
   if (!principal) {
+    // throttle anonymous pairing-redeem attempts BEFORE the tryPair round-trip: drop silently when the bucket is
+    // exhausted so a non-roster sender cannot flood the pair path (parity with telegram/email).
+    if (!pairBucket.take()) { core.audit({ ev: 'webhook_drop', channel, sender: d.senderId, reason: 'pair_flood' }); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); return; }
     // a never-enrolled sender may redeem a pairing code as a GUEST only (same as the other bridges); else dropped.
     const paired = await core.tryPair(channel, d.senderId, d.text);
     if (!(paired && paired.ok)) { core.audit({ ev: 'webhook_drop', channel, sender: d.senderId }); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); return; }
