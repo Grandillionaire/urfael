@@ -54,6 +54,17 @@ function readCfg(env, isTTY) {
     env = { ...fileEnv, ...process.env };
   }
   if (isTTY === undefined) isTTY = !!(process.stdout && process.stdout.isTTY);
+  // Presentation prefs (~/.claude/urfael/ui-prefs.json) are the persisted default — an explicit env var still wins.
+  // Gated on the file EXISTING, so with no prefs file this is byte-identical to before (URFAEL_THEME fallback kept).
+  try {
+    const up = require('./ui-palette');
+    const pp = up.defaultPrefsPath();
+    if (require('fs').existsSync(pp)) {
+      const prefs = up.loadPrefs(pp);
+      if (!env.URFAEL_TUI_THEME && prefs.theme) env = { ...env, URFAEL_TUI_THEME: prefs.theme };
+      if (!env.URFAEL_TUI_ANIM && prefs.animation) env = { ...env, URFAEL_TUI_ANIM: prefs.animation };
+    }
+  } catch {}
   const theme = resolveTheme(env, isTTY);
 
   const rm = String(env.URFAEL_TUI_REDUCE_MOTION || '').toLowerCase();

@@ -401,15 +401,26 @@ function setPersona(id) {
   try { fs.mkdirSync(JDIR, { recursive: true }); if (activePersona !== 'urfael') fs.writeFileSync(PERSONAPIN, activePersona + '\n'); else fs.rmSync(PERSONAPIN, { force: true }); } catch {}
   return activePersona;
 }
+// A cosmetic self-setting awaiting the owner's confirmation (the conversational yes/no gate). LOCAL path only.
+let pendingSelfSetting = null;
+// Persist a presentation pref into ui-prefs.json — the unified store the dashboard + TUI cockpit now READ. Closed
+// schema: savePrefs normalizes and drops anything outside {theme,animation,accent,character}. Fail-soft; no throw.
+function persistUiPref(patch) {
+  try { const cur = uiPalette.loadPrefs(UI_PREFS); return uiPalette.savePrefs(UI_PREFS, { ...cur, ...patch }).ok; } catch { return false; }
+}
 // Apply a VALIDATED self-setting through the EXISTING setters only. No security key can reach here (validateProposal gates it).
 function applySelfSetting(p) {
   const v = String(p.value);
   switch (p.key) {
     case 'persona': { setPersona(v.trim().toLowerCase()); respawnForPersona(); return true; }
-    case 'verbosity': case 'tuiTheme': case 'tuiAnimation': case 'orbTheme': case 'voiceOn': case 'ttsVoice': case 'ackStyle': case 'confirmBypass':
-      // these are TTS/UI knobs owned by main.js's tts.env (SETTABLE) + the renderer; the daemon records the
-      // intent to the ledger and forwards it. main.js's `urfael:set-config` IPC + setTtsEnvValue do the disk write
-      // (URFAEL_THEME/URFAEL_TUI_*/SAY_VOICE/CONSOLE_VOICE/URFAEL_ACKS). The daemon never writes provider.env.
+    // theme + animation persist to the unified ui-prefs.json that the dashboard and the TUI cockpit READ, so an NL
+    // "change your theme to ember" actually repaints both surfaces (next dashboard load / next TUI launch).
+    case 'tuiTheme': return persistUiPref({ theme: v.trim().toLowerCase() });
+    case 'tuiAnimation': return persistUiPref({ animation: v.trim().toLowerCase() });
+    case 'verbosity': case 'orbTheme': case 'voiceOn': case 'ttsVoice': case 'ackStyle': case 'confirmBypass':
+      // TTS/renderer knobs owned by main.js's tts.env (SETTABLE) + the Console renderer; the daemon records the
+      // intent to the ledger and the Console's `urfael:set-config` IPC + setTtsEnvValue do the disk write
+      // (SAY_VOICE/CONSOLE_VOICE/URFAEL_ACKS/URFAEL_ORB). The daemon never writes provider.env.
       return true;
     default: return false;
   }
@@ -482,6 +493,10 @@ const brain = {
     const t0 = Date.now();
     let session = getSession(model);
     const mem = await activeRecall(text);                             // proactively surface relevant memory for THIS turn
+    // JARVIS self-rewrite nudge: when the owner is asking to change a COSMETIC setting, append a reference hint to
+    // the message CONTENT (never the system prompt — the anchor spawn stays byte-identical) so the brain may emit
+    // one <<urfael:set ...>> directive. The hard allowlist gate still vets whatever it emits. '' for normal turns.
+    try { const _hint = selfset.controlHint(text); if (_hint) mem.promptText += _hint; } catch {}
     let reply = await session.ask(mem.promptText, { speak: true, turnId });
     // automatic fallback: a turn that failed for a RETRYABLE reason (overload, model-unavailable, network, timeout)
     // gets ONE retry on the other tier. An account-wide rate limit fails both, so we keep the original error; a
@@ -1610,6 +1625,25 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
       active = res;
       res.on('close', () => { if (active === res) active = null; }); // client gone -> stop writing into a dead socket
+      // CONVERSATIONAL CONFIRM: if a cosmetic self-setting is awaiting the owner's word, this message decides it,
+      // before any brain turn. "yes" applies it, "no" drops it, anything else means the owner moved on (drop +
+      // proceed normally). Local path only — self-settings are never reachable from a remote channel.
+      if (pendingSelfSetting) {
+        const _p = pendingSelfSetting;
+        if (/^\s*(y|yes|yep|yeah|yup|do it|confirm|apply|sure|ok|okay|go ahead|please do|affirmative)\b/i.test(text)) {
+          pendingSelfSetting = null;
+          const _ok = applySelfSetting(_p);
+          logEvent(selfset.auditPayload(_p, _ok ? 'confirmed' : 'rejected'));
+          emit({ kind: 'done', text: _ok ? ('Done, sir — ' + selfset.describeProposal(_p) + '.') : 'I could not apply that one, sir.', model: convoModel });
+          if (active === res) active = null; try { res.end(); } catch {} return;
+        }
+        if (/^\s*(n|no|nope|nah|cancel|don'?t|leave it|never ?mind|forget it)\b/i.test(text)) {
+          pendingSelfSetting = null;
+          emit({ kind: 'done', text: 'Left as it was, sir.', model: convoModel });
+          if (active === res) active = null; try { res.end(); } catch {} return;
+        }
+        pendingSelfSetting = null;   // any other message: the owner moved on, drop the stale proposal
+      }
       try {
         const r = await brain.ask(text);
         // SELF-REWRITE (LOCAL path only — never askScoped): scan the owner-trusted reply for a single cosmetic
@@ -1623,9 +1657,11 @@ const server = http.createServer(async (req, res) => {
             else {
               const _bypass = (() => { try { return /^(1|on|true)$/i.test(require('./setup').readEnv().URFAEL_SELF_CONFIRM_BYPASS || ''); } catch { return false; } })();
               if (selfset.needsConfirm(_prop, { bypass: _bypass })) {
-                // surface the confirm line to the client; apply happens on a follow-up POST /self-setting/confirm {key,value}
+                // remember it so the owner's next "yes" applies it (the conversational confirm at the top of /ask);
+                // a follow-up POST /self-setting still works too (the Console's button path).
+                pendingSelfSetting = _prop;
                 logEvent(selfset.auditPayload(_prop, 'pending'));
-                r.text = r.text.replace(/<<urfael:set\b[\s\S]*?>>/i, '').trim() + '\n\n(' + selfset.describeProposal(_prop) + '? Confirm to apply.)';
+                r.text = r.text.replace(/<<urfael:set\b[\s\S]*?>>/i, '').trim() + '\n\n(' + selfset.describeProposal(_prop) + '? Say yes to apply.)';
               } else {
                 const _ok = applySelfSetting(_prop);
                 logEvent(selfset.auditPayload(_prop, _ok ? 'applied' : 'rejected'));
