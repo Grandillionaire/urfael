@@ -81,8 +81,12 @@ let logWrites = 0;
 // warm in memory (seq + last hash), seeded from the chain's tail at boot; `urfael audit --verify` walks it.
 const auditChain = require('./audit-chain');
 const uiPalette = require('./ui-palette');   // presentation-only palette/prefs (closed schema; no security knob)
+const updater = require('./updater');        // self-update: notify + (source-install) fast-forward of the OFFICIAL remote only
+const REPO_ROOT = path.join(__dirname, '..');
+const PKG_VERSION = (() => { try { return require('./package.json').version; } catch { return '0'; } })();
+let updateStatus = { kind: 'unknown', available: false, current: PKG_VERSION, t: 0 };   // cached; refreshed on a cadence
 const CHAINFILE = path.join(MEMORY_DIR, 'audit-chain.jsonl');
-const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start', 'self_setting']);
+const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start', 'self_setting', 'self_update']);
 let chainSeq = -1, chainLastHash = auditChain.GENESIS, chainSeeded = false;
 function seedChain() {
   try { const lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); if (lines.length) { const last = JSON.parse(lines[lines.length - 1]); if (typeof last.seq === 'number' && typeof last.h === 'string') { chainSeq = last.seq; chainLastHash = last.h; } } } catch {}
@@ -403,6 +407,21 @@ function setPersona(id) {
 }
 // A cosmetic self-setting awaiting the owner's confirmation (the conversational yes/no gate). LOCAL path only.
 let pendingSelfSetting = null;
+// A self-update awaiting the owner's confirmation (the SAME conversational gate). Holds the checked status.
+let pendingUpdate = null;
+// Refresh the cached update status (fail-soft) + notify the owner ONCE per distinct availability. Read-only check.
+async function refreshUpdateStatus() {
+  try {
+    const s = await updater.check(REPO_ROOT, PKG_VERSION);
+    const msg = updater.summarize(s);
+    if (s.available && msg && msg !== (updateStatus && updateStatus._notified)) { s._notified = msg; try { notifyOwner(msg, {}); } catch {} }
+    else if (updateStatus && updateStatus._notified) s._notified = updateStatus._notified;   // carry the de-dupe marker
+    updateStatus = s;
+  } catch {}
+}
+// After a CONFIRMED source update, reload onto the new code without a fragile self-re-exec: shut down cleanly; the
+// next client interaction auto-starts a fresh daemon (ensureDaemon) on the just-pulled code. Safe + reuses machinery.
+function reloadAfterUpdate() { try { setTimeout(shutdown, 800); } catch {} }
 // Persist a presentation pref into ui-prefs.json — the unified store the dashboard + TUI cockpit now READ. Closed
 // schema: savePrefs normalizes and drops anything outside {theme,animation,accent,character}. Fail-soft; no throw.
 function persistUiPref(patch) {
@@ -497,6 +516,13 @@ const brain = {
     // the message CONTENT (never the system prompt — the anchor spawn stays byte-identical) so the brain may emit
     // one <<urfael:set ...>> directive. The hard allowlist gate still vets whatever it emits. '' for normal turns.
     try { const _hint = selfset.controlHint(text); if (_hint) mem.promptText += _hint; } catch {}
+    // SELF-UPDATE nudge: only when a newer version actually exists AND the owner is asking about it, tell the brain
+    // (message CONTENT, not the spawn) it may emit <<urfael:update>>. The pull stays human-confirmed + official-only.
+    try {
+      if (updateStatus && updateStatus.available && /\b(update|upgrade|new version|latest version|out of date|newer|up to date)\b/i.test(text)) {
+        mem.promptText += '\n\n[URFAEL CONTROLS — reference]\nA newer Urfael is available (' + (updater.summarize(updateStatus) || '') + '). If the owner is asking you to update yourself, emit exactly one directive on its own line: <<urfael:update>>. Emit it for nothing else. The owner confirms before anything is pulled.';
+      }
+    } catch {}
     let reply = await session.ask(mem.promptText, { speak: true, turnId });
     // automatic fallback: a turn that failed for a RETRYABLE reason (overload, model-unavailable, network, timeout)
     // gets ONE retry on the other tier. An account-wide rate limit fails both, so we keep the original error; a
@@ -663,6 +689,7 @@ function vitals() {
     pinned: pinnedModel ? tierName(MODELS[pinnedModel]) : null,
     chats: chatRegistry.activeChats().map((c) => ({ chatId: c.chatId, model: c.model, providerId: c.providerId, connected: c.connected, lastActivity: c.lastActivity })),
     persona: activePersona === 'urfael' ? null : personas.displayFor(personaRoster, activePersona),   // null on the anchor → chip drawn only off-anchor
+    update: updateStatus.available ? { available: true, kind: updateStatus.kind, behind: updateStatus.behind || 0, latest: updateStatus.latest || '', note: updater.summarize(updateStatus) } : null,
 
     budget: bw.limits.active ? { level: bw.state.level, pctTurns: bw.state.pctTurns, pctTok: bw.state.pctTok, windowH: bw.limits.windowH, hard: bw.limits.hard } : null };
 }
@@ -1628,6 +1655,27 @@ const server = http.createServer(async (req, res) => {
       // CONVERSATIONAL CONFIRM: if a cosmetic self-setting is awaiting the owner's word, this message decides it,
       // before any brain turn. "yes" applies it, "no" drops it, anything else means the owner moved on (drop +
       // proceed normally). Local path only — self-settings are never reachable from a remote channel.
+      // SELF-UPDATE confirm first: a staged update is decided by the owner's next word. "yes" fast-forwards the
+      // OFFICIAL remote (fail-closed in updater.runGitUpdate) + reloads; "no" keeps the current version.
+      if (pendingUpdate) {
+        if (/^\s*(y|yes|yep|yeah|yup|do it|confirm|apply|update|sure|ok|okay|go ahead|please do|affirmative)\b/i.test(text)) {
+          pendingUpdate = null;
+          const _r = await updater.runGitUpdate(REPO_ROOT);
+          logEvent({ ev: 'self_update', stage: _r.ok ? 'applied' : 'failed', error: _r.ok ? undefined : _r.error });
+          if (_r.ok) {
+            emit({ kind: 'done', text: 'Updated, sir — reloading on the new code now. One moment and I am back.', model: convoModel });
+            if (active === res) active = null; try { res.end(); } catch {} reloadAfterUpdate(); return;
+          }
+          emit({ kind: 'done', text: 'I could not apply the update, sir: ' + (_r.error || 'unknown') + '.', model: convoModel });
+          if (active === res) active = null; try { res.end(); } catch {} return;
+        }
+        if (/^\s*(n|no|nope|nah|cancel|don'?t|not now|leave it|never ?mind)\b/i.test(text)) {
+          pendingUpdate = null;
+          emit({ kind: 'done', text: 'Staying on the current version, sir.', model: convoModel });
+          if (active === res) active = null; try { res.end(); } catch {} return;
+        }
+        pendingUpdate = null;   // owner moved on
+      }
       if (pendingSelfSetting) {
         const _p = pendingSelfSetting;
         if (/^\s*(y|yes|yep|yeah|yup|do it|confirm|apply|sure|ok|okay|go ahead|please do|affirmative)\b/i.test(text)) {
@@ -1667,6 +1715,21 @@ const server = http.createServer(async (req, res) => {
                 logEvent(selfset.auditPayload(_prop, _ok ? 'applied' : 'rejected'));
                 r.text = r.text.replace(/<<urfael:set\b[\s\S]*?>>/i, '').trim();
               }
+            }
+          }
+          // SELF-UPDATE (LOCAL path only): the brain may emit <<urfael:update>> when the owner asks to update AND a
+          // new version is available. NEVER silent — we stage a pending update and ask for a "yes". The actual pull
+          // is an official-remote fast-forward only (updater.runGitUpdate is fail-closed); the brain cannot widen it.
+          if (/<<urfael:update>>/i.test(r.text)) {
+            r.text = r.text.replace(/<<urfael:update>>/i, '').trim();
+            if (updateStatus && updateStatus.kind === 'git' && updateStatus.available) {
+              pendingUpdate = updateStatus;
+              logEvent({ ev: 'self_update', stage: 'pending', behind: updateStatus.behind, branch: updateStatus.branch });
+              r.text = (r.text ? r.text + '\n\n' : '') + '(' + (updater.summarize(updateStatus) || 'Update available.') + ' Say yes to apply.)';
+            } else if (updateStatus && updateStatus.kind === 'app' && updateStatus.available) {
+              r.text = (r.text ? r.text + '\n\n' : '') + '(This is an app install, sir — I cannot self-update it yet. Download ' + (updateStatus.latest || 'the new version') + ': ' + updater.RELEASES_URL + ')';
+            } else {
+              r.text = (r.text ? r.text + '\n\n' : '') + '(I am already on the latest, sir.)';
             }
           }
         }
@@ -1860,6 +1923,12 @@ const server = http.createServer(async (req, res) => {
   } else if (req.url === '/vitals') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(vitals()));
+  } else if (req.url === '/update') {
+    // GET /update — the cached update status (read-only). The owner-facing clients poll this to show "vX available".
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ current: PKG_VERSION, kind: updateStatus.kind, available: !!updateStatus.available,
+      behind: updateStatus.behind || 0, latest: updateStatus.latest || '', branch: updateStatus.branch || '',
+      official: !!updateStatus.official, downloadUrl: updater.RELEASES_URL, note: updater.summarize(updateStatus) || '' }));
   } else if (req.url === '/providers') {
     // GET /providers — the curated registry as SAFE metadata for the chat picker. Reuses providers.js validation;
     // a key's NAME (authEnv) may appear, never a value. The socket is 0600 so this is owner-only regardless.
@@ -2142,6 +2211,14 @@ function listen() {
       if (days > 0) {
         const scan = async () => { try { const r = await require('./radar').run({ claudeBin: CLAUDE_BIN, env: process.env }); if (r.analyzed) notifyOwner('Radar: ' + r.analyzed + ' new rival release(s) analyzed. Review: ' + r.reportPath, {}); } catch {} };
         const t = setInterval(scan, days * 86400000); if (t.unref) t.unref();
+      }
+    }
+    // self-update check (ON by default; URFAEL_UPDATE_CHECK=0 disables): a first check ~20s after boot, then every N
+    // days (URFAEL_UPDATE_CHECK_DAYS, default 1). READ-ONLY — it only notifies the owner; the pull is human-confirmed.
+    { if (!/^(0|off|false)$/i.test(process.env.URFAEL_UPDATE_CHECK || '')) {
+        const days = parseInt(process.env.URFAEL_UPDATE_CHECK_DAYS, 10) || 1;
+        const t0 = setTimeout(refreshUpdateStatus, 20000); if (t0.unref) t0.unref();
+        const t = setInterval(refreshUpdateStatus, days * 86400000); if (t.unref) t.unref();
       }
     }
   });
