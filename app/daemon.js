@@ -542,7 +542,7 @@ function applyModelDirective(dir) {
 }
 const brain = {
   warmUp() { getSession(MODELS.sonnet).ask('Reply with exactly: ready', { silent: true }).catch(() => {}); }, // silent: never leak the warm-up into a client stream
-  async ask(text) {
+  async ask(text, opts) {
     const dir = parseModelDirective(text);                            // "switch to opus" / "use the fast model" / "back to auto"
     if (dir) return applyModelDirective(dir);                          // a control command — no LLM turn, not recorded
     const pdir = parsePersonaDirective(text, personas.knownIds(personaRoster));   // "be the architect" / "list personas" / "back to urfael"
@@ -574,6 +574,10 @@ const brain = {
     // the message CONTENT (never the system prompt — the anchor spawn stays byte-identical) so the brain may emit
     // one <<urfael:set ...>> directive. The hard allowlist gate still vets whatever it emits. '' for normal turns.
     try { const _hint = selfset.controlHint(text); if (_hint) mem.promptText += _hint; } catch {}
+    // DASHBOARD key-point highlight: when the request comes from the dashboard (opts.hl), ask the brain to mark the
+    // 1 to 3 load-bearing phrases with ==double equals== so the reader's eye lands on the point. Prompt CONTENT only
+    // (recorded `text` stays clean, so the archive is not polluted), and purely presentational.
+    try { if (opts && opts.hl) mem.promptText += '\n\n[DASHBOARD RENDER — reference, not the user’s words]\nWhen you have finished your answer, wrap the 1 to 3 MOST important phrases in ==double equals== (example: the result is ==42 percent faster==). Use it sparingly, only on genuinely load-bearing words, never a whole sentence or paragraph. It is a visual highlight for the reader; change nothing else about your answer.'; } catch {}
     // SELF-UPDATE nudge: only when a newer version actually exists AND the owner is asking about it, tell the brain
     // (message CONTENT, not the spawn) it may emit <<urfael:update>>. The pull stays human-confirmed + official-only.
     try {
@@ -1769,7 +1773,7 @@ const server = http.createServer(async (req, res) => {
         pendingScheduleDirectives = null;   // any other message: the owner moved on, drop the stale directives
       }
       try {
-        const r = await brain.ask(text);
+        const r = await brain.ask(text, { hl: !!parsed.hl });
         // SELF-REWRITE (LOCAL path only — never askScoped): scan the owner-trusted reply for a single cosmetic
         // self-setting directive, validate it against the allowlist, then confirm-or-apply. A security key is
         // never settable (it isn't in the registry), so this can only ever touch persona/voice/UI cosmetics.
