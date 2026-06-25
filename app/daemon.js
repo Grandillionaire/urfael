@@ -379,7 +379,14 @@ class Session {
 const sessions = new Map();
 function getSession(model, providerId) {
   const key = providerSessions.sessionKey(model, providerId);
-  if (!sessions.has(key)) { const s = new Session(model); s.providerId = providerSessions.providers ? providerId || '' : providerId || ''; sessions.set(key, s); }
+  if (!sessions.has(key)) { const s = new Session(model); s.providerId = providerId || ''; sessions.set(key, s); }
+  return sessions.get(key);
+}
+// getSessionByKey: a warm session under an EXPLICIT bucket key (used for per-chat tiles, whose key folds in the
+// chatId so each tile is its own child and never the shared main-brain bucket). The model+providerId still drive
+// the spawn + scoped child env exactly as getSession does; only the Map key differs.
+function getSessionByKey(key, model, providerId) {
+  if (!sessions.has(key)) { const s = new Session(model); s.providerId = providerId || ''; sessions.set(key, s); }
   return sessions.get(key);
 }
 
@@ -485,22 +492,57 @@ function reloadAfterUpdate() { try { setTimeout(shutdown, 800); } catch {} }
 function persistUiPref(patch) {
   try { const cur = uiPalette.loadPrefs(UI_PREFS); return uiPalette.savePrefs(UI_PREFS, { ...cur, ...patch }).ok; } catch { return false; }
 }
-// Apply a VALIDATED self-setting through the EXISTING setters only. No security key can reach here (validateProposal gates it).
+// writeTtsEnv: the daemon-side writer of record for the renderer's COSMETIC env (the same JDIR/tts.env the Console's
+// setTtsEnvValue writes + readTtsEnv reads). 0600, replace-or-append one KEY=val line, atomic temp+rename. Returns
+// true only on a real write. This is presentation-only: it NEVER writes provider.env, a credential, or a permission
+// knob (validateProposal already gates the keys; the allowlist contains no security key). Fail-soft, never throws.
+const TTS_ENV = path.join(JDIR, 'tts.env');
+function readTtsEnvVal(key) {   // read one KEY from the cosmetic tts.env (fail-soft -> '')
+  try { for (const l of fs.readFileSync(TTS_ENV, 'utf8').split('\n')) { const t = l.trim(); if (t.startsWith(key + '=')) return t.slice(key.length + 1).replace(/\s+#.*$/, '').trim(); } } catch {}
+  return '';
+}
+function writeTtsEnv(key, val) {
+  if (!/^[A-Z][A-Z0-9_]*$/.test(key)) return false;            // a tame env name only; never a path or credential
+  try {
+    let lines = []; try { lines = fs.readFileSync(TTS_ENV, 'utf8').split('\n'); } catch {}
+    let found = false;
+    lines = lines.map((l) => { if (l.trim().startsWith(key + '=')) { found = true; return key + '=' + val; } return l; });
+    if (!found) lines.push(key + '=' + val);
+    fs.mkdirSync(JDIR, { recursive: true });
+    const tmp = TTS_ENV + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, lines.join('\n'), { mode: 0o600 });
+    try { fs.chmodSync(tmp, 0o600); } catch {}
+    fs.renameSync(tmp, TTS_ENV);
+    return true;
+  } catch { return false; }
+}
+// Apply a VALIDATED self-setting. validateProposal already proved p.key is a safe cosmetic key (no permission /
+// credential / security key can reach here). Each branch now ACTUALLY persists and returns the REAL write result,
+// so a failure renders the honest "I could not apply that one, sir" instead of a false "Done". The renderer reads
+// these on its next config read / launch; the TUI re-reads ui-prefs live (see the vitals/poll path).
 function applySelfSetting(p) {
-  const v = String(p.value);
+  const v = String(p.value).trim();
   switch (p.key) {
-    case 'persona': { setPersona(v.trim().toLowerCase()); respawnForPersona(); return true; }
-    // theme + animation persist to the unified ui-prefs.json that the dashboard and the TUI cockpit READ, so an NL
-    // "change your theme to ember" actually repaints both surfaces (next dashboard load / next TUI launch).
-    case 'tuiTheme': return persistUiPref({ theme: v.trim().toLowerCase() });
-    case 'tuiAnimation': return persistUiPref({ animation: v.trim().toLowerCase() });
-    case 'verbosity': case 'orbTheme': case 'voiceOn': case 'ttsVoice': case 'ackStyle': case 'confirmBypass':
-      // TTS/renderer knobs owned by main.js's tts.env (SETTABLE) + the Console renderer; the daemon records the
-      // intent to the ledger and the Console's `urfael:set-config` IPC + setTtsEnvValue do the disk write
-      // (SAY_VOICE/CONSOLE_VOICE/URFAEL_ACKS/URFAEL_ORB). The daemon never writes provider.env.
-      return true;
+    case 'persona': { setPersona(v.toLowerCase()); respawnForPersona(); return true; }
+    case 'tuiTheme': return persistUiPref({ theme: v.toLowerCase() });
+    case 'tuiAnimation': return persistUiPref({ animation: v.toLowerCase() });
+    case 'orbTheme': return writeTtsEnv('URFAEL_THEME', v.toLowerCase());                  // the orb look: sigil/rune/ember/eye
+    case 'ttsVoice': return writeTtsEnv('SAY_VOICE', v);                                   // the macOS `say` voice name
+    case 'voiceOn': return writeTtsEnv('CONSOLE_VOICE', /^(on|1|true|yes)$/i.test(v) ? '1' : '0'); // spoken replies on/off
+    case 'ackStyle': return writeTtsEnv('URFAEL_ACKS', /^silent$/i.test(v) ? '0' : '1');   // silent -> no instant acks; others -> on
+    case 'verbosity': { setVerbosity(v.toLowerCase()); return writeTtsEnv('URFAEL_VERBOSITY', v.toLowerCase()); } // persisted + live brain hint
+    case 'confirmBypass': return writeTtsEnv('URFAEL_SELF_CONFIRM_BYPASS', /^(on|1|true|yes)$/i.test(v) ? '1' : '0');
     default: return false;
   }
+}
+// verbosity is a REAL consumer now: the live value tunes a one-line style hint injected into the prompt CONTENT
+// (never the spawn), so "be more terse" actually shortens answers this run, and it persists via URFAEL_VERBOSITY.
+let activeVerbosity = (() => { try { return /^(terse|normal|rich)$/.test(require('./setup').readEnv().URFAEL_VERBOSITY || '') ? require('./setup').readEnv().URFAEL_VERBOSITY : ''; } catch { return ''; } })();
+function setVerbosity(v) { if (/^(terse|normal|rich)$/.test(v)) activeVerbosity = v; }
+function verbosityHint() {
+  if (activeVerbosity === 'terse') return '\n\n[STYLE — reference] Answer as briefly as possible: a sentence or two, no preamble.';
+  if (activeVerbosity === 'rich') return '\n\n[STYLE — reference] Give a thorough, well-structured answer with the useful detail.';
+  return '';
 }
 function turnInFlight() { for (const s of sessions.values()) if (s.current && !s.curSilent) return true; return false; }   // a real (non-silent) answer is streaming — not the warm-up
 function respawnForPersona() { for (const s of sessions.values()) { try { s.proc && s.proc.kill('SIGKILL'); } catch {} s.proc = null; } }   // idle warm procs re-_ensure with the new overlay on the next ask
@@ -574,6 +616,7 @@ const brain = {
     // the message CONTENT (never the system prompt — the anchor spawn stays byte-identical) so the brain may emit
     // one <<urfael:set ...>> directive. The hard allowlist gate still vets whatever it emits. '' for normal turns.
     try { const _hint = selfset.controlHint(text); if (_hint) mem.promptText += _hint; } catch {}
+    try { mem.promptText += verbosityHint(); } catch {}   // live verbosity (terse/normal/rich) shapes THIS answer
     // DASHBOARD key-point highlight: when the request comes from the dashboard (opts.hl), ask the brain to mark the
     // 1 to 3 load-bearing phrases with ==double equals== so the reader's eye lands on the point. Prompt CONTENT only
     // (recorded `text` stays clean, so the archive is not polluted), and purely presentational.
@@ -1783,7 +1826,7 @@ const server = http.createServer(async (req, res) => {
             const _g = selfset.validateProposal(_prop, { personaIds: personas.knownIds(personaRoster) });
             if (!_g.ok) { logEvent(selfset.auditPayload(_prop, 'rejected')); }
             else {
-              const _bypass = (() => { try { return /^(1|on|true)$/i.test(require('./setup').readEnv().URFAEL_SELF_CONFIRM_BYPASS || ''); } catch { return false; } })();
+              const _bypass = (() => { try { return /^(1|on|true)$/i.test(readTtsEnvVal('URFAEL_SELF_CONFIRM_BYPASS') || require('./setup').readEnv().URFAEL_SELF_CONFIRM_BYPASS || ''); } catch { return false; } })();
               if (selfset.needsConfirm(_prop, { bypass: _bypass })) {
                 // remember it so the owner's next "yes" applies it (the conversational confirm at the top of /ask);
                 // a follow-up POST /self-setting still works too (the Console's button path).
@@ -1893,7 +1936,9 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     let parsed = {}; try { parsed = JSON.parse(body); } catch {}
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
-    try { const session = getSession(rec.model, rec.providerId); const reply = await session.ask(parsed.text || '', { speak: false }); res.write(JSON.stringify({ kind: 'done', chatId: id, text: reply, model: rec.model, providerId: rec.providerId }) + '\n'); }
+    // route to THIS chat's own warm child (rec.key folds in the chatId) and run SILENT so its thinking/tool events
+    // never leak into the overlay's shared `active` stream while a concurrent main-conversation turn is in flight.
+    try { const session = getSessionByKey(rec.key, rec.model, rec.providerId); const reply = await session.ask(parsed.text || '', { speak: false, silent: true }); res.write(JSON.stringify({ kind: 'done', chatId: id, text: reply, model: rec.model, providerId: rec.providerId }) + '\n'); }
     catch { res.write(JSON.stringify({ kind: 'done', chatId: id, text: '(brain error)', model: '' }) + '\n'); }
     try { res.end(); } catch {}
   } else if (req.method === 'POST' && /^\/chat\/[A-Za-z0-9-]{4,80}\/disconnect$/.test(req.url || '')) {
