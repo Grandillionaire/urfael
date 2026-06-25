@@ -232,6 +232,15 @@
   .introw .lg.light{border-color:rgba(255,138,66,.45)}.introw .lg.light .nm{color:var(--ember)}
   .gnote{color:var(--dim);font-size:14px;max-width:760px;margin:20px auto 0;text-align:center}
   .gnote b{color:var(--gold-soft)}
+  /* reactive 3D, zero deps: a molten-gold "vessel" core + pointer-tilt; both degrade to the static markup */
+  .wheel-core .vessel{position:absolute;top:50%;left:50%;width:122px;height:122px;transform:translate(-50%,-50%);
+    border-radius:50%;z-index:2;opacity:0;transition:opacity .9s ease;pointer-events:none}
+  .wheel-core.gl-on .vessel{opacity:1}
+  .wheel-core.gl-on::before{background:radial-gradient(circle,rgba(8,7,5,.35) 58%,rgba(20,15,9,.9) 100%);box-shadow:0 0 42px rgba(212,168,90,.24),inset 0 0 22px rgba(0,0,0,.6)}
+  .wheel-core.gl-on .ru{z-index:4;filter:drop-shadow(0 0 5px rgba(0,0,0,.6))}
+  .wheel-core.gl-on .ru path{stroke:#1a1206;stroke-width:9}
+  .tilt3d{transition:transform .3s cubic-bezier(.2,.7,.2,1);will-change:transform;transform-style:preserve-3d}
+  @media(prefers-reduced-motion:reduce){.tilt3d{transition:none;transform:none!important}}
   /* faq */
   details{border:1px solid var(--line);border-radius:10px;margin:9px 0;background:rgba(212,168,90,.03)}
   summary{cursor:pointer;padding:13px 16px;color:var(--gold-soft);font-variant:small-caps;letter-spacing:.6px;list-style:none}
@@ -259,7 +268,7 @@
   <canvas id="rain" aria-hidden="true"></canvas>
   <div class="hero-veil" aria-hidden="true"></div>
   <div class="wrap">
-    <img class="rune" src="media/urfael-logo.svg" alt="Urfael, the Uruz rune" />
+    <img class="rune tilt3d" src="media/urfael-logo.svg" alt="Urfael, the Uruz rune" />
     <div class="brandmark">ᚢ ᚱ ᚠ ᚨ ᛖ ᛚ</div>
     <img class="words" src="media/urfael-runes.svg" alt="URFAEL in Elder Futhark runes" />
     <h1 class="tagline">Liquid Intelligence.<br/><b style="color:var(--gold-soft)">At your service.</b></h1>
@@ -315,7 +324,7 @@
   <section id="council">
     <h2>Watch it think, in a Council</h2>
     <p class="lede">Hard questions get a Council. Urfael decomposes the problem, dispatches read-only sandboxed workers to gather what each needs, then synthesizes one answer. You watch it happen instead of trusting a black box.</p>
-    <div class="stage anim" data-anim="council" aria-hidden="true">
+    <div class="stage anim tilt3d" data-anim="council" aria-hidden="true">
       <svg viewBox="0 0 600 240" width="100%" height="240" role="img" aria-label="A council: an orchestrator dispatching to four read-only sandboxed workers and synthesizing one answer">
         <defs><radialGradient id="cGlow" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(212,168,90,.2)"/><stop offset="65%" stop-color="rgba(212,168,90,.045)"/><stop offset="100%" stop-color="rgba(212,168,90,0)"/></radialGradient></defs>
         <ellipse cx="300" cy="120" rx="180" ry="108" fill="url(#cGlow)"/>
@@ -384,7 +393,7 @@ This restores your tracked files to that snapshot. The current state is checkpoi
       <div class="card"><b><code>urfael why</code></b><span>Pickaxe the provenance of any belief it learned, back to the exact commit it came from.</span></div>
       <div class="card"><b><code>urfael forget</code></b><span>A tombstone for provable, consented deletion. You can make it forget.</span></div>
     </div>
-    <div class="stage anim" data-anim="ledger" aria-hidden="true" style="margin-top:16px">
+    <div class="stage anim tilt3d" data-anim="ledger" aria-hidden="true" style="margin-top:16px">
       <svg viewBox="0 0 600 150" width="100%" height="150" role="img" aria-label="A tamper-evident hash chain: every action appended as a block that links to the previous one, sealed by the owner key">
         <defs><radialGradient id="lGlow" cx="50%" cy="46%" r="66%"><stop offset="0%" stop-color="rgba(212,168,90,.13)"/><stop offset="100%" stop-color="rgba(212,168,90,0)"/></radialGradient></defs>
         <rect x="0" y="0" width="600" height="150" fill="url(#lGlow)"/>
@@ -708,6 +717,117 @@ ANIMS.wheel=root=>{
   var rt; addEventListener('resize',function(){ clearTimeout(rt); rt=setTimeout(start,160); });
   if('IntersectionObserver'in window) new IntersectionObserver(function(es){ es.forEach(function(e){ paused=!e.isIntersecting; if(!paused) ensure(); }); }).observe(header);
   start();
+})();
+</script>
+<script>
+/* Reactive 3D, zero dependencies. A molten-gold "vessel" core (WebGL) that flows on its own and tracks the
+   cursor, plus a light pointer-tilt on the diagram stages and the hero rune. Both degrade to the existing
+   static SVG/markup when there is no WebGL or under reduced-motion. 30fps-capped, pauses off-screen. */
+(function(){
+  var _rm=matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+  /* ---- the vessel: a molten-gold orb with the Uruz rune engraved over it ---- */
+  (function(){
+    var core=document.querySelector('.wheel-core');
+    if(!core||_rm) return;
+    var cv=document.createElement('canvas'); cv.className='vessel'; cv.setAttribute('aria-hidden','true');
+    core.insertBefore(cv,core.firstChild);
+    var gl=null;
+    try{ gl=cv.getContext('webgl',{alpha:true,premultipliedAlpha:false,antialias:true})
+           ||cv.getContext('experimental-webgl',{alpha:true,premultipliedAlpha:false}); }catch(e){}
+    if(!gl){ cv.remove(); return; }
+    var VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}';
+    var FS=[
+'precision highp float;',
+'uniform vec2 u_res; uniform float u_time; uniform vec2 u_light; uniform float u_energy;',
+'float hash(vec3 p){p=fract(p*0.3183099+0.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}',
+'float noise(vec3 x){vec3 i=floor(x);vec3 f=fract(x);f=f*f*(3.0-2.0*f);',
+' return mix(mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),',
+'            mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}',
+'float fbm(vec3 p){float a=0.5,s=0.0;for(int i=0;i<5;i++){s+=a*noise(p);p*=2.02;a*=0.5;}return s;}',
+'void main(){',
+' vec2 uv=(gl_FragCoord.xy*2.0-u_res)/u_res.y; float r=length(uv); float R=0.92;',
+' vec3 col=vec3(0.0); float alpha=0.0;',
+' if(r<R){',
+'  float z=sqrt(R*R-r*r); vec3 N=vec3(uv,z)/R; float t=u_time*0.22;',
+'  float n=fbm(N*2.6+vec3(0.0,0.0,t))+0.5*fbm(N*5.5-vec3(t*0.7));',
+'  vec3 Np=normalize(N+0.32*vec3(fbm(N*4.0+vec3(t,1.0,0.0))-0.5,fbm(N*4.0+vec3(0.0,t,2.0))-0.5,0.0));',
+'  vec3 L=normalize(vec3(u_light*1.15,0.8)); vec3 V=vec3(0.0,0.0,1.0);',
+'  float diff=max(dot(Np,L),0.0); vec3 H=normalize(L+V);',
+'  float spec=pow(max(dot(Np,H),0.0),24.0); float fres=pow(1.0-max(dot(N,V),0.0),2.6);',
+'  float flow=smoothstep(0.18,0.96,n);',
+'  vec3 deep=vec3(0.18,0.11,0.04),gold=vec3(0.83,0.60,0.26),hot=vec3(1.0,0.78,0.42),ember=vec3(1.0,0.52,0.24);',
+'  vec3 b=mix(deep,gold,diff*0.9+0.1);',
+'  b=mix(b,hot,flow*diff*(0.5+0.5*u_energy));',
+'  b+=ember*spec*(1.0+1.2*u_energy);',
+'  b+=gold*fres*(0.45+0.7*u_energy);',
+'  b*=(0.5+0.62*z); col=b; alpha=smoothstep(R,R-0.045,r);',
+' } else {',
+'  float g=exp(-(r-R)*7.5); col=vec3(0.83,0.60,0.26)*g*(0.28+0.55*u_energy); alpha=g*(0.55+0.4*u_energy);',
+' }',
+' gl_FragColor=vec4(col,clamp(alpha,0.0,1.0));',
+'}'].join('\n');
+    function sh(ty,src){var s=gl.createShader(ty);gl.shaderSource(s,src);gl.compileShader(s);
+      return gl.getShaderParameter(s,gl.COMPILE_STATUS)?s:null;}
+    var vs=sh(gl.VERTEX_SHADER,VS), fs=sh(gl.FRAGMENT_SHADER,FS);
+    if(!vs||!fs){ cv.remove(); return; }
+    var prog=gl.createProgram(); gl.attachShader(prog,vs); gl.attachShader(prog,fs); gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){ cv.remove(); return; }
+    gl.useProgram(prog);
+    var buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+    var loc=gl.getAttribLocation(prog,'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+    var uRes=gl.getUniformLocation(prog,'u_res'),uTime=gl.getUniformLocation(prog,'u_time'),
+        uLight=gl.getUniformLocation(prog,'u_light'),uEnergy=gl.getUniformLocation(prog,'u_energy');
+    var dpr=Math.min(devicePixelRatio||1,1.75), SIZE=122;
+    cv.width=SIZE*dpr; cv.height=SIZE*dpr; gl.viewport(0,0,cv.width,cv.height);
+    core.classList.add('gl-on');
+    var lx=0.25,ly=0.35,tlx=0.25,tly=0.35,energy=0.32,tEnergy=0.32,lastMove=0;
+    addEventListener('pointermove',function(e){
+      var b=cv.getBoundingClientRect(),cx=b.left+b.width/2,cy=b.top+b.height/2;
+      tlx=Math.max(-1.6,Math.min(1.6,(e.clientX-cx)/140));
+      tly=Math.max(-1.6,Math.min(1.6,-(e.clientY-cy)/140));
+      var d=Math.hypot(e.clientX-cx,e.clientY-cy); tEnergy=0.32+0.68*Math.max(0,1-d/340);
+      lastMove=performance.now();
+    },{passive:true});
+    var raf=0,paused=false,last=0,t0=performance.now();
+    function frame(now){
+      if(paused){ raf=0; return; }
+      raf=requestAnimationFrame(frame);
+      if(now-last<33) return; last=now;
+      if(now-lastMove>2500){ var a=now*0.0004; tlx=Math.cos(a)*0.6; tly=Math.sin(a*1.3)*0.45; tEnergy=0.34; }
+      lx+=(tlx-lx)*0.06; ly+=(tly-ly)*0.06; energy+=(tEnergy-energy)*0.05;
+      gl.uniform2f(uRes,cv.width,cv.height); gl.uniform1f(uTime,(now-t0)/1000);
+      gl.uniform2f(uLight,lx,ly); gl.uniform1f(uEnergy,energy);
+      gl.drawArrays(gl.TRIANGLES,0,3);
+    }
+    function play(){ if(!raf&&!paused) raf=requestAnimationFrame(frame); }
+    if('IntersectionObserver'in window){
+      new IntersectionObserver(function(es){es.forEach(function(e){ paused=!e.isIntersecting; if(!paused) play(); });},{threshold:0.05})
+        .observe(document.getElementById('wheel')||core);
+    }
+    play();
+  })();
+
+  /* ---- pointer tilt on the diagram stages + the hero rune ---- */
+  (function(){
+    if(_rm) return;
+    var els=[].slice.call(document.querySelectorAll('.tilt3d'));
+    if(!els.length) return;
+    var mx=0,my=0,raf=0;
+    function apply(){ raf=0;
+      for(var i=0;i<els.length;i++){ var el=els[i],b=el.getBoundingClientRect();
+        if(b.bottom<0||b.top>innerHeight) continue;
+        var cx=b.left+b.width/2,cy=b.top+b.height/2;
+        var dx=Math.max(-1,Math.min(1,(mx-cx)/(b.width/2)));
+        var dy=Math.max(-1,Math.min(1,(my-cy)/(b.height/2)));
+        var m=el.classList.contains('rune')?9:5;
+        el.style.transform='perspective(900px) rotateX('+(-dy*m).toFixed(2)+'deg) rotateY('+(dx*m).toFixed(2)+'deg)';
+      }
+    }
+    addEventListener('pointermove',function(e){ mx=e.clientX; my=e.clientY; if(!raf) raf=requestAnimationFrame(apply); },{passive:true});
+  })();
 })();
 </script>
 </body>
