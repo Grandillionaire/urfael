@@ -4,6 +4,14 @@ All notable changes to Urfael are recorded here. The format follows [Keep a Chan
 
 Run `urfael version` to see what you are on, and `urfael update` to pull and reinstall the latest.
 
+## [0.8.7] - 2026-06-25
+
+The "the app actually opens" release.
+
+### Fixed
+
+- **The macOS app would not open.** The build skipped code signing, which left the app with a broken, half-applied signature (no sealed resources). Apple Silicon macOS rejects that outright as "Urfael is damaged and can't be opened", a hard block with no easy way past it. The build now applies a clean ad-hoc signature to the packaged app (`build/afterPack.js`), so the signature is valid and the app opens through the normal "unidentified developer" path. This is not notarization: the app is still unsigned by an Apple Developer ID, so on first open you click Open Anyway in System Settings, Privacy and Security (or strip the quarantine flag with `xattr -dr com.apple.quarantine /Applications/Urfael.app`). The install copy now says exactly that.
+
 ## [0.8.6] - 2026-06-25
 
 The "one-click download" release.
