@@ -33,6 +33,8 @@ const recall = require('./recall');
 const ridx = require('./recall-index');         // persistent BM25 inverted index — recall AT SCALE (FTS5-equivalent)
 const embed = require('./embed');               // optional local-first embeddings client (semantic recall)
 const memctx = require('./memctx');             // ACTIVE RECALL: per-turn relevant-memory preamble (pure assembler)
+const calendar = require('./calendar');         // LOCAL-FIRST calendar event store (MEMORY_DIR/calendar.json; pure helpers + fail-soft I/O)
+const schedchan = require('./schedule-channel'); // the dedicated Reminders & Calendar channel: parse+validate+assemble (pure; the gate is the daemon's)
 const consolidate = require('./consolidate');   // masterful compaction: dedupe + evidence-retire the ledger, right-size recall
 const jobstore = require('./jobstore');
 const council = require('./council');
@@ -60,6 +62,12 @@ const MEMORY_DIR = path.join(os.homedir(), process.env.URFAEL_MEMORY_DIR || 'Urf
 // sandboxes tool access to the project dir, so without this the brain can't READ its own memory (it'd have to ask
 // permission — "memory behind a permission wall") and the distill/review passes can't WRITE it. --add-dir fixes both.
 const MEMDIR_ADD = ['--add-dir', MEMORY_DIR];
+// Calendar store path is DERIVED from the same MEMORY_DIR so the two can never drift; it resolves to
+// MEMORY_DIR/calendar.json. The warm store is loaded ONCE at boot (fail-soft: an absent/corrupt file -> empty
+// store) and re-saved synchronously on every mutation, mirroring scheduler.js's load/save pattern. Because it
+// lives under MEMORY_DIR, the memory-distill pass already git-commits it, so events become versioned history.
+const CAL_FILE = calendar.pathFor(MEMORY_DIR);
+let calStore = calendar.load(CAL_FILE);
 const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude']
   .find((p) => { try { fs.accessSync(p); return true; } catch { return false; } }) || 'claude';
 
@@ -86,7 +94,7 @@ const REPO_ROOT = path.join(__dirname, '..');
 const PKG_VERSION = (() => { try { return require('./package.json').version; } catch { return '0'; } })();
 let updateStatus = { kind: 'unknown', available: false, current: PKG_VERSION, t: 0 };   // cached; refreshed on a cadence
 const CHAINFILE = path.join(MEMORY_DIR, 'audit-chain.jsonl');
-const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start', 'self_setting', 'self_update']);
+const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start', 'self_setting', 'self_update', 'cal_add', 'cal_move', 'cal_cancel', 'schedule_apply']);
 let chainSeq = -1, chainLastHash = auditChain.GENESIS, chainSeeded = false;
 function seedChain() {
   try { const lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); if (lines.length) { const last = JSON.parse(lines[lines.length - 1]); if (typeof last.seq === 'number' && typeof last.h === 'string') { chainSeq = last.seq; chainLastHash = last.h; } } } catch {}
@@ -409,6 +417,56 @@ function setPersona(id) {
 let pendingSelfSetting = null;
 // A self-update awaiting the owner's confirmation (the SAME conversational gate). Holds the checked status.
 let pendingUpdate = null;
+// Staged schedule-channel directives (remind / cal_add / cal_move / cal_cancel) awaiting the owner's "yes",
+// confirm-gated identically to a self-setting. LOCAL path only (the /schedule endpoint refuses any channel key,
+// and these are only ever staged on the local /ask or /schedule chain). Each directive is RE-VALIDATED on apply
+// by scheduler.add (lib.normalizeReminder) / calendar.js, so this staging is defence-in-depth, not the only check.
+let pendingScheduleDirectives = null;
+// Apply a list of validated schedule directives through the EXISTING scheduler (reminders) + calendar.js (events).
+// scheduleContext(): the live "[SCHEDULE: ...]" reference block prepended to each turn in the schedule channel —
+// the owner's CURRENT reminders + UPCOMING events, so the assistant always answers with the real schedule in view
+// (active-recall style; reference, not instructions). Fail-soft: any hiccup yields '' so a turn never breaks.
+function scheduleContext() {
+  try {
+    const reminders = scheduler.list().map((r) => ({ id: r.id, at: new Date(r.at).toISOString(), text: r.text, repeat: r.repeat || null }));
+    const events = calendar.upcoming(calStore, 20, Date.now()).map((e) => ({ id: e.id, title: e.title, start: new Date(e.start).toISOString(), end: e.end ? new Date(e.end).toISOString() : null, location: e.location || '', notes: e.notes || '' }));
+    return schedchan.buildScheduleContext({ reminders, events, nowISO: new Date().toISOString() });
+  } catch { return ''; }
+}
+// Each path is independently re-validated downstream; an unknown/invalid directive simply does nothing. Returns a
+// short one-line human summary of what was applied. The schedule channel can ONLY touch reminders + calendar —
+// there is no branch here for permissions, credentials, keys, providers, models, or a shell.
+function applyScheduleDirectives(list) {
+  const done = [];
+  for (const d of Array.isArray(list) ? list : []) {
+    if (!d || !schedchan.validateDirective(d).ok) continue;   // defence in depth: re-gate every directive on apply
+    if (d.action === 'remind') {
+      const r = scheduler.add(schedchan.toReminderSpec(d));    // scheduler.add re-normalizes via lib.normalizeReminder
+      if (r) { logEvent({ ev: 'schedule_apply', action: 'remind', id: r.id, at: new Date(r.at).toISOString() }); done.push('reminder "' + (r.text || '').slice(0, 60) + '" at ' + new Date(r.at).toISOString().slice(0, 16).replace('T', ' ')); }
+    } else if (d.action === 'cal_add') {
+      const r = calendar.addEvent(calStore, { title: d.title, start: d.startISO, end: d.endISO, notes: d.notes }, { nowMs: Date.now() });
+      if (!r.error) { calStore = r.store; calendar.save(CAL_FILE, calStore); logEvent({ ev: 'cal_add', id: r.event.id, start: new Date(r.event.start).toISOString() }); logEvent({ ev: 'schedule_apply', action: 'cal_add', id: r.event.id, start: new Date(r.event.start).toISOString() }); done.push('event "' + (r.event.title || '').slice(0, 60) + '" on ' + new Date(r.event.start).toISOString().slice(0, 16).replace('T', ' ')); }
+    } else if (d.action === 'cal_move') {
+      const r = calendar.moveEvent(calStore, d.id, d.startISO, d.endISO);
+      if (r.ok) { calStore = r.store; calendar.save(CAL_FILE, calStore); logEvent({ ev: 'cal_move', id: d.id, ok: true }); logEvent({ ev: 'schedule_apply', action: 'cal_move', id: d.id }); done.push('moved event ' + d.id + ' to ' + String(d.startISO).slice(0, 16).replace('T', ' ')); }
+    } else if (d.action === 'cal_cancel') {
+      const r = calendar.cancelEvent(calStore, d.id);
+      if (r.ok) { calStore = r.store; calendar.save(CAL_FILE, calStore); logEvent({ ev: 'cal_cancel', id: d.id }); logEvent({ ev: 'schedule_apply', action: 'cal_cancel', id: d.id }); done.push('cancelled event ' + d.id); }
+    }
+  }
+  return done;
+}
+// One-line summary of staged directives for the confirm prompt (before they are applied).
+function describeScheduleDirectives(list) {
+  const parts = [];
+  for (const d of Array.isArray(list) ? list : []) {
+    if (d.action === 'remind') parts.push('a reminder "' + String(d.text || '').slice(0, 40) + '"');
+    else if (d.action === 'cal_add') parts.push('an event "' + String(d.title || '').slice(0, 40) + '"');
+    else if (d.action === 'cal_move') parts.push('move event ' + d.id);
+    else if (d.action === 'cal_cancel') parts.push('cancel event ' + d.id);
+  }
+  return parts.join(', ');
+}
 // Refresh the cached update status (fail-soft) + notify the owner ONCE per distinct availability. Read-only check.
 async function refreshUpdateStatus() {
   try {
@@ -1692,6 +1750,24 @@ const server = http.createServer(async (req, res) => {
         }
         pendingSelfSetting = null;   // any other message: the owner moved on, drop the stale proposal
       }
+      // CONVERSATIONAL CONFIRM for staged SCHEDULE directives (remind / cal_add / cal_move / cal_cancel), identical
+      // to the self-setting gate. "yes" applies them via scheduler.add + calendar.js; "no" drops them; any other
+      // message drops them and proceeds normally. Local path only (these are never staged from a remote channel).
+      if (pendingScheduleDirectives) {
+        const _staged = pendingScheduleDirectives;
+        if (/^\s*(y|yes|yep|yeah|yup|do it|confirm|apply|sure|ok|okay|go ahead|please do|affirmative)\b/i.test(text)) {
+          pendingScheduleDirectives = null;
+          const _done = applyScheduleDirectives(_staged);
+          emit({ kind: 'done', text: _done.length ? ('Done, sir — set ' + _done.join('; ') + '.') : 'I could not apply that, sir.', model: convoModel });
+          if (active === res) active = null; try { res.end(); } catch {} return;
+        }
+        if (/^\s*(n|no|nope|nah|cancel|don'?t|leave it|never ?mind|forget it)\b/i.test(text)) {
+          pendingScheduleDirectives = null;
+          emit({ kind: 'done', text: 'Left as it was, sir.', model: convoModel });
+          if (active === res) active = null; try { res.end(); } catch {} return;
+        }
+        pendingScheduleDirectives = null;   // any other message: the owner moved on, drop the stale directives
+      }
       try {
         const r = await brain.ask(text);
         // SELF-REWRITE (LOCAL path only — never askScoped): scan the owner-trusted reply for a single cosmetic
@@ -2047,6 +2123,82 @@ const server = http.createServer(async (req, res) => {
   } else if (req.url === '/reminders') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(scheduler.list().map((r) => ({ id: r.id, at: new Date(r.at).toISOString(), text: r.text, repeat: r.repeat || null }))));
+  } else if (req.method === 'GET' && req.url && req.url.startsWith('/calendar')) {
+    // READ-ONLY calendar surface: upcoming events (default), an ICS export (?format=ics), or a range
+    // (?from=ISO&to=ISO). This never mutates and is therefore safe to expose with NO local-only gate — the
+    // apply path (cal-add/move/cancel) lives only on the LOCAL ask chain. n is clamped 1..200 like /recall.
+    const u = new URL(req.url, 'http://x');
+    const n = Math.min(Math.max(parseInt(u.searchParams.get('n'), 10) || 5, 1), 200);
+    const fromISO = u.searchParams.get('from');
+    const toISO = u.searchParams.get('to');
+    if (u.searchParams.get('format') === 'ics') {
+      res.writeHead(200, { 'Content-Type': 'text/calendar' });
+      res.end(calendar.toICS(calendar.upcoming(calStore, n, Date.now())));
+      return;
+    }
+    const events = (fromISO || toISO)
+      ? calendar.listEvents(calStore, { fromISO: fromISO || undefined, toISO: toISO || undefined }).slice(0, n)
+      : calendar.upcoming(calStore, n, Date.now());
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(events.map((e) => ({ id: e.id, title: e.title, start: new Date(e.start).toISOString(), end: e.end ? new Date(e.end).toISOString() : null, location: e.location || '', notes: e.notes || '' }))));
+  } else if (req.method === 'GET' && req.url === '/schedule/context') {
+    // READ-ONLY: the SCHEDULE reference block (current reminders + upcoming events) so a Console tab can show the
+    // owner their schedule WITHOUT a brain turn. Pure reflection of what the owner already owns; no security surface.
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ context: scheduleContext() }));
+  } else if (req.method === 'POST' && req.url === '/schedule') {
+    // POST /schedule {text} — the dedicated Reminders & Calendar channel. This is a LOCAL chat turn and MUST be
+    // LOCAL-ONLY: like /ask and /council, a PRESENT channel key means a remote/team turn and is REFUSED here, so the
+    // scheduling assistant is never reachable from a remote chat channel or a webhook. The directives it can ever
+    // emit are the four in schedule-channel's allowlist (remind/cal_add/cal_move/cal_cancel) and nothing else;
+    // each is confirm-gated (staged for the owner's "yes") and re-validated on apply by scheduler.add / calendar.js.
+    const body = await readBody(req);
+    let parsed = {}; try { parsed = JSON.parse(body); } catch {}
+    if ('channel' in parsed && parsed.channel) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'schedule channel is local-only' })); return; }
+    const text = typeof parsed.text === 'string' ? parsed.text : '';
+    chain = chain.then(async () => {
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+      active = res;
+      res.on('close', () => { if (active === res) active = null; });
+      // CONVERSATIONAL CONFIRM (same gate as /ask): a staged schedule directive set is decided by this message
+      // before any brain turn. "yes" applies, "no" drops, anything else drops + proceeds.
+      if (pendingScheduleDirectives) {
+        const _staged = pendingScheduleDirectives;
+        if (/^\s*(y|yes|yep|yeah|yup|do it|confirm|apply|sure|ok|okay|go ahead|please do|affirmative)\b/i.test(text)) {
+          pendingScheduleDirectives = null;
+          const _done = applyScheduleDirectives(_staged);
+          emit({ kind: 'done', text: _done.length ? ('Done, sir — set ' + _done.join('; ') + '.') : 'I could not apply that, sir.', model: convoModel });
+          if (active === res) active = null; try { res.end(); } catch {} return;
+        }
+        if (/^\s*(n|no|nope|nah|cancel|don'?t|leave it|never ?mind|forget it)\b/i.test(text)) {
+          pendingScheduleDirectives = null;
+          emit({ kind: 'done', text: 'Left as it was, sir.', model: convoModel });
+          if (active === res) active = null; try { res.end(); } catch {} return;
+        }
+        pendingScheduleDirectives = null;
+      }
+      try {
+        // (1) reference block + (2) assemble the turn text as message CONTENT only (the persona/controls ride in the
+        // CONTENT, never --append-system-prompt, so the byte-identical anchor-spawn invariant is untouched).
+        const ctx = scheduleContext();
+        const turn = schedchan.SCHEDULER_PERSONA + '\n\n' + (ctx ? ctx + '\n\n' : '') + text + schedchan.controlHint(text);
+        // (3) run the brain serialized on the local chain (brain.ask, NOT askScoped).
+        const r = await brain.ask(turn);
+        // (4) scan the reply for the channel's fenced directives (already allowlist-vetted by parseScheduleDirectives).
+        const directives = r.text === '(stopped)' ? [] : schedchan.parseScheduleDirectives(r.text);
+        // strip the <<urfael:...>> tokens from the visible reply regardless (so the owner never sees raw directives).
+        if (r.text && r.text !== '(stopped)') r.text = r.text.replace(/<<urfael:[\s\S]*?>>/gi, '').replace(/[ \t]+\n/g, '\n').trim();
+        // (5) CONFIRM-GATE: stage the directives and append a one-line confirm summary; apply on the owner's next "yes".
+        if (directives.length) {
+          pendingScheduleDirectives = directives;
+          logEvent({ ev: 'schedule_pending', count: directives.length });
+          r.text = (r.text ? r.text + '\n\n' : '') + '(' + describeScheduleDirectives(directives) + '? Say yes to apply.)';
+        }
+        emit(r.text === '(stopped)' ? { kind: 'done', text: '(stopped)', aborted: true } : { kind: 'done', text: r.text, model: r.model, ms: r.ms, usage: r.usage });
+      } catch (e) { logEvent({ ev: 'schedule_error', err: String((e && e.message) || e) }); emit({ kind: 'done', text: '(brain error)', model: '' }); }
+      if (active === res) active = null;
+      try { res.end(); } catch {}
+    });
   } else if (req.method === 'POST' && req.url.startsWith('/reminder/')) {
     const m = req.url.match(/^\/reminder\/([A-Za-z0-9-]{4,64})\/cancel$/);
     if (!m) { res.writeHead(404); res.end(); return; }
