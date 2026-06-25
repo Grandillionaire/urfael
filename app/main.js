@@ -144,6 +144,7 @@ ipcMain.on('urfael:set-config', (_e, key, val) => {
 ipcMain.handle('urfael:vitals', () => daemonGet('/vitals'));
 ipcMain.handle('urfael:learn', () => daemonGet('/learn'));   // the learning ledger (Hearth view)
 ipcMain.handle('urfael:audit', () => daemonGet('/audit'));   // the team activity trail (Hearth view)
+ipcMain.handle('urfael:self-setting-confirm', (_e, prop) => daemonPostJson('/self-setting/confirm', prop));   // user clicked Confirm on a proposed cosmetic self-change
 ipcMain.on('urfael:conversation-end', () => daemonPost('/conversation-end'));
 
 // ---- first-run GUI onboarding (so a non-technical user never needs a terminal) ----
