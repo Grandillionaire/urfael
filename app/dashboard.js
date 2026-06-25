@@ -94,7 +94,7 @@ function daemonGet(p) {
 // longer collapse it to one reply). [SPOKEN] asides are stripped exactly as the OpenAI server does (reused, not
 // reimplemented). The dashboard is the local owner (proven by the page token), so it runs as the mic would.
 const { stripSpoken, safeRawPrefix } = require('./openai-api'); // require-safe (bootstrap is guarded), pure helpers
-function daemonAskStreamTo(text, res) {
+function daemonAskStreamTo(text, res, hl) {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   let acc = '', emitted = 0, ended = false;
   const flush = (full) => { if (full.length > emitted) { try { res.write(full.slice(emitted)); } catch {} emitted = full.length; } };
@@ -111,7 +111,7 @@ function daemonAskStreamTo(text, res) {
   });
   r.on('error', () => finish('(brain unreachable — is the Urfael daemon running?)'));
   r.on('timeout', () => { r.destroy(); finish('(timed out)'); });
-  r.end(JSON.stringify({ text }));
+  r.end(JSON.stringify({ text, hl: !!hl }));
 }
 
 // sessions search — RANKED recall via the daemon's GET /recall (BM25), not substring grep. The daemon
@@ -129,6 +129,33 @@ function readBody(req) {
   return new Promise((resolve) => { let b = '', over = false;
     req.on('data', (c) => { if (over) return; b += c; if (b.length > MAX_BODY) { over = true; try { req.destroy(); } catch {} resolve(''); } });
     req.on('end', () => { if (!over) resolve(b); }); req.on('error', () => resolve('')); });
+}
+// POST JSON to a daemon path over the socket, resolve the parsed reply (or null). Used by the multi-chat manager.
+function daemonPostJson(p, obj) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify(obj || {});
+    const r = http.request({ socketPath: SOCK, method: 'POST', path: p, headers: { 'Content-Type': 'application/json' }, timeout: 30000 }, (res) => {
+      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } });
+    });
+    r.on('error', () => resolve(null)); r.on('timeout', () => { r.destroy(); resolve(null); }); r.end(body);
+  });
+}
+// Forward a per-chat ask to /chat/<id>/ask and stream its NDJSON 'done' to the browser as plain text. The chatId is
+// already pattern-validated by the route regex before this is called (defence in depth: the daemon re-validates).
+function daemonChatAskTo(chatId, text, res) {
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  let ended = false; const finish = (t) => { if (ended) return; ended = true; try { if (t != null) res.write(t); } catch {} try { res.end(); } catch {} };
+  const r = http.request({ socketPath: SOCK, method: 'POST', path: '/chat/' + chatId + '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 200000 }, (resp) => {
+    let buf = '';
+    resp.on('data', (d) => { buf += d.toString(); let i;
+      while ((i = buf.indexOf('\n')) >= 0) { const ln = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!ln) continue; let e; try { e = JSON.parse(ln); } catch { continue; }
+        if (e.kind === 'done') finish(stripSpoken(typeof e.text === 'string' ? e.text : '')); } });
+    resp.on('end', () => finish('(no reply)'));
+  });
+  r.on('error', () => finish('(brain unreachable — is the Urfael daemon running?)'));
+  r.on('timeout', () => { r.destroy(); finish('(timed out)'); });
+  r.end(JSON.stringify({ text }));
 }
 function sendJson(res, code, obj) { const s = JSON.stringify(obj); res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(s); }
 function unauthorized(res) { res.writeHead(401, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); res.end('unauthorized'); } // no info leak
@@ -179,6 +206,38 @@ button:disabled{opacity:.5;cursor:default}
 #reply{white-space:pre-wrap;margin-top:12px;color:#e7dfc9;min-height:20px;word-break:break-word;overflow-wrap:anywhere}
 .muted{color:#7e7660}.empty{color:#6f6857;font-style:italic}
 a{color:var(--gold2)}
+/* key-point highlight: a gold marker-pen sweep so the eye lands on the point. Pops in once, on completion. */
+mark.hl{background:linear-gradient(180deg,rgba(240,199,104,.08),rgba(240,199,104,.26));color:#fff8e8;
+  border-bottom:2px solid var(--gold2);border-radius:2px;padding:0 3px;box-decoration-break:clone;-webkit-box-decoration-break:clone;
+  text-decoration:none;animation:hlpop .5s cubic-bezier(.2,.8,.2,1) both}
+@keyframes hlpop{from{background-size:0 100%;border-color:transparent}to{background-size:100% 100%}}
+/* ---- multi-chat manager: open independent provider-bound chats, each its own tile (like new terminal windows) ---- */
+.chats-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.chats-head h2{margin:0}
+.chats-new{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chats-new select{width:auto;min-height:38px;padding:6px 10px}
+.chats-new button{min-height:38px;padding:8px 14px}
+#chatgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:14px}
+#chatgrid:empty::after{content:"No open chats. Click + New chat to start one, each runs its own model/provider, side by side.";color:#6f6857;font-style:italic;font-size:13px}
+.chat-tile{display:flex;flex-direction:column;background:#0c0b09;border:1px solid #2a2419;border-radius:10px;overflow:hidden;min-height:200px}
+.chat-tile.min{min-height:0}
+.chat-tile.min .ct-body,.chat-tile.min .ct-foot{display:none}
+.ct-head{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid #221d14;background:#100e0a}
+.ct-title{font-size:12px;color:var(--gold);font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ct-title .prov{color:#8a836f;font-weight:400}
+.ct-dot{width:7px;height:7px;border-radius:50%;background:#4a4436;flex:none}
+.ct-dot.busy{background:var(--gold2);box-shadow:0 0 6px var(--gold2)}
+.ct-dot.attn{background:#e0625e;box-shadow:0 0 6px #e0625e;animation:pulse 1.1s infinite}
+@keyframes pulse{50%{opacity:.4}}
+.ct-btn{background:none;color:#8a836f;border:0;padding:2px 6px;min-height:0;font-size:13px;cursor:pointer;font-weight:400}
+.ct-btn:hover{color:var(--gold)}
+.ct-body{flex:1;overflow-y:auto;padding:10px 11px;display:flex;flex-direction:column;gap:8px;max-height:340px}
+.ct-msg{font-size:13px;line-height:1.5;word-break:break-word;overflow-wrap:anywhere}
+.ct-msg.u{color:#9a8f74}.ct-msg.u::before{content:"› ";color:#5f5847}
+.ct-msg.a{color:#e7dfc9;white-space:pre-wrap}
+.ct-foot{display:flex;gap:7px;padding:9px 11px;border-top:1px solid #221d14}
+.ct-foot input{padding:7px 10px;min-height:36px}
+.ct-foot button{min-height:36px;padding:6px 12px}
 @media (max-width:640px){
   header{padding:14px 16px}main{padding:16px}
   h1{font-size:16px;letter-spacing:.14em}
@@ -192,6 +251,17 @@ a{color:var(--gold2)}
 <header><h1>URFAEL</h1><span class="sub" id="status">connecting…</span></header>
 <main>
   <div class="grid" id="vitals"></div>
+  <section id="chats-section">
+    <div class="chats-head">
+      <h2>Chats</h2>
+      <div class="chats-new">
+        <select id="newmodel" title="model"><option value="sonnet">Sonnet</option><option value="opus">Opus</option></select>
+        <select id="newprovider" title="provider"><option value="">Claude (subscription)</option></select>
+        <button id="newchat">+ New chat</button>
+      </div>
+    </div>
+    <div id="chatgrid"></div>
+  </section>
   <section><h2>Usage &amp; cost (est.)</h2><div id="usage"><span class="empty">…</span></div>
     <div class="usage-note">cost is an estimate from override-able rates, read from the recent log tail</div>
   </section>
@@ -242,10 +312,10 @@ function sessions(){var q=$('#sq').value.trim();if(!q){$('#sessions').innerHTML=
   }).catch(function(){})}
 $('#sq').addEventListener('input',function(){clearTimeout(st);st=setTimeout(sessions,300)});
 function send(){var t=$('#q').value.trim();if(!t)return;var b=$('#send');b.disabled=true;$('#reply').textContent='…thinking';
-  fetch('/api/ask',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})}).then(function(r){
+  fetch('/api/ask',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t,hl:1})}).then(function(r){
     if(!r.ok||!r.body){return r.text().then(function(x){$('#reply').textContent=x||'(error)'})}
     $('#reply').textContent='';var reader=r.body.getReader();var dec=new TextDecoder();
-    function pump(){return reader.read().then(function(res){if(res.done)return;$('#reply').textContent+=dec.decode(res.value,{stream:true});return pump()})}
+    function pump(){return reader.read().then(function(res){if(res.done){$('#reply').innerHTML=renderHL($('#reply').textContent);return}$('#reply').textContent+=dec.decode(res.value,{stream:true});return pump()})}
     return pump();
   }).catch(function(){$('#reply').textContent='(error)'}).then(function(){b.disabled=false})}
 $('#send').addEventListener('click',send);
@@ -262,6 +332,58 @@ function audit(){return api('/api/audit').then(function(d){
   var a=d&&d.activity; if(!a||!a.length){$('#audit').innerHTML='<span class="empty">no remote (principal) activity yet</span>';return}
   $('#audit').innerHTML=a.slice(0,30).map(function(e){return '<div class="row"><span class="t">'+esc((e.t||'').replace('T',' ').slice(0,16))+'</span> <span class="ch">'+esc(e.channel||'?')+'</span> '+esc(e.principal||'—')+' <span class="muted">'+esc(e.role||'')+' · '+esc(e.profile||'')+'</span></div>'}).join('');
 }).catch(function(){})}
+// ---- key-point highlighting: after generation completes, the brain's ==marked== phrases get a gold marker so the
+// eye lands on the point first. Escape FIRST (XSS-safe), then turn the escaped ==...== into a <mark>. Only applied
+// on completion, never mid-stream, so the highlight is a deliberate finish, not a flicker.
+function renderHL(text){ return esc(text).replace(/==([^=]+?)==/g,'<mark class="hl">$1</mark>'); }
+
+// ---- multi-chat manager: open independent provider-bound chats, each its own tile (like new terminal windows) ----
+function loadProviders(){return api('/api/providers').then(function(d){
+  var ps=(d&&d.providers)||[]; var sel=$('#newprovider');
+  ps.forEach(function(p){ if(!p||!p.id)return; var o=document.createElement('option'); o.value=p.id;
+    o.textContent=(p.label||p.id)+(p.verified===false?' (needs key)':''); sel.appendChild(o); });
+}).catch(function(){})}
+function newChat(){
+  var model=$('#newmodel').value, providerId=$('#newprovider').value, b=$('#newchat'); b.disabled=true;
+  api('/api/chat',{method:'POST',body:JSON.stringify({model:model,providerId:providerId})}).then(function(c){
+    if(c&&c.chatId) addTile(c); else alert('Could not open the chat'+(c&&c.error?': '+c.error:'')+'.');
+  }).catch(function(){}).then(function(){b.disabled=false});
+}
+function addTile(c){
+  var provLabel=c.providerId?c.providerId:'subscription';
+  var tile=document.createElement('div'); tile.className='chat-tile';
+  tile.innerHTML='<div class="ct-head"><span class="ct-dot"></span>'+
+    '<span class="ct-title">'+esc(c.model||'sonnet')+' <span class="prov">· '+esc(provLabel)+'</span></span>'+
+    '<button class="ct-btn ct-min" title="minimize">–</button>'+
+    '<button class="ct-btn ct-close" title="close chat">✕</button></div>'+
+    '<div class="ct-body"></div>'+
+    '<div class="ct-foot"><input type="text" placeholder="message this chat…" autocomplete="off"><button>send</button></div>';
+  $('#chatgrid').appendChild(tile);
+  var body=tile.querySelector('.ct-body'), input=tile.querySelector('.ct-foot input'),
+      sendb=tile.querySelector('.ct-foot button'), dot=tile.querySelector('.ct-dot');
+  function doSend(){
+    var t=input.value.trim(); if(!t)return; input.value='';
+    var u=document.createElement('div'); u.className='ct-msg u'; u.textContent=t; body.appendChild(u);
+    var a=document.createElement('div'); a.className='ct-msg a'; a.textContent='…'; body.appendChild(a);
+    body.scrollTop=body.scrollHeight; dot.className='ct-dot busy'; sendb.disabled=true;
+    fetch('/api/chat/'+encodeURIComponent(c.chatId)+'/ask',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})}).then(function(r){
+      if(!r.ok||!r.body){return r.text().then(function(x){a.textContent=x||'(error)'})}
+      a.textContent=''; var reader=r.body.getReader(), dec=new TextDecoder();
+      function pump(){return reader.read().then(function(res){if(res.done){a.innerHTML=renderHL(a.textContent);return}a.textContent+=dec.decode(res.value,{stream:true});body.scrollTop=body.scrollHeight;return pump()})}
+      return pump();
+    }).catch(function(){a.textContent='(error)'}).then(function(){dot.className='ct-dot';sendb.disabled=false;body.scrollTop=body.scrollHeight});
+  }
+  sendb.addEventListener('click',doSend);
+  input.addEventListener('keydown',function(e){if(e.key==='Enter')doSend()});
+  tile.querySelector('.ct-min').addEventListener('click',function(){tile.classList.toggle('min')});
+  tile.querySelector('.ct-close').addEventListener('click',function(){
+    api('/api/chat/'+encodeURIComponent(c.chatId)+'/disconnect',{method:'POST',body:'{}'}).catch(function(){});
+    tile.remove();
+  });
+  input.focus();
+}
+$('#newchat').addEventListener('click',newChat);
+loadProviders();
 function tick(){vit();usage();reminders();jobs();learn();audit()}
 tick();setInterval(tick,5000);
 </script></body></html>`;
@@ -321,7 +443,27 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req); let parsed = {}; try { parsed = JSON.parse(body); } catch {}
       const text = typeof parsed.text === 'string' ? parsed.text.slice(0, 8000) : '';
       if (!text.trim()) return sendJson(res, 400, { error: 'empty' });
-      return daemonAskStreamTo(text, res); // streams the answer token-by-token to the browser
+      return daemonAskStreamTo(text, res, !!parsed.hl); // streams the answer; hl asks the brain to mark key points
+    }
+    // ---- multi-chat manager: open/list/talk-to/close independent provider-bound chats (like new terminal windows) ----
+    if (req.method === 'GET' && pathname === '/api/providers') return sendJson(res, 200, (await daemonGet('/providers')) || { providers: [] });
+    if (req.method === 'GET' && pathname === '/api/chats') { const v = await daemonGet('/vitals'); return sendJson(res, 200, (v && v.chats) || []); }
+    if (req.method === 'POST' && pathname === '/api/chat') {
+      const body = await readBody(req); let p = {}; try { p = JSON.parse(body); } catch {}
+      const model = (p.model === 'opus' || p.model === 'sonnet') ? p.model : 'sonnet';
+      const providerId = typeof p.providerId === 'string' ? p.providerId.slice(0, 60) : '';
+      return sendJson(res, 200, (await daemonPostJson('/chat', { model, providerId })) || { error: 'failed' });
+    }
+    if (req.method === 'POST' && /^\/api\/chat\/[A-Za-z0-9-]{4,80}\/ask$/.test(pathname)) {
+      const id = pathname.split('/')[3];
+      const body = await readBody(req); let p = {}; try { p = JSON.parse(body); } catch {}
+      const text = typeof p.text === 'string' ? p.text.slice(0, 8000) : '';
+      if (!text.trim()) return sendJson(res, 400, { error: 'empty' });
+      return daemonChatAskTo(id, text, res);
+    }
+    if (req.method === 'POST' && /^\/api\/chat\/[A-Za-z0-9-]{4,80}\/disconnect$/.test(pathname)) {
+      const id = pathname.split('/')[3];
+      return sendJson(res, 200, (await daemonPostJson('/chat/' + id + '/disconnect', {})) || { ok: false });
     }
   } catch { return sendJson(res, 502, { error: 'daemon unreachable' }); }
 
