@@ -144,7 +144,6 @@ ipcMain.on('urfael:set-config', (_e, key, val) => {
 ipcMain.handle('urfael:vitals', () => daemonGet('/vitals'));
 ipcMain.handle('urfael:learn', () => daemonGet('/learn'));   // the learning ledger (Hearth view)
 ipcMain.handle('urfael:audit', () => daemonGet('/audit'));   // the team activity trail (Hearth view)
-ipcMain.handle('urfael:self-setting-confirm', (_e, prop) => daemonPostJson('/self-setting/confirm', prop));   // user clicked Confirm on a proposed cosmetic self-change
 // ---- multi-chat manager (Console): open/list/talk-to/close independent provider-bound chats (new terminal windows) ----
 ipcMain.handle('urfael:providers', () => daemonGet('/providers'));
 ipcMain.handle('urfael:chat-open', (_e, spec) => daemonPostJson('/chat', { model: (spec && spec.model) === 'opus' ? 'opus' : 'sonnet', providerId: (spec && typeof spec.providerId === 'string') ? spec.providerId.slice(0, 60) : '' }));

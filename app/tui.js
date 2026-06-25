@@ -90,6 +90,7 @@ let streamReq = null;      // the live POST /ask request, so a hard quit can tea
 let cfg = null;            // the frozen TUI config (set in run())
 let baseEnv = null;        // env used to resolve themes, for ^T cycling
 let animTimer = null;      // the worker setInterval (unref'd)
+let inMouse = false;       // swallowing an SGR/X10 mouse report that readline splits across keypress events
 let turnT0 = 0;            // wall-clock start of the in-flight turn
 let lastTool = '';         // current tool name → the worker verb
 let usageTokens = null;    // null in flight → authoritative output_tokens on done
@@ -493,7 +494,12 @@ function onKey(str, key) {
     else if (str && str.charCodeAt(0) >= 32) input += str;
     return;
   }
-  if (str && str.length > 1 && str.charCodeAt(0) === 27) return; // unparsed escape sequence (mouse, etc.); wheel scroll is handled on the data stream
+  // SGR/X10 mouse reports arrive split across keypress events (prefix '\x1b[<' or '\x1b[M', then Cb;Cx;Cy digits and
+  // an 'M'/'m' terminator as single chars). Swallow them so they never land in the input buffer; the actual scroll is
+  // handled on the data stream. A real 'M'/'m' keystroke is never swallowed (inMouse is false unless a prefix arrived).
+  if (key.sequence === '\x1b[<' || key.sequence === '\x1b[M') { inMouse = true; return; }
+  if (inMouse) { if (str === 'M' || str === 'm') inMouse = false; return; }
+  if (str && str.length > 1 && str.charCodeAt(0) === 27) return; // unparsed escape sequence; wheel scroll is handled on the data stream
   // an open value picker (persona/model/theme/anim) owns every key until it is picked or cancelled
   if (picker && !inflight) { pickerKey(str, key); return; }
   if (key.ctrl && key.name === 'c') { if (inflight) { abortTurn(); return; } return quit(0); }
