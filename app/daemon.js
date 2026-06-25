@@ -286,12 +286,17 @@ class Session {
     recordBrainPid(p.pid);
     p.stdout.on('data', (d) => this._onData(d));
     if (p.stderr) p.stderr.on('data', (d) => { try { this.errBuf = (this.errBuf + d).slice(-2048); } catch {} });   // drained (consumed) so it can't stall; last 2KB kept for classification
-    p.on('exit', () => { logEvent({ ev: 'brain_exit', model: this.model, cat: classifyError(this.errBuf).category }); if (this.proc !== p) return; this.proc = null; if (this.current) { this.lastFailed = true; this.current.cb('(' + (classifyError(this.errBuf).hint || 'restarted, try again') + ')'); this.current = null; } });
+    p.on('exit', () => { logEvent({ ev: 'brain_exit', model: this.model, cat: classifyError(this.errBuf).category }); if (this.proc !== p) return; this.proc = null;
+      // mirror the timeout/abort cleanup: clear THIS turn's watchdog (else it later aborts a healthy turn) and drain
+      // the queue so a turn waiting behind the crashed one is promoted instead of hanging forever.
+      if (this.current) { const c = this.current; this.current = null; this.lastFailed = true; clearTimeout(c.timer); c.cb('(' + (classifyError(this.errBuf).hint || 'restarted, try again') + ')'); }
+      this._next(); });
     p.on('error', (e) => { // spawn failure (claude missing / bad cwd) must never crash the daemon
       logEvent({ ev: 'brain_spawn_error', model: this.model, err: String((e && e.message) || e), cat: classifyError(this.errBuf || String((e && e.message) || e)).category });
       if (this.proc !== p) return;
       this.proc = null;
       if (this.current) { const c = this.current; this.current = null; this.lastFailed = true; clearTimeout(c.timer); c.cb('(' + (classifyError(this.errBuf || String((e && e.message) || e)).hint || 'brain spawn failed, is claude installed?') + ')'); }
+      this._next();   // promote a turn queued behind the spawn failure instead of hanging it forever
     });
   }
   _onData(d) {
