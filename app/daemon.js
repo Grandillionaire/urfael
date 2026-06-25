@@ -795,6 +795,9 @@ function vitals() {
     chats: chatRegistry.activeChats().map((c) => ({ chatId: c.chatId, model: c.model, providerId: c.providerId, connected: c.connected, lastActivity: c.lastActivity })),
     persona: activePersona === 'urfael' ? null : personas.displayFor(personaRoster, activePersona),   // null on the anchor → chip drawn only off-anchor
     update: updateStatus.available ? { available: true, kind: updateStatus.kind, behind: updateStatus.behind || 0, latest: updateStatus.latest || '', note: updater.summarize(updateStatus) } : null,
+    // the persisted ui-prefs look, so a running TUI can live-apply an NL "change your theme to ember" without a relaunch
+    uiTheme: (() => { try { return uiPalette.loadPrefs(UI_PREFS).theme; } catch { return ''; } })(),
+    uiAnim: (() => { try { return uiPalette.loadPrefs(UI_PREFS).animation; } catch { return ''; } })(),
 
     budget: bw.limits.active ? { level: bw.state.level, pctTurns: bw.state.pctTurns, pctTok: bw.state.pctTok, windowH: bw.limits.windowH, hard: bw.limits.hard } : null };
 }
