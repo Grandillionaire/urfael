@@ -25,6 +25,9 @@
       "!**/*.test.js",
       "!packaging/**"
     ],
+    "extraResources": [
+      { "from": "../config", "to": "config" }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
