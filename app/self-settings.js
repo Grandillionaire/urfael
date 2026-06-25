@@ -27,7 +27,11 @@ const TUI_ANIMS = ['oracle', 'rune', 'ember', 'braille', 'scry', 'shimmer'];
 // main.js THEMES (the orb look) — a separate axis from the TUI theme, but both are pure cosmetics.
 const ORB_THEMES = ['sigil', 'rune', 'ember', 'eye'];
 const VERBOSITY = ['terse', 'normal', 'rich'];
-const ACK_STYLES = ['butler', 'minimal', 'silent', 'warm'];
+// Acknowledgement style is backed by ONE boolean store (URFAEL_ACKS), so it advertises only the two values that
+// store can faithfully hold: 'butler' = spoken acknowledgements while thinking (URFAEL_ACKS=1), 'silent' = none
+// (URFAEL_ACKS=0). We deliberately do NOT offer named styles the binary store cannot distinguish, so the owner's
+// chosen value is never silently discarded. (Stays in lock-step with daemon applySelfSetting's silent->0/else->1.)
+const ACK_STYLES = ['butler', 'silent'];
 
 // A persona id is "known" if it is a built-in OR an authored id passed in at validate time. The shape gate below
 // mirrors personas.normalizeAuthored so an authored id (e.g. "ledger-keeper") validates without importing the roster.
@@ -114,7 +118,7 @@ const REGISTRY = Object.freeze({
   ackStyle: {
     key: 'ackStyle', label: 'Acknowledgement style', type: 'enum',
     validate(v) { return ACK_STYLES.includes(String(v == null ? '' : v).trim().toLowerCase()); },
-    describe(v) { return 'use a ' + String(v).trim().toLowerCase() + ' acknowledgement style'; },
+    describe(v) { return /^silent$/i.test(String(v).trim()) ? 'stay quiet while I think' : 'acknowledge you while I think'; },
   },
   // The bypass-confirm toggle. The brain MAY propose it, but applying it ALWAYS requires an explicit human
   // confirm — confirmAlways forces a confirm even when global bypass is on, so the brain can never silence its

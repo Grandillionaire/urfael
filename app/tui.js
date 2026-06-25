@@ -2,7 +2,7 @@
 // urfael tui — a full-screen terminal cockpit for the brain. No deps: raw stdin + ANSI + readline
 // keypress parsing, talking to the daemon's unix socket exactly like cli.js ask() (POST /ask, NDJSON
 // thinking.delta / thinking.tool / done streamed live). The [SPOKEN] tag is stripped on screen.
-//   Enter send · Esc abort the in-flight turn · Ctrl+C / q on an empty line quit · Ctrl+L clear · Up recall
+//   Enter send · Esc abort the in-flight turn · Ctrl+C / Ctrl+D quit · Ctrl+L clear · ↑↓ scroll · ^P/^N history
 //   ^T cycle theme (gold/ember/mono/custom) · ^Y cycle the thinking animation
 // Look + smoothness live in three pure modules: tui-theme (palette/config), tui-anim (the worker
 // animation), tui-render (the flicker-free differential renderer). Discipline unchanged: ALWAYS restore
@@ -106,7 +106,7 @@ function statusLine() {
   const T = cfg.theme;
   const left = ' ' + T.gold + 'Urfael' + T.RST + T.dim + ' · ' + (vitals.model || '…') + ' · ' + (vitals.turnsToday || 0) + ' turns' +
     (inflight ? ' · ᚢ thinking' : (scroll ? ' · scrolled (End to pin)' : '')) + T.RST;
-  return left + '   ' + T.dim + 'Enter send · ↑↓ PgUp scroll · ^P/^N history · Esc abort · q quit' + T.RST;
+  return left + '   ' + T.dim + 'Enter send · ↑↓ PgUp scroll · ^P/^N history · Esc abort · ^C quit' + T.RST;
 }
 function workerLine(g, now) {
   if (!inflight) return null;
@@ -552,7 +552,6 @@ function onKey(str, key) {
   if (key.name === 'up') { scroll += 1; render(); return; }
   if (key.name === 'down') { scroll = Math.max(0, scroll - 1); render(); return; }
 
-  if (str === 'q' && input === '') { return quit(0); }
   if (str && !key.ctrl && !key.meta && str.length === 1 && str >= ' ') { input += str; slashSel = 0; histIdx = -1; render(); return; }
 }
 
@@ -583,7 +582,7 @@ function run() {
   } catch {} });
   process.stdout.on('resize', () => { rend.resetFrame(); render(); });
 
-  add('sys', 'Urfael · type / for commands · scroll with the mouse wheel or ↑↓ PgUp (Home oldest, End newest) · Shift+Enter for a new line · ^P/^N walk your input history · Enter sends · Esc aborts · q quits · ^L clears');
+  add('sys', 'Urfael · type / for commands · scroll with the mouse wheel or ↑↓ PgUp (Home oldest, End newest) · Shift+Enter for a new line · ^P/^N walk your input history · Enter sends · Esc aborts · ^C quits · ^L clears');
   render();
   refreshVitals();
   // idle poll: pick up a daemon-driven look change (NL "change your theme to ember") + keep the header chip fresh,

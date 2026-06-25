@@ -140,6 +140,13 @@ ipcMain.on('urfael:set-config', (_e, key, val) => {
   if (!SETTABLE.includes(key)) return;
   setTtsEnvValue(key, String(val).replace(/[\r\n]/g, '').slice(0, 200));
   if (key === 'URFAEL_THEME') forward('urfael:theme', String(val));
+  // Some settings are baked into a live child process at boot; respawn it so the new value applies
+  // now instead of only after a full app restart. The tts.env mtime cache is already invalidated by
+  // the write above, so each respawn re-reads the new value.
+  if (key === 'WHISPER_MODEL' || key === 'STT_PROVIDER') { stopWhisper(); startWhisper(); } // warm local STT, new argv
+  if (key === 'WAKE_KEYWORD' || key === 'WAKE_WORD_LABEL') {                                 // Porcupine wake worker (orb HUD only)
+    if (wakeWorker) { try { wakeWorker.postMessage('stop'); } catch {} wakeWorker = null; startWake(); }
+  }
 });
 ipcMain.handle('urfael:vitals', () => daemonGet('/vitals'));
 ipcMain.handle('urfael:learn', () => daemonGet('/learn'));   // the learning ledger (Hearth view)
@@ -216,7 +223,6 @@ function cycleTheme() {
   setTtsEnvValue('URFAEL_THEME', next); forward('urfael:theme', next);
 }
 ipcMain.on('urfael:set-theme', (_e, t) => { if (THEMES.includes(t)) { setTtsEnvValue('URFAEL_THEME', t); forward('urfael:theme', t); } });
-ipcMain.on('urfael:hud', () => forward('urfael:hud-toggle')); // ⌘⇧H: renderer toggles expanded altitude
 
 // ---- cursor gaze (eye/sigil look at the cursor) -----------------------------
 function startGaze() {
@@ -311,7 +317,7 @@ function toggleOrb() { if (win && !win.isDestroyed()) toggle(); else { createWin
 function buildMenu() {
   const tpl = [
     { label: 'Urfael', submenu: [
-      { label: 'About Urfael', click: () => menuSend('about') },
+      { label: 'About Urfael', click: () => app.showAboutPanel() },
       { type: 'separator' },
       { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => menuSend('settings') },
       { type: 'separator' },
@@ -343,7 +349,7 @@ function buildMenu() {
       { role: 'toggleDevTools' },
     ] },
     { label: 'Window', submenu: [ { role: 'minimize' }, { role: 'zoom' } ] },
-    { label: 'Help', role: 'help', submenu: [ { label: 'About Urfael', click: () => menuSend('about') } ] },
+    { label: 'Help', role: 'help', submenu: [ { label: 'About Urfael', click: () => app.showAboutPanel() } ] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(tpl));
 }
@@ -467,9 +473,11 @@ function startWhisper() {
   whisperStopped = false;
   try {
     const spawnedAt = Date.now();
-    whisperProc = spawn(whisperBin(), ['--model', model, '--host', '127.0.0.1', '--port', String(cfg.sttPort), '--language', 'en', '--no-timestamps'],
+    const child = spawn(whisperBin(), ['--model', model, '--host', '127.0.0.1', '--port', String(cfg.sttPort), '--language', 'en', '--no-timestamps'],
       { stdio: 'ignore' });
-    whisperProc.on('exit', () => {                                               // supervised: auto-respawn with backoff so a crash never leaves Urfael deaf
+    whisperProc = child;
+    child.on('exit', () => {                                                     // supervised: auto-respawn with backoff so a crash never leaves Urfael deaf
+      if (whisperProc !== child) return;                                         // a settings respawn already replaced us; ignore this stale exit (no double-spawn)
       whisperProc = null;
       if (whisperStopped) return;
       if (Date.now() - spawnedAt > 60000) whisperRestarts = 0;                   // it ran fine for a while — reset the backoff
@@ -486,6 +494,8 @@ else app.on('second-instance', () => { if (win) { win.show(); } });
 
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'media'));
+  let aboutVersion = ''; try { aboutVersion = require('./package.json').version || ''; } catch {}
+  try { app.setAboutPanelOptions({ applicationName: 'Urfael', applicationVersion: aboutVersion, copyright: 'Self-hosted local AI daemon' }); } catch {} // backs the native About panel (menu items call app.showAboutPanel)
   buildMenu();                                                     // native menu bar + accelerators
   createTray();                                                    // macOS menu-bar / Linux system-tray presence (third surface; no-op on other platforms)
   const orbOn = readTtsEnv().orb || process.env.URFAEL_ORB === '1';

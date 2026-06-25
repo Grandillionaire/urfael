@@ -310,14 +310,20 @@ async function loadReminders() {
     el.appendChild(d);
   }
 }
+// surface a rejected / unreachable reminder inline instead of letting it vanish (status node created lazily)
+function showRemError(msg) {
+  let err = $('#rem-err');
+  if (!err) { err = document.createElement('p'); err.className = 'hint'; err.id = 'rem-err'; $('#rem-form').insertAdjacentElement('afterend', err); }
+  err.textContent = msg; err.hidden = false;
+}
 $('#rem-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const spec = { text: $('#rem-text').value.trim(), inMins: Number($('#rem-mins').value || 0) };
   const rep = $('#rem-repeat').value; if (rep) spec.repeat = rep;
   if (!spec.text) return;
-  await window.urfael.remind(spec);
-  $('#rem-text').value = ''; $('#rem-mins').value = '';
-  loadReminders();
+  const r = await window.urfael.remind(spec);   // inspect the daemon's result; a rejected reminder must not silently disappear
+  if (r && r.id) { const err = $('#rem-err'); if (err) err.hidden = true; $('#rem-text').value = ''; $('#rem-mins').value = ''; loadReminders(); }
+  else { showRemError((r && r.error) || 'Could not reach Urfael. Reminder not set.'); }   // keep typed values so the owner can fix and retry
 });
 
 // ---- jobs ----------------------------------------------------------------------
