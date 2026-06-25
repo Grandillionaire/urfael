@@ -287,6 +287,9 @@ function createWindow() {
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.setIgnoreMouseEvents(true, { forward: true }); // click-through by default; renderer flips it over lit elements
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  // dismissed by ANY route (hide IPC, Cmd+Shift+U toggle, close box) -> tell the renderer to end a live voice
+  // conversation so the mic is released and the wake word is re-armed. Fixes a mic that stayed on after walking away.
+  win.on('hide', () => { if (win && !win.isDestroyed()) win.webContents.send('urfael:hidden'); });
 }
 function toggle() {
   if (!win) return;
