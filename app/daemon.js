@@ -28,10 +28,12 @@ const crypto = require('crypto');
 })();
 const { MODELS, classifyError, fallbackModelFor, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
 const personas = require('./personas');
+const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
 const ridx = require('./recall-index');         // persistent BM25 inverted index — recall AT SCALE (FTS5-equivalent)
 const embed = require('./embed');               // optional local-first embeddings client (semantic recall)
 const memctx = require('./memctx');             // ACTIVE RECALL: per-turn relevant-memory preamble (pure assembler)
+const consolidate = require('./consolidate');   // masterful compaction: dedupe + evidence-retire the ledger, right-size recall
 const jobstore = require('./jobstore');
 const council = require('./council');
 const runner = require('./runner');
@@ -39,6 +41,18 @@ const scheduler = require('./scheduler');
 const bridge = require('./bridge/bridge-core');
 const learn = require('./learn');               // the evidence ledger (verify-before-trust learning loop)
 const learnVerify = require('./learn-verify');  // the independent self-verifier (prompt + fail-closed parse)
+const providerSessions = require('./provider-sessions');
+// Pure engine for concurrent provider-bound chats (sessionKey, registry, scoped child env). Side-effect-free.
+const chatRegistry = new providerSessions.ChatRegistry();
+// Lazy-loaded provider registry from config/providers.json (re-read on each /providers GET so an edit is picked up).
+let _providerList = null;
+function providerList() { if (!_providerList) _providerList = providerSessions.loadProviderRegistry(); return _providerList; }
+const sessionBus = require('./session-bus');
+// One-mind presence + watch fabric. Lives entirely over the existing 0600 socket; owns no port, no secret, no spawn.
+const clients = new sessionBus.ClientRegistry();
+const watchBus = new sessionBus.EventBus({ cap: sessionBus.RING_CAP });
+// reap terminals that closed without a clean disconnect (crashed CLI/overlay). 90s idle floor; unref so it never holds the loop open.
+{ const t = setInterval(() => { try { for (const id of clients.prune(90000)) watchBus.publish({ kind: 'client.gone', clientId: id, t: Date.now() }); } catch {} }, 30000); if (t.unref) t.unref(); }
 
 const VAULT = path.join(os.homedir(), process.env.URFAEL_VAULT_DIR || 'Urfael');
 const MEMORY_DIR = path.join(os.homedir(), process.env.URFAEL_MEMORY_DIR || 'Urfael-memory');
@@ -55,6 +69,7 @@ const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || ['/opt/homebrew/bin/claude',
 const PERM_MODE = process.env.URFAEL_YOLO === '1' ? 'bypassPermissions' : (process.env.URFAEL_PERMISSION_MODE || 'acceptEdits');
 if (PERM_MODE === 'bypassPermissions') { try { fs.appendFileSync(path.join(os.homedir(), '.claude', 'urfael', 'urfael.log'), JSON.stringify({ t: new Date().toISOString(), ev: 'WARN', msg: 'URFAEL_YOLO active — agent has UNRESTRICTED shell. Run sandboxed.' }) + '\n'); } catch {} }
 const JDIR = path.join(os.homedir(), '.claude', 'urfael');
+const UI_PREFS = path.join(JDIR, 'ui-prefs.json');   // presentation-only prefs; never carries a security knob (closed schema)
 const SOCK = path.join(JDIR, 'daemon.sock');
 const LOGFILE = path.join(JDIR, 'urfael.log');
 const BRAIN_PIDFILE = path.join(JDIR, 'brain.pids');
@@ -65,8 +80,9 @@ let logWrites = 0;
 // are best-effort + try/catch-wrapped inside logEvent, so a chain hiccup can NEVER break a turn. State is kept
 // warm in memory (seq + last hash), seeded from the chain's tail at boot; `urfael audit --verify` walks it.
 const auditChain = require('./audit-chain');
+const uiPalette = require('./ui-palette');   // presentation-only palette/prefs (closed schema; no security knob)
 const CHAINFILE = path.join(MEMORY_DIR, 'audit-chain.jsonl');
-const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start']);
+const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start', 'self_setting']);
 let chainSeq = -1, chainLastHash = auditChain.GENESIS, chainSeeded = false;
 function seedChain() {
   try { const lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); if (lines.length) { const last = JSON.parse(lines[lines.length - 1]); if (typeof last.seq === 'number' && typeof last.h === 'string') { chainSeq = last.seq; chainLastHash = last.h; } } } catch {}
@@ -242,13 +258,18 @@ class Session {
   _ensure() {
     if (this.proc && !this.proc.killed) return;
     const overlayArgs = currentOverlay ? ['--append-system-prompt', currentOverlay] : [];   // active PERSONA voice; [] on the anchor → byte-identical spawn
+    // Per-chat provider routing is resolved into the CHILD env ONLY. When providerId is '' (the anchor) childEnv is
+    // the unchanged {...process.env}, so the warm spawn stays byte-identical. resolveScopedEnv returns a NEW object,
+    // so process.env is never mutated and the provider secret stays scoped to this child (never logged, never global).
+    let childEnv = { ...process.env, URFAEL_OVERLAY: '1' };
+    if (this.providerId) { const e = providerSessions.findProvider(providerList(), this.providerId); if (e) { try { childEnv = providerSessions.resolveScopedEnv(childEnv, e, secretStore[e.authEnv]); } catch (err) { logEvent({ ev: 'chat_provider_no_secret', provider: this.providerId }); } childEnv.URFAEL_OVERLAY = '1'; } }
     this.proc = spawn(CLAUDE_BIN, [
       '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
       '--model', this.model, '--verbose', '--include-partial-messages', '--permission-mode', PERM_MODE,
       ...MEMDIR_ADD,   // the brain can READ its own memory (it lives outside the vault/project root)
       ...overlayArgs,  // persona = a VOICE overlay only; the moat is PERM_MODE + the vault settings, not this text
       ...pluginMcpArgs(),  // enabled plugins on the WARM (owner) session only; [] when none → byte-identical spawn. Scoped/remote/cron spawns stay --strict-mcp-config, so a plugin never reaches an untrusted turn.
-    ], { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' }, stdio: ['pipe', 'pipe', 'pipe'] });
+    ], { cwd: VAULT, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
     const p = this.proc; // bind handlers to THIS proc identity so a stale exit can't clobber a freshly-spawned one
     recordBrainPid(p.pid);
     p.stdout.on('data', (d) => this._onData(d));
@@ -344,7 +365,11 @@ class Session {
 }
 
 const sessions = new Map();
-function getSession(model) { if (!sessions.has(model)) sessions.set(model, new Session(model)); return sessions.get(model); }
+function getSession(model, providerId) {
+  const key = providerSessions.sessionKey(model, providerId);
+  if (!sessions.has(key)) { const s = new Session(model); s.providerId = providerSessions.providers ? providerId || '' : providerId || ''; sessions.set(key, s); }
+  return sessions.get(key);
+}
 
 let transcript = [];
 let convoModel = MODELS.sonnet;   // sticky: escalate to Opus and stay for the conversation (continuity)
@@ -375,6 +400,19 @@ function setPersona(id) {
   currentOverlay = personas.overlayFor(personaRoster, activePersona);
   try { fs.mkdirSync(JDIR, { recursive: true }); if (activePersona !== 'urfael') fs.writeFileSync(PERSONAPIN, activePersona + '\n'); else fs.rmSync(PERSONAPIN, { force: true }); } catch {}
   return activePersona;
+}
+// Apply a VALIDATED self-setting through the EXISTING setters only. No security key can reach here (validateProposal gates it).
+function applySelfSetting(p) {
+  const v = String(p.value);
+  switch (p.key) {
+    case 'persona': { setPersona(v.trim().toLowerCase()); respawnForPersona(); return true; }
+    case 'verbosity': case 'tuiTheme': case 'tuiAnimation': case 'orbTheme': case 'voiceOn': case 'ttsVoice': case 'ackStyle': case 'confirmBypass':
+      // these are TTS/UI knobs owned by main.js's tts.env (SETTABLE) + the renderer; the daemon records the
+      // intent to the ledger and forwards it. main.js's `urfael:set-config` IPC + setTtsEnvValue do the disk write
+      // (URFAEL_THEME/URFAEL_TUI_*/SAY_VOICE/CONSOLE_VOICE/URFAEL_ACKS). The daemon never writes provider.env.
+      return true;
+    default: return false;
+  }
 }
 function turnInFlight() { for (const s of sessions.values()) if (s.current && !s.curSilent) return true; return false; }   // a real (non-silent) answer is streaming — not the warm-up
 function respawnForPersona() { for (const s of sessions.values()) { try { s.proc && s.proc.kill('SIGKILL'); } catch {} s.proc = null; } }   // idle warm procs re-_ensure with the new overlay on the next ask
@@ -439,6 +477,8 @@ const brain = {
     const turnId = ++turnCounter;
     lastLocalTurn = Date.now();   // heartbeat backs off while the owner is actively conversing
     sendThinking({ reset: true, model, turnId });
+    // JARVIS: announce this turn to watcher terminals (SAFE summary only — never the full prompt). 'local' is the warm-session surface id.
+    try { clients.connect('local', { surface: 'overlay', startedAt: START_MS }); clients.setActivity('local', { state: 'thinking', task: text }); watchBus.publish({ kind: 'turn.start', clientId: 'local', surface: 'overlay', state: 'thinking', task: sessionBus.summarize(text, sessionBus.TASK_MAX), model, turnId, t: Date.now() }); } catch {}
     const t0 = Date.now();
     let session = getSession(model);
     const mem = await activeRecall(text);                             // proactively surface relevant memory for THIS turn
@@ -460,6 +500,8 @@ const brain = {
     const ms = Date.now() - t0;
     const u = session.lastUsage || {};
     logEvent({ ev: 'turn', model, in: text.length, out: (reply || '').length, ms, tokIn: u.input_tokens || 0, tokOut: u.output_tokens || 0, tokCache: u.cache_read_input_tokens || 0 });
+    // JARVIS: turn finished — flip the local terminal back to idle and broadcast the close to watchers. No prompt/reply text leaves here.
+    try { clients.setActivity('local', { state: 'idle', task: '' }); watchBus.publish({ kind: 'turn.end', clientId: 'local', surface: 'overlay', state: 'idle', model, ms, turnId, t: Date.now() }); } catch {}
     if (reply !== '(stopped)') {   // don't persist an aborted turn into the transcript/archive or feed it to distill
       transcript.push({ user: text, urfael: reply });
       recordSession({ t: new Date().toISOString(), channel: 'local', model, user: text, urfael: reply, ms });
@@ -604,6 +646,7 @@ function vitals() {
   return { warm: [...sessions.keys()], model: convoModel, mode: AGENT_MODE, turnsToday, avgMs, errors, tokToday, costToday: LOCAL_MODE ? 0 : Math.round(costToday * 100) / 100, local: LOCAL_MODE, memCommits: memCommitCache.n, uptimeS: Math.round((Date.now() - START_MS) / 1000),
     days7: days7keys.map((d) => byDay[d]),
     pinned: pinnedModel ? tierName(MODELS[pinnedModel]) : null,
+    chats: chatRegistry.activeChats().map((c) => ({ chatId: c.chatId, model: c.model, providerId: c.providerId, connected: c.connected, lastActivity: c.lastActivity })),
     persona: activePersona === 'urfael' ? null : personas.displayFor(personaRoster, activePersona),   // null on the anchor → chip drawn only off-anchor
 
     budget: bw.limits.active ? { level: bw.state.level, pctTurns: bw.state.pctTurns, pctTok: bw.state.pctTok, windowH: bw.limits.windowH, hard: bw.limits.hard } : null };
@@ -767,8 +810,9 @@ async function activeRecall(text) {
     const exclude = transcript.slice(-6).map((t) => t && t.user).filter(Boolean);     // don't echo the live conversation
     const ctx = memctx.buildContext({ query: q, turns, lessons, exclude });
     if (!ctx.block) return { promptText: text, surfaced: [] };
+    const sizedBlock = consolidate.formatForModel(ctx.block, convoModel);   // tighter for fast tiers, full for Opus; preserves the reference-only fence
     logEvent({ ev: 'active_recall', turns: ctx.surfacedTurns.length, lessons: ctx.surfacedLessons.length, chars: ctx.block.length, semantic: embed.enabled() });
-    return { promptText: memctx.prepend(ctx.block, q), surfaced: ctx.surfacedLessons };
+    return { promptText: memctx.prepend(sizedBlock, q), surfaced: ctx.surfacedLessons };
   } catch { return { promptText: text, surfaced: [] }; }
 }
 // Reinforce what active recall surfaced (the testing effect): bump each lesson's `surfaced` so consolidation can
@@ -1142,7 +1186,7 @@ async function heartbeat() {
   const now = Date.now();
   if (now - lastBeat < HB_MINS * 60000 || !hoursOk()) return;
   if (now - lastLocalTurn < 10 * 60000) return;                       // owner active recently — stay quiet
-  const s = sessions.get(MODELS.sonnet);
+  const s = sessions.get(providerSessions.sessionKey(MODELS.sonnet, ''));   // the legacy warm sonnet bucket (providerId '')
   if (s && (s.current || s.queue.length)) return;                     // session busy — try next tick
   lastBeat = now; beating = true;
   const prompt = buildHeartbeatPrompt({ predictive: PREDICT_ON }); // opt-in: also prepare ripe USER.md "likely next" predictions (surface only)
@@ -1387,13 +1431,28 @@ function curate() {
   if (now - lastCurated() < CURATOR_DAYS * 86400000) return;        // N-day cadence (persisted across restarts)
   if (!hoursOk()) return;                                           // stay quiet outside active hours
   if (now - lastLocalTurn < 10 * 60000) return;                     // owner active recently — try next tick
-  const s = sessions.get(MODELS.sonnet);
+  const s = sessions.get(providerSessions.sessionKey(MODELS.sonnet, ''));   // the legacy warm sonnet bucket (providerId '')
   if (s && (s.current || s.queue.length)) return;                   // voice session busy — try next tick
   curating = true;
   try { fs.writeFileSync(CURATOR_FILE, JSON.stringify({ t: now })); } catch {} // stamp now so a crash mid-run still honors cadence
   // evidence-based consolidation: retire ledger items that proved useless (surfaced, never helped, corrected)
   // or stale+unused — so the curator prunes on EVIDENCE, not just age. Pure + fast; runs before the skill audit.
   try { const led = learn.consolidate(learn.load(MEMORY_DIR), now); if (led.retired.length) { learn.save(MEMORY_DIR, led.items); logEvent({ ev: 'learn_consolidate', retired: led.retired.length }); } } catch {}
+  // masterful compaction of the durable ledger: collapse near-duplicate lessons (keep higher-confidence,
+  // fold evidence) and flag evidence-based retire candidates BEFORE the LLM skill-audit runs. Pure + fast.
+  try {
+    let items = learn.load(MEMORY_DIR);
+    const dd = consolidate.dedupeLessons(items);
+    let changed = false;
+    if (dd.merged.length) { items = dd.kept; changed = true; logEvent({ ev: 'lesson_dedupe', merged: dd.merged.length }); }
+    const retirable = consolidate.selectRetirable(items, now);
+    if (retirable.length) {
+      const ids = new Set(retirable.map((r) => r.id));
+      for (const it of items) { if (it && ids.has(it.id) && it.status !== 'retired') { it.status = 'retired'; changed = true; } }
+      if (retirable.length) logEvent({ ev: 'lesson_retire', retired: retirable.length });
+    }
+    if (changed) learn.save(MEMORY_DIR, items);
+  } catch {}
   const prompt =
     '[Automated skill-curation pass — the user is NOT speaking and will not see this turn. Do NOT reply conversationally.]\n' +
     `Audit the skill files under ${VAULT}/_urfael/skills/*.md and tidy them:\n` +
@@ -1551,7 +1610,32 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
       active = res;
       res.on('close', () => { if (active === res) active = null; }); // client gone -> stop writing into a dead socket
-      try { const r = await brain.ask(text); emit(r.text === '(stopped)' ? { kind: 'done', text: '(stopped)', aborted: true } : { kind: 'done', text: r.text, model: r.model, ms: r.ms, usage: r.usage }); }
+      try {
+        const r = await brain.ask(text);
+        // SELF-REWRITE (LOCAL path only — never askScoped): scan the owner-trusted reply for a single cosmetic
+        // self-setting directive, validate it against the allowlist, then confirm-or-apply. A security key is
+        // never settable (it isn't in the registry), so this can only ever touch persona/voice/UI cosmetics.
+        if (r.text !== '(stopped)') {
+          const _prop = selfset.parseProposal(r.text);
+          if (_prop) {
+            const _g = selfset.validateProposal(_prop, { personaIds: personas.knownIds(personaRoster) });
+            if (!_g.ok) { logEvent(selfset.auditPayload(_prop, 'rejected')); }
+            else {
+              const _bypass = (() => { try { return /^(1|on|true)$/i.test(require('./setup').readEnv().URFAEL_SELF_CONFIRM_BYPASS || ''); } catch { return false; } })();
+              if (selfset.needsConfirm(_prop, { bypass: _bypass })) {
+                // surface the confirm line to the client; apply happens on a follow-up POST /self-setting/confirm {key,value}
+                logEvent(selfset.auditPayload(_prop, 'pending'));
+                r.text = r.text.replace(/<<urfael:set\b[\s\S]*?>>/i, '').trim() + '\n\n(' + selfset.describeProposal(_prop) + '? Confirm to apply.)';
+              } else {
+                const _ok = applySelfSetting(_prop);
+                logEvent(selfset.auditPayload(_prop, _ok ? 'applied' : 'rejected'));
+                r.text = r.text.replace(/<<urfael:set\b[\s\S]*?>>/i, '').trim();
+              }
+            }
+          }
+        }
+        emit(r.text === '(stopped)' ? { kind: 'done', text: '(stopped)', aborted: true } : { kind: 'done', text: r.text, model: r.model, ms: r.ms, usage: r.usage });
+      }
       catch (e) { emit({ kind: 'done', text: '(brain error)', model: '' }); }
       if (active === res) active = null;
       try { res.end(); } catch {}
@@ -1606,6 +1690,42 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok }));
   } else if (req.method === 'POST' && req.url === '/conversation-end') {
     brain.endConversation(); distill(); res.writeHead(200); res.end('{}');
+  } else if (req.method === 'POST' && req.url === '/chat') {
+    // POST /chat {model, providerId} -> {chatId} — open a new chat bound to a provider WITHOUT disconnecting any
+    // existing chat. Validates providerId against the registry (fail-closed: unknown provider is rejected).
+    const body = await readBody(req);
+    let parsed = {}; try { parsed = JSON.parse(body); } catch {}
+    if ('channel' in parsed && parsed.channel) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'chat sessions are local-only' })); return; }
+    const entry = providerSessions.findProvider(providerList(), parsed.providerId);
+    if (parsed.providerId && !entry) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'unknown provider' })); return; }
+    const model = (parsed.model === 'opus' || parsed.model === 'sonnet') ? MODELS[parsed.model] : MODELS.sonnet;
+    const c = chatRegistry.register(null, { model, providerId: (entry && entry.id) || '' });
+    logEvent({ ev: 'chat_open', chatId: c.chatId, model: c.model, provider: c.providerId });
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ chatId: c.chatId, model: c.model, providerId: c.providerId }));
+  } else if (req.method === 'POST' && /^\/chat\/[A-Za-z0-9-]{4,80}\/ask$/.test(req.url || '')) {
+    // POST /chat/<id>/ask {text} — route a turn to the chat's OWN warm session, with the provider's scoped env.
+    // Serialized per chat (its own Session queue), CONCURRENT across chats (separate processes). The secret is
+    // resolved per-spawn into the CHILD env only via resolveScopedEnv (in Session._ensure) and never written to
+    // process.env or logged. Streams NDJSON exactly like /ask.
+    const id = (req.url.match(/^\/chat\/([A-Za-z0-9-]{4,80})\/ask$/) || [])[1];
+    const rec = chatRegistry.get(id);
+    if (!rec || !rec.connected) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'no such chat' })); return; }
+    chatRegistry.markActivity(id);
+    const body = await readBody(req);
+    let parsed = {}; try { parsed = JSON.parse(body); } catch {}
+    res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+    try { const session = getSession(rec.model, rec.providerId); const reply = await session.ask(parsed.text || '', { speak: false }); res.write(JSON.stringify({ kind: 'done', chatId: id, text: reply, model: rec.model, providerId: rec.providerId }) + '\n'); }
+    catch { res.write(JSON.stringify({ kind: 'done', chatId: id, text: '(brain error)', model: '' }) + '\n'); }
+    try { res.end(); } catch {}
+  } else if (req.method === 'POST' && /^\/chat\/[A-Za-z0-9-]{4,80}\/disconnect$/.test(req.url || '')) {
+    // POST /chat/<id>/disconnect — the ONLY thing that drops a chat, and only this one. If no other connected chat
+    // shares its warm-session bucket, the underlying Session may be reaped (kill its proc) to free resources.
+    const id = (req.url.match(/^\/chat\/([A-Za-z0-9-]{4,80})\/disconnect$/) || [])[1];
+    const r = chatRegistry.disconnect(id);
+    if (!r) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false })); return; }
+    if (!r.keyStillInUse) { const s = sessions.get(r.key); if (s) { try { s.proc && s.proc.kill('SIGKILL'); } catch {} sessions.delete(r.key); } }
+    logEvent({ ev: 'chat_close', chatId: id });
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true }));
   } else if (req.url === '/model') {
     // GET → current model + pin; POST {action:'pin'|'auto'|'status', model} → same path as the verbal switch.
     if (req.method === 'POST') {
@@ -1640,6 +1760,17 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ persona: activePersona, display: personas.displayFor(personaRoster, activePersona), roster: personas.knownIds(personaRoster).map((id) => personas.displayFor(personaRoster, id)) }));
+  } else if (req.method === 'POST' && req.url === '/self-setting/confirm') {
+    // CONFIRM a previously-proposed cosmetic self-change. LOCAL-ONLY (a present channel is refused). Re-validates
+    // against the allowlist before applying through the existing setters, then audits the decision to the chain.
+    const body = await readBody(req); let parsed = {}; try { parsed = JSON.parse(body); } catch {}
+    if ('channel' in parsed && parsed.channel) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'self-settings are local-only' })); return; }
+    const prop = { key: parsed.key, value: parsed.value, reason: typeof parsed.reason === 'string' ? parsed.reason : '' };
+    const g = selfset.validateProposal(prop, { personaIds: personas.knownIds(personaRoster) });
+    if (!g.ok) { logEvent(selfset.auditPayload(prop, 'rejected')); res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: g.reason })); return; }
+    const ok = applySelfSetting(prop);
+    logEvent(selfset.auditPayload(prop, ok ? 'confirmed' : 'rejected'));
+    res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok, applied: selfset.describeProposal(prop) }));
   } else if (req.url === '/plugins') {
     // GET /plugins — installed plugins + which are enabled. (Owner-only: the daemon socket is 0600.)
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1664,12 +1795,40 @@ const server = http.createServer(async (req, res) => {
       logEvent({ ev: 'plugin_secret_set', ref });   // the REF name only — never the value
       res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok }));
     });
+  } else if (req.url === '/clients') {
+    // GET /clients — who else is connected across terminals (SAFE public view only: id, surface, state, task summary, lastSeen).
+    // Optional POST {clientId, surface} to register a CLI/TUI terminal; POST {clientId, beat:true} to heartbeat. Owner-only (0600 socket).
+    if (req.method === 'POST') {
+      const body = await readBody(req); let p = {}; try { p = JSON.parse(body); } catch {}
+      const id = typeof p.clientId === 'string' ? p.clientId : '';
+      if (!id) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'need {clientId}' })); return; }
+      if (p.disconnect) { clients.disconnect(id); watchBus.publish({ kind: 'client.gone', clientId: sessionBus.summarize(id, sessionBus.CLIENTID_MAX), t: Date.now() }); }
+      else if (p.beat) clients.heartbeat(id);
+      else { const row = clients.connect(id, { surface: p.surface, startedAt: Date.now() }); if (row) watchBus.publish({ kind: 'client.join', clientId: row.clientId, surface: row.surface, t: Date.now() }); }
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ clients: clients.list() }));
+  } else if (req.url === '/watch') {
+    // GET /watch — SSE-like NDJSON stream of cross-terminal turn activity over the existing socket. Replays the recent
+    // ring so a late watcher catches up, then streams live. No prompts/secrets: events carry only the SAFE summary fields.
+    res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+    let closed = false;
+    const unsub = watchBus.subscribe((e) => { if (closed) return; try { res.write(JSON.stringify(e) + '\n'); } catch {} });
+    res.write(JSON.stringify({ kind: 'watch.hello', clients: clients.list(), t: Date.now() }) + '\n');
+    req.on('close', () => { closed = true; try { unsub(); } catch {} });
   } else if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, warm: [...sessions.keys()] }));
   } else if (req.url === '/vitals') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(vitals()));
+  } else if (req.url === '/providers') {
+    // GET /providers — the curated registry as SAFE metadata for the chat picker. Reuses providers.js validation;
+    // a key's NAME (authEnv) may appear, never a value. The socket is 0600 so this is owner-only regardless.
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ providers: providerList().map((e) => ({ id: e.id, label: e.label, kind: e.kind, baseUrl: e.baseUrl, big_model: e.big_model, small_model: e.small_model, authKind: e.authKind, authLabel: e.authLabel, verified: e.verified, cost: e.cost, speed: e.speed, quality: e.quality })) }));
   } else if (req.url === '/usage') {
     // GET /usage — tokens/turns/ESTIMATED cost for today / last 7d / last 30d, from the bounded log tail.
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1870,6 +2029,21 @@ const server = http.createServer(async (req, res) => {
     // GET — list hooks WITHOUT secrets/hashes.
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(loadHooks().map((h) => ({ id: h.id, name: h.name, action: h.action, deliver: h.deliver, createdAt: h.createdAt }))));
+  } else if (req.method === 'GET' && req.url === '/ui/prefs') {
+    // presentation-only prefs; carries NO security knob. resolvePalette + toCssVars so callers get ready CSS.
+    const prefs = uiPalette.loadPrefs(UI_PREFS);
+    const palette = uiPalette.resolvePalette(prefs);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ prefs, palette, css: uiPalette.toCssVars(palette) }));
+  } else if (req.method === 'PUT' && req.url === '/ui/prefs') {
+    // savePrefs normalizes to the CLOSED schema {theme,animation,accent,character(,custom)} — any extra key
+    // (YOLO, permissionMode, apiKey, deny...) is dropped before write, so this can never touch the leash.
+    const body = await readBody(req); let spec = {}; try { spec = JSON.parse(body); } catch {}
+    const r = uiPalette.savePrefs(UI_PREFS, spec);
+    if (!r.ok) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: r.error })); return; }
+    const palette = uiPalette.resolvePalette(r.prefs);
+    logEvent({ ev: 'ui_prefs_update', theme: r.prefs.theme, animation: r.prefs.animation });
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, prefs: r.prefs, palette, css: uiPalette.toCssVars(palette) }));
   } else if (req.method === 'POST' && req.url.startsWith('/hook/')) {
     const m = req.url.match(/^\/hook\/(hk_[0-9a-f]{12})(\/delete)?$/);  // id validated; never interpolated into a shell
     if (!m) { res.writeHead(404); res.end(); return; }
