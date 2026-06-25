@@ -103,7 +103,10 @@ class ChatRegistry {
       model,
       providerId,
       connected: true,
-      key: sessionKey(model, providerId),                // the warm-session bucket this chat routes to
+      // PER-CHAT warm bucket: fold the chatId in so every tile is its OWN child process, never the shared main-brain
+      // bucket (sessionKey(model,'') is the overlay/TUI/CLI/voice conversation). This isolates context between tiles
+      // and makes disconnect reap only this tile's child, so closing a default tile can never kill the main brain.
+      key: sessionKey(model, providerId) + '#' + id,
       createdAt: existing ? existing.createdAt : t,
       lastActivity: t,
     };
