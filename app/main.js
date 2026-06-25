@@ -145,6 +145,24 @@ ipcMain.handle('urfael:vitals', () => daemonGet('/vitals'));
 ipcMain.handle('urfael:learn', () => daemonGet('/learn'));   // the learning ledger (Hearth view)
 ipcMain.handle('urfael:audit', () => daemonGet('/audit'));   // the team activity trail (Hearth view)
 ipcMain.handle('urfael:self-setting-confirm', (_e, prop) => daemonPostJson('/self-setting/confirm', prop));   // user clicked Confirm on a proposed cosmetic self-change
+// ---- multi-chat manager (Console): open/list/talk-to/close independent provider-bound chats (new terminal windows) ----
+ipcMain.handle('urfael:providers', () => daemonGet('/providers'));
+ipcMain.handle('urfael:chat-open', (_e, spec) => daemonPostJson('/chat', { model: (spec && spec.model) === 'opus' ? 'opus' : 'sonnet', providerId: (spec && typeof spec.providerId === 'string') ? spec.providerId.slice(0, 60) : '' }));
+ipcMain.handle('urfael:chat-close', (_e, id) => SAFE_ID.test(String(id)) ? daemonPostJson('/chat/' + id + '/disconnect', {}) : null);
+ipcMain.handle('urfael:chat-ask', (_e, id, text) => {
+  if (!SAFE_ID.test(String(id))) return { text: '(bad chat id)' };
+  return new Promise((resolve) => {
+    const req = http.request({ socketPath: SOCK, method: 'POST', path: '/chat/' + id + '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 200000 }, (res) => {
+      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => {
+        let out = ''; for (const ln of b.split('\n')) { const t = ln.trim(); if (!t) continue; try { const e = JSON.parse(t); if (e.kind === 'done') out = e.text || ''; } catch {} }
+        resolve({ text: out });
+      });
+    });
+    req.on('error', () => resolve({ text: '(brain unreachable)' }));
+    req.on('timeout', () => { req.destroy(); resolve({ text: '(timed out)' }); });
+    try { req.end(JSON.stringify({ text: String(text || '').slice(0, 8000) })); } catch { resolve({ text: '(error)' }); }
+  });
+});
 ipcMain.on('urfael:conversation-end', () => daemonPost('/conversation-end'));
 
 // ---- first-run GUI onboarding (so a non-technical user never needs a terminal) ----

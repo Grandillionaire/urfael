@@ -4,7 +4,7 @@
 // onto it. Keyboard-first: ⌘1–6 views, ⌘K/⌘P command palette, ⌘F archive search, Enter sends, ↑ recalls.
 
 const $ = (s) => document.querySelector(s);
-const VIEWS = ['converse', 'archive', 'reminders', 'jobs', 'hearth', 'settings'];
+const VIEWS = ['converse', 'archive', 'reminders', 'jobs', 'hearth', 'settings', 'chats'];
 
 // ---- first-run onboarding (no terminal needed) -----------------------------
 (function onboarding() {
@@ -58,6 +58,7 @@ function show(v) {
   if (v === 'jobs') loadJobs();
   if (v === 'hearth') loadHearth();
   if (v === 'settings') loadSettings();
+  if (v === 'chats') initChats();
   if (v === 'converse') $('#input').focus();
 }
 document.querySelectorAll('.nav').forEach((b) => b.addEventListener('click', () => show(b.dataset.view)));
@@ -65,7 +66,7 @@ document.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if ((e.metaKey || e.ctrlKey) && (k === 'k' || k === 'p')) { e.preventDefault(); Palette.toggle(); return; } // ⌘K / ⌘P → command palette
   if (Palette.isOpen()) return;                                                                                // palette is modal — let it own the keys
-  if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '6') { e.preventDefault(); show(VIEWS[+e.key - 1]); }
+  if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '7') { e.preventDefault(); show(VIEWS[+e.key - 1]); }
   if ((e.metaKey || e.ctrlKey) && k === 'f' && view === 'archive') { e.preventDefault(); $('#arch-search').focus(); } // ⌘F → archive search (when in view)
 });
 
@@ -421,6 +422,52 @@ async function loadSettings() {
     f.addEventListener('change', () => window.urfael.setConfig(key, f.value));
     grid.append(l, f);
   }
+}
+
+// ---- multi-chat manager: open independent provider-bound chats, each its own tile (like new terminal windows) ----
+let chatsInit = false;
+function escC(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function renderHLC(text) { return escC(text).replace(/==([^=]+?)==/g, '<mark class="hl">$1</mark>'); } // gold key-point marker (escape first → XSS-safe)
+async function initChats() {
+  if (chatsInit) return; chatsInit = true;
+  // populate the provider picker once (the subscription default is already in the markup)
+  try { const d = await window.urfael.providers(); const sel = $('#c-provider');
+    ((d && d.providers) || []).forEach((p) => { if (!p || !p.id) return; const o = document.createElement('option');
+      o.value = p.id; o.textContent = (p.label || p.id) + (p.verified === false ? ' (needs key)' : ''); sel.appendChild(o); }); } catch {}
+  $('#c-new').addEventListener('click', newChatC);
+}
+async function newChatC() {
+  const b = $('#c-new'); b.disabled = true;
+  try {
+    const c = await window.urfael.chatOpen({ model: $('#c-model').value, providerId: $('#c-provider').value });
+    if (c && c.chatId) addTileC(c); else alert('Could not open the chat' + (c && c.error ? ': ' + c.error : '') + '.');
+  } catch {} finally { b.disabled = false; }
+}
+function addTileC(c) {
+  const provLabel = c.providerId ? c.providerId : 'subscription';
+  const tile = document.createElement('div'); tile.className = 'ctile';
+  tile.innerHTML = '<div class="cth"><span class="cdot"></span>'
+    + '<span class="ctt">' + escC(c.model || 'sonnet') + ' <span class="cpr">· ' + escC(provLabel) + '</span></span>'
+    + '<button class="cbtn cmin" title="minimize">–</button><button class="cbtn cclose" title="close chat">✕</button></div>'
+    + '<div class="cbody"></div>'
+    + '<div class="cfoot"><input type="text" placeholder="message this chat…" autocomplete="off"><button>send</button></div>';
+  $('#c-grid').appendChild(tile);
+  const body = tile.querySelector('.cbody'), input = tile.querySelector('.cfoot input'),
+        sendb = tile.querySelector('.cfoot button'), dot = tile.querySelector('.cdot');
+  async function doSend() {
+    const t = input.value.trim(); if (!t) return; input.value = '';
+    const u = document.createElement('div'); u.className = 'cmsg u'; u.textContent = t; body.appendChild(u);
+    const a = document.createElement('div'); a.className = 'cmsg a'; a.textContent = '…'; body.appendChild(a);
+    body.scrollTop = body.scrollHeight; dot.className = 'cdot busy'; sendb.disabled = true; input.disabled = true;
+    try { const r = await window.urfael.chatAsk(c.chatId, t); a.innerHTML = renderHLC((r && r.text) || '(no reply)'); }
+    catch { a.textContent = '(error)'; }
+    dot.className = 'cdot'; sendb.disabled = false; input.disabled = false; body.scrollTop = body.scrollHeight; input.focus();
+  }
+  sendb.addEventListener('click', doSend);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSend(); });
+  tile.querySelector('.cmin').addEventListener('click', () => tile.classList.toggle('min'));
+  tile.querySelector('.cclose').addEventListener('click', () => { try { window.urfael.chatClose(c.chatId); } catch {} tile.remove(); });
+  input.focus();
 }
 
 // jump-to-latest appears whenever the reader is scrolled away from the live tail (NN/G)
