@@ -259,7 +259,7 @@ function runModel(arg) {
   if (body === 'bad') { add('sys', '╶ /model takes opus · sonnet · auto · status'); render(); return; }
   const ix = pending('model…');
   req('POST', '/model', body)
-    .then((r) => settle(ix, 'model: ' + (r && (r.text || ('pinned ' + (r.pinned || 'auto') + ' · using ' + (r.model || '?'))))))
+    .then((r) => { settle(ix, 'model: ' + (r && (r.text || ('pinned ' + (r.pinned || 'auto') + ' · using ' + (r.model || '?'))))); refreshVitals(); })   // repaint the header chip now, not next turn
     .catch(() => settle(ix, 'model: daemon unreachable'));
 }
 
@@ -272,7 +272,8 @@ function runPersona(arg) {
     .then((r) => {
       if (r && r.error) return settle(ix, 'persona: ' + r.error);
       if (r && r.text) return settle(ix, r.text);
-      if (r && r.display) return settle(ix, 'persona: ' + (r.display.glyph ? r.display.glyph + ' ' : '') + (r.display.name || a));
+      if (r && r.display) { refreshVitals(); return settle(ix, 'persona: ' + (r.display.glyph ? r.display.glyph + ' ' : '') + (r.display.name || a)); }
+      refreshVitals();   // repaint the header persona chip now
       settle(ix, 'persona updated');
     })
     .catch(() => settle(ix, 'persona: daemon unreachable'));
@@ -323,7 +324,7 @@ function openThemePicker() {
     title: 'Theme', hint: '↑↓ preview · Enter keep · Esc revert', all, query: '',
     sel: Math.max(0, all.findIndex((it) => it.current)), live: true,
     onMove: (it) => { cfg = theme.setTheme(cfg, it.value, baseEnv, cfg.isTTY); rend.resetFrame(); },
-    onPick: (it) => { cfg = theme.setTheme(cfg, it.value, baseEnv, cfg.isTTY); closePicker(); rend.resetFrame(); add('sys', '╶ theme: ' + it.value); render(); },
+    onPick: (it) => { cfg = theme.setTheme(cfg, it.value, baseEnv, cfg.isTTY); persistTuiPref({ theme: it.value }); closePicker(); rend.resetFrame(); add('sys', '╶ theme: ' + it.value); render(); },
     onCancel: () => { cfg = original; rend.resetFrame(); },
   };
   render();
@@ -336,7 +337,7 @@ function openAnimPicker() {
   picker = {
     title: 'Worker animation', hint: '↑↓ choose · Enter keep · Esc cancel', all, query: '',
     sel: Math.max(0, all.findIndex((it) => it.current)), live: false,
-    onPick: (it) => { cfg = theme.setAnim(cfg, it.value); closePicker(); add('sys', '╶ animation: ' + it.value); render(); }, onCancel: null,
+    onPick: (it) => { cfg = theme.setAnim(cfg, it.value); persistTuiPref({ animation: it.value }); closePicker(); add('sys', '╶ animation: ' + it.value); render(); }, onCancel: null,
   };
   render();
 }
@@ -453,7 +454,21 @@ function abortTurn() {
   req('POST', '/abort').catch(() => {});
 }
 
-function refreshVitals() { req('GET', '/vitals').then((v) => { if (v && typeof v === 'object') { vitals = v; render(); } }).catch(() => {}); }
+// persist a TUI presentation choice to the unified ui-prefs.json (the single source of truth the dashboard + daemon
+// also read). Merge so saving a theme never clobbers the animation. Closed schema, fail-soft, zero new deps.
+function persistTuiPref(patch) {
+  try { const up = require('./ui-palette'); const pp = up.defaultPrefsPath(); up.savePrefs(pp, { ...up.loadPrefs(pp), ...patch }); } catch {}
+}
+// live-apply a theme/anim that changed underneath us (e.g. the owner told Urfael "change your theme to ember", which
+// the daemon wrote to ui-prefs and now reports in /vitals). Rebuild cfg + repaint so the open cockpit changes without
+// a relaunch. Only acts on a real change, so it is a no-op on every quiet poll.
+function applyVitalsLook(v) {
+  let changed = false;
+  if (v && v.uiTheme && v.uiTheme !== cfg.themeName) { cfg = theme.setTheme(cfg, v.uiTheme, baseEnv, cfg.isTTY); changed = true; }
+  if (v && v.uiAnim && v.uiAnim !== cfg.anim) { cfg = theme.setAnim(cfg, v.uiAnim); changed = true; }
+  if (changed) { rend.resetFrame(); render(); }
+}
+function refreshVitals() { req('GET', '/vitals').then((v) => { if (v && typeof v === 'object') { vitals = v; applyVitalsLook(v); render(); } }).catch(() => {}); }
 
 // ---- terminal lifecycle: ONE cleanup, wired to every exit path ----
 let cleaned = false;
@@ -484,8 +499,8 @@ function onKey(str, key) {
   if (key.ctrl && key.name === 'c') { if (inflight) { abortTurn(); return; } return quit(0); }
   if (key.ctrl && key.name === 'd') { return quit(0); }
   if (key.ctrl && key.name === 'l') { lines.length = 0; scroll = 0; rend.resetFrame(); render(); return; }
-  if (key.ctrl && key.name === 't') { cfg = theme.withTheme(cfg, baseEnv, cfg.isTTY); rend.resetFrame(); render(); return; }   // cycle theme
-  if (key.ctrl && key.name === 'y') { cfg = theme.withAnim(cfg); render(); return; }                                          // cycle animation
+  if (key.ctrl && key.name === 't') { cfg = theme.withTheme(cfg, baseEnv, cfg.isTTY); persistTuiPref({ theme: cfg.themeName }); rend.resetFrame(); render(); return; }   // cycle theme (persisted)
+  if (key.ctrl && key.name === 'y') { cfg = theme.withAnim(cfg); persistTuiPref({ animation: cfg.anim }); render(); return; }                                          // cycle animation (persisted)
   if (key.ctrl && key.name === 'p') {                                                                                          // history: older
     if (inflight) return;
     if (histIdx < 0) histDraft = input;
@@ -565,6 +580,10 @@ function run() {
   add('sys', 'Urfael · type / for commands · scroll with the mouse wheel or ↑↓ PgUp (Home oldest, End newest) · Shift+Enter for a new line · ^P/^N walk your input history · Enter sends · Esc aborts · q quits · ^L clears');
   render();
   refreshVitals();
+  // idle poll: pick up a daemon-driven look change (NL "change your theme to ember") + keep the header chip fresh,
+  // even when the cockpit is idle (refreshVitals otherwise only fires at startup + after a turn). unref'd so it
+  // never holds the process open; applyVitalsLook is a no-op unless something actually changed.
+  { const t = setInterval(refreshVitals, 3000); if (t.unref) t.unref(); }
 }
 
 module.exports = { run, _internals: { buildPicker, buildMenu, sanitize, dropLastGrapheme } };
