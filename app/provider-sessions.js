@@ -168,6 +168,19 @@ class ChatRegistry {
     return false;
   }
 
+  // reapIdle(maxIdleMs) — disconnect every connected chat with no activity for maxIdleMs and return their keys, so
+  // the daemon can SIGKILL the orphaned warm children. This is the safety net for a chat whose client vanished
+  // without a clean /disconnect (a hard browser/tab kill, a crash, a mobile force-quit): its warm process would
+  // otherwise leak forever. Each per-chat key is unique, so a reaped key is always free to kill.
+  reapIdle(maxIdleMs, now) {
+    const t = typeof now === 'number' ? now : this._now();
+    const keys = [];
+    for (const r of this._chats.values()) {
+      if (r.connected && (t - r.lastActivity) > maxIdleMs) { r.connected = false; keys.push(r.key); }
+    }
+    return keys;
+  }
+
   // size — number of tracked chats (connected + disconnected-but-retained).
   get size() { return this._chats.size; }
 
