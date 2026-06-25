@@ -14,7 +14,7 @@ const orb = new UrfaelOrb(canvas);
 let ctx, analyser, micAnalyser, td;
 let micStream = null, micSource = null, recorder = null, chunks = [];
 let state = 'idle';
-let convo = false, loopRunning = false;
+let convo = false, loopRunning = false, manualRec = false, handsFree = false;
 let recording = false, speechAt = 0, lastVoice = 0, bargeFrames = 0;
 let liveTurn = 0, mutedTurn = -1, audioQ = [], pendingFetches = 0, playing = false, curSource = null, streamEnded = false;
 let finished = false, finishTimer = null;
@@ -41,9 +41,30 @@ const TOOL_LABEL = (n) => {
 function setState(s, text) {
   state = s;
   orb.setState(s === 'capturing' ? 'listening' : s);
-  const lbl = { idle: convo ? 'Listening…' : `Say “${wakeLabel()}”…`, capturing: 'Listening… (tap to stop)', thinking: 'Thinking…', speaking: '' };
+  const capLbl = manualRec ? 'Recording… tap to send' : 'Listening… (tap to stop)';
+  const lbl = { idle: convo ? 'Tap to talk…' : `Tap or say “${wakeLabel()}”…`, capturing: capLbl, thinking: 'Thinking…', speaking: '' };
   caption.textContent = text != null ? text : (lbl[s] || '');
   caption.classList.toggle('dim', s === 'idle' && !convo);
+  wakeActivity();   // any state change is activity: revive from dormancy + restart the idle countdown
+}
+
+// ---- graduated dormancy: in use -> (idle) dim -> minimized to the corner; hover-dwell to revive --------------
+// What a user needs: when they are working, the orb is out of the way (fades, shrinks into the corner) so it never
+// fights the browsing experience; bringing it back is a deliberate, satisfying hover, not an accidental twitch.
+let dormTimer = null, dwellTimer = null;
+const IDLE_DIM_MS = 12000;          // after this idle, the orb fades back so it stops competing for attention
+const IDLE_MIN_MS = 32000;          // after this, it shrinks and tucks into the corner (a quiet ember)
+const REVIVE_DWELL_MS = 480;        // hover this long over it to wake it (short enough to feel alive, long enough not to fire by accident)
+function busyNow() { return convo || recording || state === 'thinking' || state === 'speaking'; }
+function wakeActivity() {
+  document.body.classList.remove('dorm-dim', 'dorm-min');
+  if (dormTimer) clearTimeout(dormTimer);
+  if (busyNow()) return;            // never go dormant mid-conversation / mid-answer
+  dormTimer = setTimeout(() => {
+    if (busyNow()) return;
+    document.body.classList.add('dorm-dim');
+    dormTimer = setTimeout(() => { if (!busyNow()) document.body.classList.add('dorm-min'); }, IDLE_MIN_MS - IDLE_DIM_MS);
+  }, IDLE_DIM_MS);
 }
 
 function ensureAudio() {
@@ -232,6 +253,11 @@ const HOT = '#orb, #close, .chip, #rail, #dock, #cmdline';
 window.addEventListener('mousemove', (e) => {
   const over = !!(e.target.closest && e.target.closest(HOT));
   if (over !== interactiveNow) { interactiveNow = over; window.urfael.setInteractive(over); }
+  // hover-dwell to revive from dormancy: a deliberate hover wakes it, a passing cursor does not.
+  const dorm = document.body.classList.contains('dorm-dim') || document.body.classList.contains('dorm-min');
+  const overOrb = !!(e.target.closest && e.target.closest('#orbwrap'));
+  if (dorm && overOrb) { if (!dwellTimer) dwellTimer = setTimeout(() => { dwellTimer = null; wakeActivity(); }, REVIVE_DWELL_MS); }
+  else if (dwellTimer) { clearTimeout(dwellTimer); dwellTimer = null; }
 });
 
 // dock launcher chips — set these to your own projects/areas (tap a chip → "Brief me on <name>")
@@ -305,7 +331,11 @@ function finishSpeaking() {
   if (finished) return; finished = true;
   streamEnded = false;
   if (finishTimer) clearTimeout(finishTimer);
-  finishTimer = setTimeout(() => { if (convo) beginListening(); else { window.urfael.wakeDone(); setState('idle'); scheduleCollapse(); } }, 250);
+  finishTimer = setTimeout(() => {
+    if (convo && handsFree) beginListening();                       // wake-word mode: auto-listen for the next turn
+    else if (convo) setState('idle', 'Tap to talk…');               // manual mode: mic stays warm, wait for the next tap
+    else { window.urfael.wakeDone(); setState('idle'); scheduleCollapse(); }
+  }, 250);
 }
 function stopPlayback() {
   if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
@@ -317,7 +347,7 @@ function beginListening() { if (!convo) return; if (finishTimer) { clearTimeout(
 function convoLoop() {
   if (!convo) { loopRunning = false; return; }
   const lvl = rms(), now = performance.now();
-  if (state === 'capturing') {
+  if (state === 'capturing' && !manualRec) {   // VAD auto start/stop is for the hands-free wake-word path only
     if (!recording) { if (lvl > START_RMS) startRec(now); }
     else { if (lvl > KEEP_RMS) lastVoice = now; if (now - speechAt > MAX_MS || now - lastVoice > SILENCE_MS) stopRec(); }
   } else if (state === 'speaking') {
@@ -335,6 +365,7 @@ function startRec(now) {
 }
 function stopRec() { recording = false; if (recorder && recorder.state !== 'inactive') recorder.stop(); }
 async function handleUtterance() {
+  manualRec = false;
   setState('thinking', 'Transcribing…');
   const said = await transcribe(new Blob(chunks, { type: 'audio/webm' }));
   const clean = (said || '').replace(/[\(\[][^)\]]*[\)\]]/g, '').trim();
@@ -360,31 +391,58 @@ cmdline.addEventListener('keydown', (e) => {
   if (state !== 'capturing') setState('thinking');
   submitAsk(text);
 });
-window.urfael.onWake((p) => {
-  if (p.detected) enterConversation();
-  else if (p.ready) setState('idle', `Say “${wakeLabel()}”…`);
-  else if (p.noKey) setState('idle', 'Tap to start (add a Picovoice key)');
-  else if (p.error) setState('idle', 'Tap to start');
+window.urfael.onWake(async (p) => {
+  if (p.detected) { wakeActivity(); const ok = await enterConversation(); if (ok !== false) { manualRec = false; handsFree = true; beginListening(); } }   // wake word: hands-free VAD
+  else if (p.ready) setState('idle', `Tap or say “${wakeLabel()}”…`);
+  else if (p.noKey) setState('idle', 'Tap to talk');
+  else if (p.error) setState('idle', 'Tap to talk');
 });
-canvas.addEventListener('click', () => { ensureAudio(); if (convo) endConversation(); else enterConversation(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.urfael.hide(); });
+// PRESS TO TALK (deterministic): tap to record, tap again to send + process. No guessing when you are done; you
+// decide. A long-press (or Escape while recording) cancels without sending, so an accidental tap costs nothing.
+let tapDownAt = 0;
+async function orbTap() {
+  ensureAudio(); wakeActivity();
+  if (recording) { manualRec = false; stopRec(); return; }          // second tap: stop + process what you said
+  if (!convo) { const ok = await enterConversation(); if (ok === false) return; }   // first tap: open the mic
+  manualStart();                                                    // then record continuously until the next tap
+}
+function manualStart() {
+  if (!micStream || recording) return;
+  manualRec = true; handsFree = false; if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; }
+  setState('capturing'); startRec(performance.now());
+  if (!loopRunning) { loopRunning = true; convoLoop(); }   // keep the loop alive for barge-in during the answer
+}
+function cancelRec() {   // discard the current recording without sending it
+  if (!recording) return;
+  manualRec = false; if (recorder) recorder.onstop = null;
+  try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch {}
+  recording = false; chunks = [];
+  if (convo) beginListening(); else resetIdle('');
+}
+canvas.addEventListener('mousedown', () => { tapDownAt = performance.now(); });
+canvas.addEventListener('mouseup', () => {
+  const held = performance.now() - tapDownAt;
+  if (recording && held > 600) { cancelRec(); return; }   // long-press while recording = cancel
+  orbTap();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (recording) cancelRec(); else window.urfael.hide(); } });
 window.urfael.onShown(() => ensureAudio());
 async function enterConversation() {
-  if (convo) return;
+  if (convo) return true;
   convo = true; escalate('active'); window.urfael.wakePause(); ensureAudio();
   try { micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
-  catch { convo = false; return resetIdle('Mic blocked — enable it in System Settings'); }
+  catch { convo = false; resetIdle('Mic blocked — enable it in System Settings'); return false; }
   micSource = ctx.createMediaStreamSource(micStream);
   micSource.connect(micAnalyser); micSource.connect(analyser);
-  beginListening();
+  return true;
 }
 function releaseMic() {
   if (micSource) { try { micSource.disconnect(); } catch {} micSource = null; }
   if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
 }
-function resetIdle(msg) { convo = false; stopPlayback(); releaseMic(); window.urfael.wakeDone(); setState('idle', msg); scheduleCollapse(); }
+function resetIdle(msg) { convo = false; manualRec = false; handsFree = false; stopPlayback(); releaseMic(); window.urfael.wakeDone(); setState('idle', msg); scheduleCollapse(); }
 function endConversation() {
-  convo = false; recording = false; if (window.urfael.abort) window.urfael.abort(); stopPlayback();
+  convo = false; recording = false; manualRec = false; handsFree = false; if (window.urfael.abort) window.urfael.abort(); stopPlayback();
   if (recorder && recorder.state !== 'inactive') { try { recorder.onstop = null; recorder.stop(); } catch {} }
   releaseMic(); window.urfael.wakeDone(); window.urfael.conversationEnd();
   setState('idle', `Stopped — say “${wakeLabel()}”`); scheduleCollapse();

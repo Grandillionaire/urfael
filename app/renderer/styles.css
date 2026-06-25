@@ -19,7 +19,15 @@ canvas { display: block; }
 #orbwrap {
   position: fixed; right: 8px; bottom: 8px; z-index: 4;
   width: 380px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  transform-origin: bottom right;
+  transition: opacity .9s ease, transform .9s cubic-bezier(.2,.8,.2,1), filter .9s ease;
 }
+/* graduated dormancy: after idle the orb fades back (stops competing for attention), then shrinks into the corner.
+   A deliberate hover-dwell (JS) removes these classes and it eases back to full presence. Never applied mid-turn. */
+body.dorm-dim #orbwrap { opacity: 0.4; filter: saturate(0.85); }
+body.dorm-min #orbwrap { opacity: 0.16; transform: translate(30px, 30px) scale(0.5); filter: saturate(0.7); }
+body.dorm-dim #caption, body.dorm-dim #dock,
+body.dorm-min #wordmark, body.dorm-min #runes, body.dorm-min #caption, body.dorm-min #dock { opacity: 0; }
 #orb { -webkit-app-region: no-drag; cursor: pointer; transition: transform 0.4s cubic-bezier(.2,.8,.2,1); }
 body.state-idle #orb { transform: scale(0.62); }
 #runes { margin-top: -4px; height: 15px; opacity: 0.85; filter: drop-shadow(0 0 5px rgba(212,168,90,0.45)); }
