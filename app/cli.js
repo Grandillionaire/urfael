@@ -823,6 +823,12 @@ function printPluginPreview(ph, m) {
   }
 
   if (!(await ensureDaemon())) { console.error(bad('✗') + ' I could not wake the brain, sir.' + dim('   run  ') + gold('urfael doctor') + dim('  to see why, or check  ~/.claude/urfael/daemon.log')); process.exit(1); }
+  // Register this terminal so other Urfael sessions can see it, then heartbeat on an unref'd interval, and disconnect on exit.
+  // Fire-and-forget over the existing 0600 socket; every call swallows its error so presence can never break a command.
+  const cid = 'cli-' + process.pid;
+  req('POST', '/clients', { clientId: cid, surface: 'cli' }).catch(() => {});
+  const hb = setInterval(() => { req('POST', '/clients', { clientId: cid, beat: true }).catch(() => {}); }, 30000); if (hb.unref) hb.unref();
+  process.on('exit', () => { try { req('POST', '/clients', { clientId: cid, disconnect: true }).catch(() => {}); } catch {} });
   // tui: hand the terminal to the full-screen cockpit (ensureDaemon ran first so spawn logs can't corrupt the alt buffer)
   if (cmd === 'tui') { require('./tui').run(); return; }
   // acp: the ACP stdio bridge — an editor (Zed/JetBrains/Neovim/VS Code) spawns this and drives Urfael over JSON-RPC
