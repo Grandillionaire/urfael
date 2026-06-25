@@ -11,6 +11,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const uiPalette = require('./ui-palette');  // unified presentation prefs -> live CSS vars (closed schema; no security knob)
 
 const HOST = '127.0.0.1';                                  // loopback ONLY — never 0.0.0.0, never a LAN/public iface
 const PORT = Math.min(Math.max(parseInt(process.env.URFAEL_DASHBOARD_PORT, 10) || 7717, 1), 65535);
@@ -148,6 +149,7 @@ function pageHtml() {
 <title>Urfael</title>
 <style>
 :root{--gold:#d8a23a;--gold2:#f0c768;--bg:#0c0b09;--bg2:#15130f;--ink:#ece6d8;--dim:#8a836f}
+${(() => { try { return uiPalette.toCssVars(uiPalette.resolvePalette(uiPalette.loadPrefs())); } catch { return ''; } })()}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
 body{margin:0;background:radial-gradient(1200px 600px at 70% -10%,#1c180f,#0c0b09);color:#ece6d8;font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
 header{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 12px;padding:18px 22px;padding-left:max(22px,env(safe-area-inset-left));padding-right:max(22px,env(safe-area-inset-right));border-bottom:1px solid #2a2419}

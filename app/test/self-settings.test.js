@@ -215,3 +215,23 @@ test('end-to-end: a cosmetic directive parses, validates, and needs confirm', ()
   assert.strictEqual(a.key, 'tuiTheme');
   assert.strictEqual(a.value, 'ember');
 });
+
+// ---------- controlHint: the brain nudge (message content only) ----------
+test('controlHint fires only on cosmetic-customization intents, empty otherwise', () => {
+  for (const q of ['change your theme to ember', 'be more concise', 'switch to the architect persona',
+                   'make your voice quieter', 'use the rune animation', 'talk less']) {
+    const h = ss.controlHint(q);
+    assert.ok(h.length > 0, 'expected a hint for: ' + q);
+    assert.ok(h.includes('<<urfael:set'), 'hint must teach the directive grammar');
+  }
+  for (const q of ['what is the capital of France', 'write me a haiku', 'fix the bug in foo.js', '']) {
+    assert.strictEqual(ss.controlHint(q), '', 'normal message must get NO hint: ' + q);
+  }
+});
+
+test('controlHint never tells the brain it can change a security key', () => {
+  const h = ss.controlHint('change your theme');
+  // the hint enumerates ONLY the registry keys; no security/credential vocabulary leaks in as a settable key.
+  assert.ok(!/key=(permission|yolo|api|credential|bypassPermissions|provider|model)\b/i.test(h));
+  assert.ok(/NEVER emit it for permissions, security, credentials/i.test(h), 'must explicitly forbid power keys');
+});
