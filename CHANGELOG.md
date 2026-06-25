@@ -10,7 +10,7 @@ The "one-click download" release.
 
 ### Fixed
 
-- **The download buttons now download.** The site's "Download for macOS" and "Download for Linux" buttons used to land you on the GitHub releases page, where you had to find the right file yourself. They now point straight at the installer. To make those links survive every future release, the installers ship with stable, version-less names (`Urfael-arm64.dmg`, `Urfael-x64.AppImage`) so `releases/latest/download/...` always resolves to the current build.
+- **The download buttons now download.** The site's "Download for macOS" and "Download for Linux" buttons used to land you on the GitHub releases page, where you had to find the right file yourself. They now point straight at the installer. To make those links survive every future release, the installers ship with stable, version-less names (`Urfael-arm64.dmg`, `Urfael-x86_64.AppImage`) so `releases/latest/download/...` always resolves to the current build.
 
 ## [0.8.5] - 2026-06-24
 
