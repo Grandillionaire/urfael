@@ -21,6 +21,8 @@ let finished = false, finishTimer = null;
 
 const START_RMS = 0.05, KEEP_RMS = 0.03, SILENCE_MS = 700, MAX_MS = 12000;  // 700ms end-of-speech (was 850) — snappier without clipping
 const BARGE_RMS = 0.085, BARGE_FRAMES = 10;
+const HANDSFREE_IDLE_MS = 25000;   // a hands-free (wake-word) conversation that sits silent this long ends itself: releases the mic + re-arms the wake word
+let idleSince = 0;                 // when the current hands-free capture started waiting for speech
 
 // Robust to both aliases ('sonnet'/'opus') and full ids ('claude-opus-4-8') so the HUD label
 // keeps working whatever the daemon reports.
@@ -343,12 +345,12 @@ function stopPlayback() {
   if (curSource) { try { curSource.onended = null; curSource.stop(); } catch {} curSource = null; }
   audioQ = []; playing = false; streamEnded = false; pendingFetches = 0;
 }
-function beginListening() { if (!convo) return; if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; } setState('capturing'); recording = false; bargeFrames = 0; if (!loopRunning) { loopRunning = true; convoLoop(); } }
+function beginListening() { if (!convo) return; if (finishTimer) { clearTimeout(finishTimer); finishTimer = null; } setState('capturing'); recording = false; bargeFrames = 0; idleSince = performance.now(); if (!loopRunning) { loopRunning = true; convoLoop(); } }
 function convoLoop() {
   if (!convo) { loopRunning = false; return; }
   const lvl = rms(), now = performance.now();
   if (state === 'capturing' && !manualRec) {   // VAD auto start/stop is for the hands-free wake-word path only
-    if (!recording) { if (lvl > START_RMS) startRec(now); }
+    if (!recording) { if (lvl > START_RMS) startRec(now); else if (now - idleSince > HANDSFREE_IDLE_MS) { endConversation(); return; } }   // hands-free: end after a long silence (releases mic + re-arms the wake word)
     else { if (lvl > KEEP_RMS) lastVoice = now; if (now - speechAt > MAX_MS || now - lastVoice > SILENCE_MS) stopRec(); }
   } else if (state === 'speaking') {
     if (lvl > BARGE_RMS) { if (++bargeFrames >= BARGE_FRAMES) barge(); } else bargeFrames = 0;
@@ -403,6 +405,9 @@ let tapDownAt = 0;
 async function orbTap() {
   ensureAudio(); wakeActivity();
   if (recording) { manualRec = false; stopRec(); return; }          // second tap: stop + process what you said
+  if (state === 'speaking' || state === 'thinking' || playing) {    // tap during an answer = interrupt it, like a voice barge
+    mutedTurn = liveTurn; if (window.urfael.abort) window.urfael.abort(); stopPlayback();
+  }
   if (!convo) { const ok = await enterConversation(); if (ok === false) return; }   // first tap: open the mic
   manualStart();                                                    // then record continuously until the next tap
 }
@@ -427,6 +432,7 @@ canvas.addEventListener('mouseup', () => {
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (recording) cancelRec(); else window.urfael.hide(); } });
 window.urfael.onShown(() => ensureAudio());
+window.urfael.onHidden(() => { if (convo) endConversation(); });   // dismissing the overlay releases the mic + re-arms the wake word
 async function enterConversation() {
   if (convo) return true;
   convo = true; escalate('active'); window.urfael.wakePause(); ensureAudio();
