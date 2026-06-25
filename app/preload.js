@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('urfael', {
   wakePause: () => ipcRenderer.send('urfael:wake-pause'),
   wakeDone: () => ipcRenderer.send('urfael:wake-done'),
   onShown: (cb) => ipcRenderer.on('urfael:shown', () => cb()),
+  onHidden: (cb) => ipcRenderer.on('urfael:hidden', () => cb()),   // overlay dismissed -> renderer ends a live conversation (release mic)
   onThinking: (cb) => ipcRenderer.on('urfael:thinking', (_e, p) => cb(p)),
   onSay: (cb) => ipcRenderer.on('urfael:say', (_e, p) => cb(p)),
   onDone: (cb) => ipcRenderer.on('urfael:done', (_e, p) => cb(p)),
