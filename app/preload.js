@@ -31,6 +31,10 @@ contextBridge.exposeInMainWorld('urfael', {
   setConfig: (k, v) => ipcRenderer.send('urfael:set-config', k, v),
   providerStatus: () => ipcRenderer.invoke('urfael:provider-status'),   // first-run onboarding
   saveProvider: (cfg) => ipcRenderer.invoke('urfael:save-provider', cfg),
+  providers: () => ipcRenderer.invoke('urfael:providers'),             // multi-chat: the provider/model picker list
+  chatOpen: (spec) => ipcRenderer.invoke('urfael:chat-open', spec),    // open a new provider-bound chat -> {chatId,...}
+  chatAsk: (id, text) => ipcRenderer.invoke('urfael:chat-ask', id, text), // talk to one chat -> {text}
+  chatClose: (id) => ipcRenderer.invoke('urfael:chat-close', id),      // disconnect one chat
   learn: () => ipcRenderer.invoke('urfael:learn'),                      // the verify-before-trust ledger
   audit: () => ipcRenderer.invoke('urfael:audit'),                      // the team-mode activity trail
   wakePause: () => ipcRenderer.send('urfael:wake-pause'),

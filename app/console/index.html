@@ -41,6 +41,7 @@
   <nav id="side" aria-label="Sections">
     <img id="mark" src="../renderer/urfael-logo.svg" alt="" width="34" height="34" />
     <button class="nav" data-view="converse" aria-label="Converse (⌘1)"><span class="rune">ᚢ</span>Converse</button>
+    <button class="nav" data-view="chats" aria-label="Chats (⌘7)"><span class="rune">ᚲ</span>Chats</button>
     <button class="nav" data-view="archive" aria-label="Archive (⌘2)"><span class="rune">ᚨ</span>Archive</button>
     <button class="nav" data-view="reminders" aria-label="Reminders (⌘3)"><span class="rune">ᚱ</span>Reminders</button>
     <button class="nav" data-view="jobs" aria-label="Jobs (⌘4)"><span class="rune">ᚠ</span>Jobs</button>
@@ -77,6 +78,16 @@
           <svg class="i-stop" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>
         </button>
       </div>
+    </section>
+
+    <!-- Chats: open independent provider-bound chats, each its own tile (like new terminal windows) -->
+    <section id="view-chats" class="view" hidden>
+      <div id="chats-bar">
+        <select id="c-model" title="model"><option value="sonnet">Sonnet</option><option value="opus">Opus</option></select>
+        <select id="c-provider" title="provider"><option value="">Claude (subscription)</option></select>
+        <button id="c-new">+ New chat</button>
+      </div>
+      <div id="c-grid"></div>
     </section>
 
     <!-- Archive -->
