@@ -160,6 +160,26 @@ function daemonChatAskTo(chatId, text, res) {
 function sendJson(res, code, obj) { const s = JSON.stringify(obj); res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(s); }
 function unauthorized(res) { res.writeHead(401, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); res.end('unauthorized'); } // no info leak
 
+// ---- live presentation prefs: resolve ui-prefs.json into a flat { '--token': color } map so an ALREADY-OPEN
+// dashboard can recolor live (the 5s poll diffs it and style.setProperty's each var) without a full reload.
+// ui-prefs.json stays the single source of truth; the palette is presentation-only (closed schema, no credential
+// or permission key). Every value is re-gated with uiPalette.isSafeColor so nothing unsafe can reach the DOM —
+// the same final gate toCssVars uses; we emit a JSON object (no <style> string, no innerHTML on the client).
+function livePrefsVars() {
+  const out = {};
+  try {
+    const pal = uiPalette.resolvePalette(uiPalette.loadPrefs());
+    for (const key of uiPalette.TOKEN_KEYS) {
+      const v = pal[key];
+      if (typeof v === 'string' && uiPalette.isSafeColor(v)) out['--' + key] = v.trim();
+    }
+    // the two aliases the inline :root block actually consumes: --ink <- body, --gold2 <- accent
+    if (uiPalette.isSafeColor(pal.body)) out['--ink'] = pal.body.trim();
+    if (uiPalette.isSafeColor(pal.accent)) out['--gold2'] = pal.accent.trim();
+  } catch {}
+  return out;
+}
+
 // ---- the page: one self-contained inline HTML+JS doc, gold-on-dark, Console identity ------------------------
 function pageHtml() {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -352,6 +372,7 @@ function newChat(){
 function addTile(c){
   var provLabel=c.providerId?c.providerId:'subscription';
   var tile=document.createElement('div'); tile.className='chat-tile';
+  tile.setAttribute('data-chat-id',c.chatId);  // lets the pagehide teardown find every open chat to disconnect
   tile.innerHTML='<div class="ct-head"><span class="ct-dot"></span>'+
     '<span class="ct-title">'+esc(c.model||'sonnet')+' <span class="prov">· '+esc(provLabel)+'</span></span>'+
     '<button class="ct-btn ct-min" title="minimize">–</button>'+
@@ -383,8 +404,33 @@ function addTile(c){
   input.focus();
 }
 $('#newchat').addEventListener('click',newChat);
-loadProviders();
-function tick(){vit();usage();reminders();jobs();learn();audit()}
+// rehydrate chats orphaned by a page reload: the daemon still holds them warm, so list /api/chats and rebuild a tile
+// for each. addTile REUSES the existing daemon chat (it does NOT re-POST /api/chat), so a refreshed page can see,
+// reuse and close them again instead of leaking invisible, unclosable brain processes.
+function rehydrateChats(){return api('/api/chats').then(function(cs){
+  (cs&&cs.length?cs:[]).forEach(function(c){ if(c&&c.chatId) addTile(c); });
+}).catch(function(){})}
+loadProviders().then(rehydrateChats);
+// best-effort teardown on leave: pagehide (more reliable than beforeunload for PWA/mobile) beacons a disconnect for
+// every still-open tile so the daemon can reclaim the warm process instead of orphaning it. Same-origin sendBeacon
+// carries the HttpOnly cookie, so the loopback+token gate still authenticates it.
+window.addEventListener('pagehide',function(){ try{
+  var tiles=document.querySelectorAll('#chatgrid .chat-tile[data-chat-id]');
+  for(var i=0;i<tiles.length;i++){ var id=tiles[i].getAttribute('data-chat-id');
+    if(id&&navigator.sendBeacon) navigator.sendBeacon('/api/chat/'+encodeURIComponent(id)+'/disconnect',new Blob(['{}'],{type:'application/json'})); }
+}catch(e){} });
+// live-recolor an already-open dashboard: ui-prefs.json is the single source of truth, so the 5s poll fetches the
+// resolved {'--token':color} map (each value already isSafeColor-gated on the server) and, only when it changed,
+// pushes each onto document.documentElement via style.setProperty. No innerHTML, no injected <style> string.
+var _prefSig='';
+function prefs(){return api('/api/prefs').then(function(d){
+  var v=(d&&d.vars)||{}; var sig=JSON.stringify(v); if(sig===_prefSig)return; _prefSig=sig;
+  var rs=document.documentElement.style;
+  for(var k in v){ if(!Object.prototype.hasOwnProperty.call(v,k))continue; var val=v[k];
+    // belt-and-suspenders (server already gated): only our token names + a conservative color charset
+    if(/^--[a-z0-9]+$/i.test(k)&&typeof val==='string'&&/^[#a-z0-9(),.%/ -]+$/i.test(val)) rs.setProperty(k,val); }
+}).catch(function(){})}
+function tick(){vit();usage();reminders();jobs();learn();audit();prefs()}
 tick();setInterval(tick,5000);
 </script></body></html>`;
 }
@@ -439,6 +485,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/learn') return sendJson(res, 200, (await daemonGet('/learn')) || {});
     if (req.method === 'GET' && pathname === '/api/audit') return sendJson(res, 200, (await daemonGet('/audit')) || {});
     if (req.method === 'GET' && pathname === '/api/sessions') return sendJson(res, 200, await searchSessions(u.searchParams.get('q') || ''));
+    if (req.method === 'GET' && pathname === '/api/prefs') return sendJson(res, 200, { vars: livePrefsVars() }); // live recolor source (already-gated tokens)
     if (req.method === 'POST' && pathname === '/api/ask') {
       const body = await readBody(req); let parsed = {}; try { parsed = JSON.parse(body); } catch {}
       const text = typeof parsed.text === 'string' ? parsed.text.slice(0, 8000) : '';

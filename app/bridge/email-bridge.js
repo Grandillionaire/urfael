@@ -356,8 +356,11 @@ async function drain(imap) {
     // ALLOWLIST, BEFORE the brain (EMAIL_ALLOWED_SENDERS — already multi-sender). Not allowed => drop, audit,
     // mark processed (fetch hostile mail ONCE, never again).
     if (!ALLOWED.has(sender)) { core.audit({ ev: 'email_drop', from: sender }); seen(uid); continue; }
-    // TEAM MODE: assign a role via team.json (channel "email", id = the From address); else a default member.
-    const principal = core.resolvePrincipal('email', sender) || { id: sender, name: sender, role: 'member' };
+    // TEAM MODE: assign a role via team.json (channel "email", id = the From address). FAIL-CLOSED like every
+    // other channel: an allowlisted-but-unrostered sender defaults to the MOST-restricted 'guest' (NEVER 'member'),
+    // so a spoofed From on a known allowlisted address can't reach a web-egress/vault-search brain turn. The owner
+    // grants member/owner power deliberately by listing their address in team.json (or via EMAIL_OWNER_ADDRESS).
+    const principal = core.resolvePrincipal('email', sender) || { id: sender, name: sender, role: 'guest' };
     // Rate-limited: do NOT mark processed — it's allowlisted mail; leave it to retry once the bucket refills.
     if (!bucket.take()) { core.audit({ ev: 'email_ratelimited', from: sender }); continue; }
     const t0 = Date.now();
