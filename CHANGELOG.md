@@ -4,6 +4,23 @@ All notable changes to Urfael are recorded here. The format follows [Keep a Chan
 
 Run `urfael version` to see what you are on, and `urfael update` to pull and reinstall the latest.
 
+## [0.9.0] - 2026-06-25
+
+The "JARVIS" release (feat/jarvis-pillars). A large feature wave, each backend live-or-unit verified; UI surfacing is in progress.
+
+### Added
+
+- **Concurrent provider chats.** Open multiple chats at once, each bound to its own model/provider warm session, side by side, without disconnecting the others. New endpoints `/chat`, `/chat/<id>/ask`, `/chat/<id>/disconnect`, `/providers`. The dashboard now has a "+ New chat" button and per-chat tiles.
+- **Ask Urfael to change itself.** Plain-language requests to change its persona, verbosity, TUI theme/animation, or voice are proposed, confirmed ("yes"), and applied live. A hard allowlist + fail-closed denylist means it can never self-modify permissions, credentials, or security keys.
+- **Dedicated Reminders & Calendar channel.** A local-first, git-versioned calendar plus a `/schedule` chat that manages reminders and events in place (confirm-gated, local-only).
+- **Self-update.** Urfael notices a newer official version and, when you ask, fast-forwards the official remote (source installs) and reloads. Never silent; human-confirmed; official-source only.
+- **Cross-session awareness + UI customization primitives** (session bus, unified theming with a CSS sanitizer, per-model memory formatting + consolidation).
+- **Dashboard key-point highlighting.** On the dashboard, Urfael marks the load-bearing phrases of an answer with a gold highlight, after it finishes generating.
+
+### Changed
+
+- **Voice overlay reworked**: deterministic press-to-talk (tap to record, tap again to send) plus graduated dormancy (idle fade, then shrink into the corner, hover to revive).
+
 ## [0.8.7] - 2026-06-25
 
 The "the app actually opens" release.
