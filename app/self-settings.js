@@ -230,6 +230,27 @@ function auditPayload(proposal, decision) {
   };
 }
 
+// ---- controlHint: the brain nudge (message CONTENT, never the system prompt) ---------------------------------
+// If the owner's message looks like a request to change one of Urfael's OWN cosmetic settings, return a short
+// reference hint to APPEND to the message text. It is injected into the prompt CONTENT (exactly like the active-
+// recall block), never into --append-system-prompt, so the byte-identical anchor spawn invariant the security
+// benchmark checks is untouched. The brain may then emit ONE <<urfael:set ...>> directive; whatever it emits is
+// still vetted by the hard allowlist gate (validateProposal), so the nudge can never grant power, only convenience.
+// Returns '' when the message is not a customization request (the common case), so normal turns are unchanged.
+const CUSTOMIZE_RE = /\b(persona|verbosit|concise|terse|brief|succinct|verbose|wordier|talk less|less wordy|theme|colou?r ?scheme|your look|your appearance|animation|orb ?theme|your voice|read aloud|speak (less|more|up)|wear the|switch to the|be the|act as the|acknowledge|ack style)\b/i;
+function controlHint(userText) {
+  const t = String(userText == null ? '' : userText);
+  if (!CUSTOMIZE_RE.test(t)) return '';
+  return '\n\n[URFAEL CONTROLS — reference, not the user’s words]\n'
+    + 'If the user is asking you to change one of your OWN cosmetic settings, emit exactly one directive on its own '
+    + 'line: <<urfael:set key=KEY value=VALUE reason=short>>. KEY is one of: ' + REGISTRY_KEYS.join(', ') + '. '
+    + 'Valid values: persona=' + BUILTIN_PERSONA_IDS.join('/') + '; verbosity=' + VERBOSITY.join('/')
+    + '; tuiTheme=' + TUI_THEMES.join('/') + '; tuiAnimation=' + TUI_ANIMS.join('/') + '; orbTheme=' + ORB_THEMES.join('/')
+    + '; ackStyle=' + ACK_STYLES.join('/') + '; voiceOn=on/off. '
+    + 'NEVER emit it for permissions, security, credentials, providers, or models — you cannot change those. '
+    + 'Then tell the user what you are about to change; they confirm before it applies.';
+}
+
 module.exports = {
   REGISTRY,
   REGISTRY_KEYS,
@@ -238,5 +259,5 @@ module.exports = {
   // core API
   parseProposal, validateProposal, auditPayload,
   // helpers used by the daemon's confirm/apply loop
-  isDenied, needsConfirm, describeProposal,
+  isDenied, needsConfirm, describeProposal, controlHint,
 };
