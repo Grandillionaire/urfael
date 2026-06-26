@@ -44,8 +44,9 @@ const server = http.createServer((req, res) => {
   let body = '', over = false;
   req.on('data', (d) => { body += d; if (body.length > 65536) { over = true; req.destroy(); } });
   req.on('end', () => {
+   try {
     if (over) return;
-    const params = parseForm(body);
+    const params = parseForm(body);   // decodeURIComponent on a malformed body throws; fail closed without crashing the receiver
     if (!sigOk(PUBLIC + route, params, req.headers['x-twilio-signature'])) { core.audit({ ev: 'voice_badsig' }); forbid(res); return; }   // verify BEFORE parse/brain
     const parsed = vl.parseTwilioVoice(params);
     if (!parsed) { forbid(res); return; }
@@ -59,6 +60,7 @@ const server = http.createServer((req, res) => {
       core.audit({ ev: 'voice_turn', principal: principal.name, role: principal.role, inLen: parsed.speech.length, outLen: reply.length, ms: Date.now() - t0 });
       twiml(res, vl.buildVoiceTwiML('reply', { voice: VOICE, text: reply || 'I have nothing to add.', action: PUBLIC + '/voice/turn' }));
     })().catch(() => { try { twiml(res, vl.buildVoiceTwiML('reply', { voice: VOICE, text: 'One moment, something went wrong.', action: PUBLIC + '/voice/turn' })); } catch {} });
+   } catch (e) { try { core.audit({ ev: 'voice_error', err: String((e && e.message) || e) }); forbid(res); } catch {} }
   });
 });
 

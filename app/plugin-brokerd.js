@@ -120,6 +120,7 @@ function startBrokerd(opts) {
 
   try { fs.mkdirSync(require('path').dirname(sockPath), { recursive: true, mode: 0o700 }); } catch {}
   try { fs.unlinkSync(sockPath); } catch {}
+  server.on('error', (e) => { try { process.stderr.write('plugin-brokerd: socket bind failed: ' + String((e && e.message) || e) + '\n'); } catch {} });   // an EADDRINUSE/EACCES on listen would otherwise be an uncaught throw
   server.listen(sockPath, () => { try { fs.chmodSync(sockPath, 0o600); } catch {} });   // 0600 unix socket — the same class as the daemon's own; NO TCP port
   return {
     server,
