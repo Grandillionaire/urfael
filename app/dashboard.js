@@ -527,3 +527,6 @@ server.listen(PORT, HOST, () => {
 });
 process.on('SIGTERM', () => process.exit(0));
 process.on('SIGINT', () => process.exit(0));
+// RESILIENCE: a localhost server callback throw must not kill the dashboard; log to stderr and keep serving.
+process.on('uncaughtException', (e) => { try { process.stderr.write('urfael dashboard uncaught: ' + String((e && e.stack) || e).slice(0, 600) + '\n'); } catch {} });
+process.on('unhandledRejection', (e) => { try { process.stderr.write('urfael dashboard rejection: ' + String((e && (e.stack || e.message)) || e).slice(0, 600) + '\n'); } catch {} });
