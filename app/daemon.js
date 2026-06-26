@@ -2481,3 +2481,9 @@ probe.on('timeout', () => { probe.destroy(); listen(); });
 probe.end();
 function shutdown() { try { persistRecallIndex(); } catch {} if (councilAbort) { try { councilAbort(); } catch {} } try { stopAllBrokerds(); } catch {} for (const s of sessions.values()) { try { s.proc && s.proc.kill('SIGKILL'); } catch {} } for (const p of inflightScoped) { try { p.kill('SIGKILL'); } catch {} } try { fs.unlinkSync(SOCK); } catch {} process.exit(0); }
 process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
+// RESILIENCE: the daemon is the always-on brain; a single unguarded callback throw (a render glitch, a malformed
+// inbound message, a timer that hits a bad state) must NOT take it down and disconnect every surface. Log it loudly
+// to the audit + telemetry and KEEP RUNNING. This is the daemon analogue of the caretFor lesson: an uncaught throw
+// in any of the dozens of timer/stream/socket callbacks should degrade to one logged error, not a dead brain.
+process.on('uncaughtException', (e) => { try { logEvent({ ev: 'daemon_uncaught', err: String((e && e.stack) || e).slice(0, 800) }); } catch {} });
+process.on('unhandledRejection', (e) => { try { logEvent({ ev: 'daemon_unhandled_rejection', err: String((e && (e.stack || e.message)) || e).slice(0, 800) }); } catch {} });
