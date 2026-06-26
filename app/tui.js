@@ -354,7 +354,7 @@ function openAnimPicker() {
   };
   // repaint the picker (and its live preview glyphs) at the animation frame rate while it is open
   if (pickerTimer) clearInterval(pickerTimer);
-  pickerTimer = setInterval(() => { if (picker && picker.preview) render(); else { clearInterval(pickerTimer); pickerTimer = null; } }, Math.max(60, (cfg.frameMs || 90)));
+  pickerTimer = setInterval(() => { try { if (picker && picker.preview) render(); else { clearInterval(pickerTimer); pickerTimer = null; } } catch (e) { debugLog('pickerTimer', e); clearInterval(pickerTimer); pickerTimer = null; } }, Math.max(60, (cfg.frameMs || 90)));
   if (pickerTimer.unref) pickerTimer.unref();
   render();
 }
@@ -402,11 +402,31 @@ function showSlashHelp() {
 }
 
 // the cheap animation tick: repaint ONLY the worker row
+// caretFor(g): the column to park the cursor at after the worker tick rewrites its row (the input caret position).
+// Its definition was lost in the multi-line-input refactor while the tickWorker call was left behind, so every
+// animation frame during a turn threw "caretFor is not defined" and crashed the whole TUI. It is just the caretCol
+// the input block already computes for the full-frame flush.
+function caretFor(g) { try { return inputBlock(g, cfg.theme).caretCol; } catch { return 1; } }
 function tickWorker() {
-  if (!inflight || !cfg) return;
-  const g = geom(), w = workerLine(g, Date.now());
-  if (w == null) return;
-  rend.renderWorkerOnly(rend.clipPad(w, g.cols, cfg.theme.RST), rend.layout(g, cfg).workerRow, caretFor(g), process.stdout);
+  // CRASH-PROOF: this runs on a setInterval, so an uncaught throw here would hit the uncaughtException handler and
+  // kill the whole TUI ("urfael tui crashed"). A worker-row render glitch must NEVER take down the session, so it is
+  // wrapped: a bad frame is simply skipped and the next tick tries again.
+  try {
+    if (!inflight || !cfg) return;
+    const g = geom(), w = workerLine(g, Date.now());
+    if (w == null) return;
+    rend.renderWorkerOnly(rend.clipPad(w, g.cols, cfg.theme.RST), rend.layout(g, cfg).workerRow, caretFor(g), process.stdout);
+  } catch (e) { debugLog('tickWorker', e); }
+}
+// debugLog: append a bounded diagnostic line to ~/.claude/urfael/tui-debug.log (only ONCE per distinct message, so a
+// throwing animation tick can't fill the disk). Lets us find a root cause that the crash-proof wraps now swallow.
+const _dbgSeen = new Set();
+function debugLog(where, e) {
+  try {
+    const msg = where + ': ' + ((e && (e.stack || e.message)) || e);
+    if (_dbgSeen.has(where)) return; _dbgSeen.add(where);
+    require('fs').appendFileSync(require('path').join(require('os').homedir(), '.claude', 'urfael', 'tui-debug.log'), new Date().toISOString() + ' ' + msg + '\n');
+  } catch {}
 }
 
 // ---- streaming a turn: POST /ask NDJSON, render delta/tool/done live ----
@@ -586,7 +606,7 @@ function run() {
   process.on('SIGINT', () => { if (inflight) abortTurn(); else quit(0); });
   process.on('SIGTERM', () => quit(0));
   process.on('SIGHUP', () => quit(0));
-  process.on('uncaughtException', (e) => { cleanup(); try { process.stderr.write('urfael tui crashed: ' + (e && e.stack || e) + '\n'); } catch {} process.exit(1); });
+  process.on('uncaughtException', (e) => { try { debugLog('uncaught', e); } catch {} cleanup(); try { process.stderr.write('urfael tui crashed: ' + (e && e.stack || e) + '\n'); } catch {} process.exit(1); });
   process.stdout.on('error', () => {});
 
   readline.emitKeypressEvents(process.stdin);
