@@ -109,5 +109,18 @@ function startWorker(cfg, repaintWorker) {
 }
 function stopWorker(timer) { if (timer) clearInterval(timer); return null; }
 
+// previewGlyph(name, theme, t0, now): a LIVE-animating sample of one animation style, for the picker preview so the
+// owner sees exactly what each one looks like while choosing (not just a static blurb). Pure; wall-clock index, so
+// it animates as the caller repaints. Reuses the real renderers, so the preview matches the actual worker row.
+function previewGlyph(name, theme, t0, now) {
+  if (name === 'oracle') {
+    const pair = THINKING[Math.floor((now - t0) / ORACLE_MS) % THINKING.length];
+    const tick = ANIM.braille[Math.floor((now - t0) / 90) % ANIM.braille.length];
+    return theme.accent + tick + ' ' + theme.gold + pair.r + ' ' + pair.w + theme.RST;
+  }
+  if (name === 'rune') return runeRow(theme, Math.floor((now - t0) / 220), true);
+  return spinnerGlyph({ anim: name, frameMs: 90 }, theme, t0, now, 80);   // ember / braille / scry / shimmer
+}
+
 module.exports = { WORD, ANIM, THINKING, VERBS, TOOL_VERB, TOOL_RUNE, VERB_MS, ORACLE_MS, verbFor, runeForTool, runeRow, spinnerGlyph,
-                   estTokens, fmtTok, workerVerb, composeWorker, startWorker, stopWorker };
+                   estTokens, fmtTok, workerVerb, composeWorker, startWorker, stopWorker, previewGlyph };

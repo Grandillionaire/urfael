@@ -91,6 +91,8 @@ let cfg = null;            // the frozen TUI config (set in run())
 let baseEnv = null;        // env used to resolve themes, for ^T cycling
 let animTimer = null;      // the worker setInterval (unref'd)
 let inMouse = false;       // swallowing an SGR/X10 mouse report that readline splits across keypress events
+let pickerTimer = null;    // the repaint tick for a LIVE-previewing picker (the animation picker), unref'd
+let previewT0 = 0;         // wall-clock origin for the picker's live animation preview
 let turnT0 = 0;            // wall-clock start of the in-flight turn
 let lastTool = '';         // current tool name → the worker verb
 let usageTokens = null;    // null in flight → authoritative output_tokens on done
@@ -177,12 +179,15 @@ function buildPicker(p, T) {
   if (!view.items.length) return [head, T.dim + '  no match  ·  Esc to cancel' + T.RST];
   const labelOf = (it) => (it.glyph ? it.glyph + '  ' : '') + (it.label || it.value);
   const W = Math.max(...view.items.map((it) => visw(labelOf(it))));
+  const now = Date.now();
   const rows = view.items.map((it, i) => {
     const on = i === view.sel, label = labelOf(it);
     const cur = it.current ? ' (current)' : '';
     const left = (on ? T.accent + '▌ ' : '  ') + (on ? T.accent : T.gold) + label + T.RST + T.dim + cur + T.RST;
     const pad = ' '.repeat(Math.max(2, W + 4 - visw(label) - cur.length));
-    return left + (it.desc ? pad + T.dim + it.desc + T.RST : '');
+    // a LIVE-animating preview of this row's animation, so you see exactly what it looks like while choosing
+    const live = p.preview ? '  ' + p.preview(it.value, now) + '   ' : '';
+    return left + pad + live + (it.desc ? T.dim + it.desc + T.RST : '');
   });
   return [head, ...rows];
 }
@@ -190,7 +195,7 @@ function buildPicker(p, T) {
 function visw(s) { return rend.visLen(String(s)); }
 
 // closePicker → drop the picker and let the prompt take input again. The caller renders (or relies on the next one).
-function closePicker() { picker = null; }
+function closePicker() { picker = null; if (pickerTimer) { clearInterval(pickerTimer); pickerTimer = null; } }
 
 // pickerKey(str, key) → a picker OWNS every key while open: ↑↓ move (live-previewing if the picker asks), Enter/Tab
 // pick, Esc/^C cancel, Backspace/printables drive the type-to-filter. Returns nothing; onKey returns right after.
@@ -335,11 +340,22 @@ function openThemePicker() {
 function openAnimPicker() {
   const blurb = { oracle: 'a turning rune and word (default)', rune: 'cycling runes', ember: 'a glowing ember', braille: 'a braille spinner', scry: 'a scrying sweep', shimmer: 'a soft shimmer' };
   const all = theme.ANIM_NAMES.map((n) => ({ value: n, label: n[0].toUpperCase() + n.slice(1), desc: blurb[n] || '', current: n === cfg.anim }));
+  const original = cfg.anim;
+  previewT0 = Date.now();
   picker = {
-    title: 'Worker animation', hint: '↑↓ choose · Enter keep · Esc cancel', all, query: '',
-    sel: Math.max(0, all.findIndex((it) => it.current)), live: false,
-    onPick: (it) => { cfg = theme.setAnim(cfg, it.value); persistTuiPref({ animation: it.value }); closePicker(); add('sys', '╶ animation: ' + it.value); render(); }, onCancel: null,
+    title: 'Worker animation', hint: '↑↓ choose · Enter keep · Esc cancel · ←live preview', all, query: '',
+    sel: Math.max(0, all.findIndex((it) => it.current)), live: true,
+    // each row shows its OWN animation, animating live (the picker repaints on a tick); the worker row also
+    // previews the highlighted one so you see it exactly where it appears during a real turn.
+    preview: (value, now) => anim.previewGlyph(value, cfg.theme, previewT0, now),
+    onMove: (it) => { cfg = theme.setAnim(cfg, it.value); },
+    onPick: (it) => { cfg = theme.setAnim(cfg, it.value); persistTuiPref({ animation: it.value }); closePicker(); add('sys', '╶ animation: ' + it.value); render(); },
+    onCancel: () => { cfg = theme.setAnim(cfg, original); },   // moving previews; cancel restores what you had
   };
+  // repaint the picker (and its live preview glyphs) at the animation frame rate while it is open
+  if (pickerTimer) clearInterval(pickerTimer);
+  pickerTimer = setInterval(() => { if (picker && picker.preview) render(); else { clearInterval(pickerTimer); pickerTimer = null; } }, Math.max(60, (cfg.frameMs || 90)));
+  if (pickerTimer.unref) pickerTimer.unref();
   render();
 }
 
@@ -464,6 +480,7 @@ function persistTuiPref(patch) {
 // the daemon wrote to ui-prefs and now reports in /vitals). Rebuild cfg + repaint so the open cockpit changes without
 // a relaunch. Only acts on a real change, so it is a no-op on every quiet poll.
 function applyVitalsLook(v) {
+  if (picker && picker.live) return;   // never yank a theme/anim out from under an open live-preview picker
   let changed = false;
   if (v && v.uiTheme && v.uiTheme !== cfg.themeName) { cfg = theme.setTheme(cfg, v.uiTheme, baseEnv, cfg.isTTY); changed = true; }
   if (v && v.uiAnim && v.uiAnim !== cfg.anim) { cfg = theme.setAnim(cfg, v.uiAnim); changed = true; }
