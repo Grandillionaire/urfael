@@ -191,7 +191,9 @@ async function toggleMic() {
   if (recState) { try { recState.stop(); } catch {} return; }
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).catch(() => null);
   if (!stream) { micBtn.title = 'Mic blocked — allow it in System Settings'; return; }
-  const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+  let recorder;
+  try { recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' }); }   // the constructor throws NotSupportedError if the encoder is unavailable; release the mic + reset rather than leave it hot
+  catch { try { stream.getTracks().forEach((t) => t.stop()); } catch {} recState = null; micBtn.classList.remove('rec'); micBtn.title = 'Recording is not supported here'; return; }
   const chunks = [];
   recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   recorder.onstop = async () => {
@@ -265,7 +267,7 @@ function bm25rank(entries, query, k = 60) {
   const qUniq = [...new Set(tok(query))];
   if (!qUniq.length) return entries;
   const K1 = 1.5, B = 0.75, N = entries.length;
-  const docs = entries.map((e) => {
+  const docs = entries.filter((e) => e && typeof e === 'object').map((e) => {   // a non-object row must not throw on (e.user || '')
     const toks = tok(((e.user || '') + ' ' + (e.urfael || '').replace(/\[\/?SPOKEN\]/gi, ' ')));
     const tf = new Map(); for (const t of toks) tf.set(t, (tf.get(t) || 0) + 1);
     return { e, tf, len: toks.length };

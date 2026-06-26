@@ -67,6 +67,7 @@ if (require.main === module) {
     core.audit({ ev: 'qq_turn', principal: principal.name, role: principal.role, inLen: parsed.text.length, outLen: reply.length, ms: Date.now() - t0 });
   }
   function onMessage(p) {
+    if (!p || typeof p !== 'object') return;   // a frame body of JSON `null`/string/number must not crash the WS listener
     if (p.s != null) seq = p.s;
     if (p.op === 10) {
       if (!p.d || !p.d.heartbeat_interval) { try { ws.close(); } catch {} return; }
