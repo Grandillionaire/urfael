@@ -34,11 +34,14 @@ test('readCfg: reduce-motion auto-on under NO_COLOR / dumb / non-256; fps clamps
 });
 
 test('withTheme / withAnim cycle to the next option without mutating the original cfg', () => {
-  const c0 = themer.readCfg({ TERM: 'xterm-256color' }, true);
+  // pin theme+anim in the env so the test is deterministic regardless of any on-disk ui-prefs.json (readCfg reads
+  // ui-prefs only when the matching env var is ABSENT, so pinning both bypasses it). Keeps the unit test isolated.
+  const env = { TERM: 'xterm-256color', URFAEL_TUI_THEME: 'gold', URFAEL_TUI_ANIM: 'oracle' };
+  const c0 = themer.readCfg(env, true);
   const c1 = themer.withAnim(c0);
   assert.notEqual(c1.anim, c0.anim);
   assert.equal(c0.anim, 'oracle');               // original untouched (oracle is the default)
-  const t1 = themer.withTheme(c0, { TERM: 'xterm-256color' }, true);
+  const t1 = themer.withTheme(c0, env, true);
   assert.equal(t1.themeName, 'ember');           // gold → ember
 });
 
