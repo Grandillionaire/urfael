@@ -1894,7 +1894,7 @@ const server = http.createServer(async (req, res) => {
       catch (e) { emit({ kind: 'done', text: '(brain error)', model: '' }); }
       if (active === res) active = null;
       try { res.end(); } catch {}
-    });
+    }).catch((e) => { try { if (active === res) active = null; res.end(); } catch {} try { logEvent({ ev: 'chain_error', err: String((e && e.stack) || e).slice(0, 400) }); } catch {} });   // a thrown turn must never leave the shared chain rejected (which would brick all future turns)
   } else if (req.method === 'POST' && req.url === '/council') {
     // COUNCIL — a live, watchable multi-agent orchestration. LOCAL-ONLY (a remote channel is refused); single-flight;
     // serialized on the SAME `chain` as /ask but it writes to ITS OWN res, never the shared voice `active` writer.
@@ -1908,25 +1908,29 @@ const server = http.createServer(async (req, res) => {
     const webOk = AGENT_MODE === 'full';                              // workers get web tools ONLY in full mode (else read-only)
     chain = chain.then(async () => {
       councilInFlight = true;
-      res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
-      const job = jobstore.create({ kind: 'council', task, agents });   // persist via jobstore → replay + audit for free
-      jobstore.update(job.id, { state: 'running', startedAt: new Date().toISOString(), pid: process.pid });
-      logEvent({ ev: 'council_start', id: job.id, agents });
-      let closed = false; res.on('close', () => { closed = true; });
-      const emitC = (o) => { const line = JSON.stringify({ id: job.id, ...o }); jobstore.appendLog(job.id, line); if (!closed) { try { res.write(line + '\n'); } catch {} } };
-      councilChildren.clear();
-      councilAbort = () => { for (const c of councilChildren) { try { c.kill('SIGKILL'); } catch {} inflightScoped.delete(c); } councilChildren.clear(); emitC({ ev: 'council.aborted', round: 1, reason: 'user' }); };
       try {
-        await council.runCouncil(task, { agents, webOk }, emitC, {
-          spawn, CLAUDE_BIN, VAULT, scopedEnv: councilEnv, classifyModel, OPUS: MODELS.opus,
-          budgetWindow, inflightScoped, store: jobstore, jobId: job.id,
-          oneShot: councilOneShot, streamOne: councilStreamOne, _children: councilChildren,
-        });
-      } catch (e) { emitC({ ev: 'council.error', round: 1, reason: 'engine', msg: String((e && e.message) || e) }); jobstore.update(job.id, { state: 'interrupted', endedAt: new Date().toISOString() }); }
-      logEvent({ ev: 'council_done', id: job.id });
-      councilInFlight = false; councilAbort = null;
-      try { res.end(); } catch {}
-    });
+        res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+        let job;
+        try { job = jobstore.create({ kind: 'council', task, agents }); jobstore.update(job.id, { state: 'running', startedAt: new Date().toISOString(), pid: process.pid }); }  // persist → replay + audit for free
+        catch (e) { try { res.write(JSON.stringify({ ev: 'council.error', round: 1, reason: 'jobstore', msg: String((e && e.message) || e) }) + '\n'); } catch {} return; }   // a disk fault must not wedge the council; the finally still resets state
+        logEvent({ ev: 'council_start', id: job.id, agents });
+        let closed = false; res.on('close', () => { closed = true; });
+        const emitC = (o) => { const line = JSON.stringify({ id: job.id, ...o }); jobstore.appendLog(job.id, line); if (!closed) { try { res.write(line + '\n'); } catch {} } };
+        councilChildren.clear();
+        councilAbort = () => { for (const c of councilChildren) { try { c.kill('SIGKILL'); } catch {} inflightScoped.delete(c); } councilChildren.clear(); emitC({ ev: 'council.aborted', round: 1, reason: 'user' }); };
+        try {
+          await council.runCouncil(task, { agents, webOk }, emitC, {
+            spawn, CLAUDE_BIN, VAULT, scopedEnv: councilEnv, classifyModel, OPUS: MODELS.opus,
+            budgetWindow, inflightScoped, store: jobstore, jobId: job.id,
+            oneShot: councilOneShot, streamOne: councilStreamOne, _children: councilChildren,
+          });
+        } catch (e) { emitC({ ev: 'council.error', round: 1, reason: 'engine', msg: String((e && e.message) || e) }); jobstore.update(job.id, { state: 'interrupted', endedAt: new Date().toISOString() }); }
+        logEvent({ ev: 'council_done', id: job.id });
+      } finally {   // ALWAYS release single-flight + end the response, even on a throw, so a fault never bricks future councils
+        councilInFlight = false; councilAbort = null;
+        try { res.end(); } catch {}
+      }
+    }).catch((e) => { try { logEvent({ ev: 'chain_error', err: String((e && e.stack) || e).slice(0, 400) }); } catch {} });
   } else if (req.method === 'POST' && req.url === '/council/abort') {
     const ok = !!councilAbort; if (councilAbort) councilAbort(); logEvent({ ev: 'council_abort', ok });
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok }));
@@ -2156,8 +2160,9 @@ const server = http.createServer(async (req, res) => {
     if (spec.maxIters != null) spec.maxIters = clamp(spec.maxIters, 1, 50);
     if (spec.maxMins != null) spec.maxMins = clamp(spec.maxMins, 1, 240);
     if (spec.turnTimeout != null) spec.turnTimeout = clamp(spec.turnTimeout, 30, 3600);
-    const job = jobstore.create(spec);
-    runner.run(jobstore.get(job.id));
+    let job;
+    try { job = jobstore.create(spec); runner.run(jobstore.get(job.id)); }   // a jobs-dir I/O fault must 500, not hang the client
+    catch (e) { logEvent({ ev: 'job_create_error', err: String((e && e.message) || e) }); res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'could not persist job' })); return; }
     logEvent({ ev: 'job_create', id: job.id, kind: spec.kind });
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: job.id, state: 'running' }));
   } else if (req.url && req.url.startsWith('/recall')) {
@@ -2291,7 +2296,7 @@ const server = http.createServer(async (req, res) => {
       } catch (e) { logEvent({ ev: 'schedule_error', err: String((e && e.message) || e) }); emit({ kind: 'done', text: '(brain error)', model: '' }); }
       if (active === res) active = null;
       try { res.end(); } catch {}
-    });
+    }).catch((e) => { try { if (active === res) active = null; res.end(); } catch {} try { logEvent({ ev: 'chain_error', err: String((e && e.stack) || e).slice(0, 400) }); } catch {} });
   } else if (req.method === 'POST' && req.url.startsWith('/reminder/')) {
     const m = req.url.match(/^\/reminder\/([A-Za-z0-9-]{4,64})\/cancel$/);
     if (!m) { res.writeHead(404); res.end(); return; }

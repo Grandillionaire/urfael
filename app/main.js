@@ -295,6 +295,10 @@ function createWindow() {
   // dismissed by ANY route (hide IPC, Cmd+Shift+U toggle, close box) -> tell the renderer to end a live voice
   // conversation so the mic is released and the wake word is re-armed. Fixes a mic that stayed on after walking away.
   win.on('hide', () => { if (win && !win.isDestroyed()) win.webContents.send('urfael:hidden'); });
+  // null the reference when the orb window is destroyed (Cmd+W), so every `if (win)` guard short-circuits afterward.
+  // Without this, win stays truthy-but-destroyed and the wake-worker handler + the Cmd+Shift+U toggle deref a dead
+  // window and crash the app (mirrors createConsole's consoleWin.on('closed')).
+  win.on('closed', () => { win = null; });
 }
 function toggle() {
   if (!win) return;

@@ -109,7 +109,10 @@ async function main() {
   }
 
   client.once('ready', () => {
-    const connection = voice.joinVoiceChannel({ channelId, guildId, adapterCreator: client.guilds.cache.get(guildId).voiceAdapterCreator, selfDeaf: false, selfMute: false });
+   try {
+    const guild = client.guilds.cache.get(guildId);   // undefined if the bot is not in DISCORD_VOICE_GUILD_ID — fail clean, never deref undefined
+    if (!guild) { process.stderr.write('discord voice: bot is not in guild ' + guildId + '\n'); return; }
+    const connection = voice.joinVoiceChannel({ channelId, guildId, adapterCreator: guild.voiceAdapterCreator, selfDeaf: false, selfMute: false });
     connection.subscribe(player);
     state = vlib.next(state, 'join');
     connection.receiver.speaking.on('start', (userId) => {
@@ -117,6 +120,7 @@ async function main() {
       onUtterance(userId, connection).catch(() => {}).finally(() => busy.delete(userId));
     });
     process.stdout.write('Urfael is in the voice channel, listening (allowlisted speakers only)\n');
+   } catch (e) { process.stderr.write('discord voice join failed: ' + ((e && e.message) || e) + '\n'); }
   });
   client.login(token).catch((e) => { process.stderr.write('discord login failed: ' + ((e && e.message) || e) + '\n'); process.exit(1); });
   process.on('SIGTERM', () => process.exit(0));

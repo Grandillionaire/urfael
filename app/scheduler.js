@@ -78,7 +78,7 @@ function start(deliverFn, intervalMs = 20000) {
   deliver = deliverFn;
   load();
   clearInterval(timer);
-  timer = setInterval(() => { tick(); tickCron(); }, intervalMs); // one interval drives both stores
+  timer = setInterval(() => { try { tick(); } catch {} try { tickCron(); } catch {} }, intervalMs); // one interval drives both stores; a malformed store row must not stop the scheduler
   if (timer.unref) timer.unref();
 }
 

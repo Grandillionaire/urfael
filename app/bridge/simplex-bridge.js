@@ -32,6 +32,7 @@ async function handle(parsed, principal) {
 }
 
 function onResp(msg) {
+  if (!msg || typeof msg !== 'object') return;   // a control-WS frame of JSON `null`/string must not crash the listener
   // a response to OUR OWN command carries our corrId → resolve it and DROP (it's an ack/own-send, never an inbound)
   if (msg.corrId && pending.has(msg.corrId)) { const r = pending.get(msg.corrId); pending.delete(msg.corrId); r(msg.resp || msg); return; }
   if (msg.corrId) return;                                              // any other corrId-tagged frame = our own echo → drop
