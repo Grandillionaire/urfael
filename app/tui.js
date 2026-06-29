@@ -323,7 +323,9 @@ function openModelPicker() {
 
 // openThemePicker → live preview: moving the selection repaints the whole cockpit in that theme; Esc reverts.
 function openThemePicker() {
-  const blurb = { gold: 'warm gold on dark (default)', ember: 'orange ember', mono: 'monochrome, no colour', custom: 'your URFAEL_TUI_ACCENT' };
+  const blurb = { gold: 'warm gold on dark (default)', ember: 'orange ember', mono: 'monochrome, no colour',
+    nord: 'cool arctic blue', matrix: 'green on black', rose: 'warm pink', violet: 'royal purple', ocean: 'teal / cyan',
+    sand: 'muted earth, for light terminals', custom: 'your own colours (URFAEL_TUI_FRAME/ACCENT/GOLD)' };
   const original = cfg;
   const all = theme.THEME_NAMES.map((n) => ({ value: n, label: n[0].toUpperCase() + n.slice(1), desc: blurb[n] || '', current: n === cfg.themeName }));
   picker = {
