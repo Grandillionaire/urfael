@@ -37,11 +37,18 @@ print(out)
 ')"
 [ -z "$BRIEF" ] && BRIEF="Good morning, sir. I could not reach your schedule this morning."
 
+# 2b) internal tool — fold the count of pending reports (the daily scan writes them) into the brief
+RADAR_PENDING="$(curl -s --max-time 5 --unix-socket "$SOCK" http://x/radar 2>/dev/null | python3 -c 'import sys,json
+try: print(int(json.load(sys.stdin).get("pending",0)))
+except Exception: print(0)' 2>/dev/null)"; RADAR_PENDING="${RADAR_PENDING:-0}"
+RADAR_NOTE=""
+if [ "$RADAR_PENDING" -gt 0 ] 2>/dev/null; then RADAR_NOTE=" · $RADAR_PENDING radar item(s) to review in the dashboard"; fi
+
 # 3) desktop notification
 if [ "$OS" = mac ]; then
-  osascript -e "display notification \"Your morning brief is ready.\" with title \"Urfael\" sound name \"\"" 2>/dev/null || true
+  osascript -e "display notification \"Your morning brief is ready.$RADAR_NOTE\" with title \"Urfael\" sound name \"\"" 2>/dev/null || true
 elif [ "$OS" = linux ]; then
-  notify-send "Urfael" "Your morning brief is ready." 2>/dev/null || true
+  notify-send "Urfael" "Your morning brief is ready.$RADAR_NOTE" 2>/dev/null || true
 fi
 
 # 4) speak it — local `say` by default (free, no key), ElevenLabs only if configured
