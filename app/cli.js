@@ -724,7 +724,11 @@ function printPluginPreview(ph, m) {
     process.stdout.write(dim('scanning rival releases (Hermes, OpenClaw) for anything worth borrowing…\n'));
     const r = await radar.run({ claudeBin, env: { ...process.env, ...setup.readEnv() } });
     if (!r.analyzed) console.log(gold('✓ no new rival releases') + dim('  (watching ' + r.repos.join(', ') + '; needs `gh` installed + authed)'));
-    else { console.log(gold('✓ analyzed ' + r.analyzed + ' new release' + (r.analyzed === 1 ? '' : 's')) + dim('  →  ') + (r.reportPath || '(report write failed)')); console.log(dim('  Review and approve the worthwhile items, then I implement them in our style.')); }
+    else {
+      console.log(gold('✓ analyzed ' + r.analyzed + ' new release' + (r.analyzed === 1 ? '' : 's')) + dim('  →  ') + (r.reportPath || '(report write failed)')); console.log(dim('  Review + approve in the dashboard (Radar), or open the file above. I implement the approved items.'));
+      // notify the owner when run by the daily launchd cron, so a new report is never silently buried in a log. macOS only; fail-soft.
+      if (process.platform === 'darwin') { try { const msg = 'Radar: ' + r.analyzed + ' new rival release' + (r.analyzed === 1 ? '' : 's') + ' to review'; require('child_process').spawn('osascript', ['-e', 'display notification "' + msg.replace(/["\\]/g, "'") + '" with title "Urfael"'], { stdio: 'ignore' }).unref(); } catch {} }
+    }
     return;
   }
 

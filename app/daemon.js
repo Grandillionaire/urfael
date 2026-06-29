@@ -2102,6 +2102,35 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ current: PKG_VERSION, kind: updateStatus.kind, available: !!updateStatus.available,
       behind: updateStatus.behind || 0, latest: updateStatus.latest || '', branch: updateStatus.branch || '',
       official: !!updateStatus.official, downloadUrl: updater.RELEASES_URL, note: updater.summarize(updateStatus) || '' }));
+  } else if (req.url === '/radar' || /^\/radar\//.test(req.url || '')) {
+    // GET /radar -> list competitor-radar reports + their approval status. GET /radar/<file> -> one report's markdown.
+    // POST /radar/approve {file, status} -> mark a report approved|dismissed|pending. Local-owner only (0600 socket).
+    const RADAR_DIR = path.join(JDIR, 'radar');
+    const APPROVALS = path.join(RADAR_DIR, 'approvals.json');
+    const readApprovals = () => { try { return JSON.parse(fs.readFileSync(APPROVALS, 'utf8')); } catch { return {}; } };
+    const SAFE_REPORT = /^[0-9TZ:.\-]+\.md$/;   // the radar filename shape (an ISO stamp + .md); no path traversal
+    if (req.method === 'POST' && req.url === '/radar/approve') {
+      const body = await readBody(req); let p = {}; try { p = JSON.parse(body); } catch {}
+      const file = typeof p.file === 'string' ? p.file : '';
+      const status = (p.status === 'approved' || p.status === 'dismissed' || p.status === 'pending') ? p.status : '';
+      if (!SAFE_REPORT.test(file) || !status) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'need {file, status}' })); return; }
+      const a = readApprovals(); a[file] = { status, t: new Date().toISOString() };
+      try { fs.mkdirSync(RADAR_DIR, { recursive: true }); fs.writeFileSync(APPROVALS, JSON.stringify(a, null, 2), { mode: 0o600 }); } catch {}
+      logEvent({ ev: 'radar_approve', file, status });
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true }));
+    } else if (/^\/radar\/[0-9TZ:.\-]+\.md$/.test(req.url || '')) {
+      const file = decodeURIComponent(req.url.slice('/radar/'.length));
+      if (!SAFE_REPORT.test(file)) { res.writeHead(404); res.end(); return; }
+      let md = ''; try { md = fs.readFileSync(path.join(RADAR_DIR, file), 'utf8'); } catch {}
+      res.writeHead(md ? 200 : 404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ file, markdown: md }));
+    } else {
+      const approvals = readApprovals();
+      let files = []; try { files = fs.readdirSync(RADAR_DIR).filter((f) => SAFE_REPORT.test(f)).sort().reverse(); } catch {}
+      const fmtDate = (f) => { const m = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})/.exec(f); return m ? m[1] + ' ' + m[2] + ':' + m[3] : f; };
+      const reports = files.map((f) => ({ file: f, date: fmtDate(f), status: (approvals[f] && approvals[f].status) || 'pending' }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ reports, pending: reports.filter((r) => r.status === 'pending').length }));
+    }
   } else if (req.url === '/providers') {
     // GET /providers — the curated registry as SAFE metadata for the chat picker. Reuses providers.js validation;
     // a key's NAME (authEnv) may appear, never a value. The socket is 0600 so this is owner-only regardless.
