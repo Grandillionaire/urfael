@@ -282,7 +282,7 @@ mark.hl{background:linear-gradient(180deg,rgba(240,199,104,.08),rgba(240,199,104
     </div>
     <div id="chatgrid"></div>
   </section>
-  <section id="radar-section">
+  <section id="radar-section" hidden>
     <h2>Radar <span class="muted" id="radar-pending" style="font-size:12px"></span></h2>
     <div class="usage-note">Daily scan of Hermes + OpenClaw releases. Nothing is auto-implemented; approve the worthwhile ones and Urfael builds them when you next work together.</div>
     <div id="radar-list" style="margin-top:10px"><span class="empty">…</span></div>
@@ -360,6 +360,9 @@ function audit(){return api('/api/audit').then(function(d){
 }).catch(function(){})}
 // ---- competitor radar: list reports, read one, approve/dismiss ----
 function radar(){return api('/api/radar').then(function(d){
+  // OWNER-ONLY: the daemon reports enabled=false for a normal/downloaded copy -> keep the whole section hidden.
+  if(!d||!d.enabled){ $('#radar-section').hidden=true; return; }
+  $('#radar-section').hidden=false;
   var rs=(d&&d.reports)||[]; var pend=(d&&d.pending)||0;
   $('#radar-pending').textContent = pend ? ('· '+pend+' pending') : '';
   if(!rs.length){$('#radar-list').innerHTML='<span class="empty">no reports yet (the daily scan writes one only when a rival ships)</span>';return}

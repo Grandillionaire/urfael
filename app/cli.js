@@ -719,6 +719,10 @@ function printPluginPreview(ph, m) {
   // radar: scan rival agents (Hermes, OpenClaw) for new releases worth borrowing; writes a report to approve. Pure CLI.
   if (cmd === 'radar') {
     const radar = require('./radar'); const setup = require('./setup');
+    // OWNER-ONLY tool, off by default. A downloaded copy never runs a competitor scan unless the owner opts in.
+    const _renv = (() => { try { return setup.readEnv(); } catch { return {}; } })();
+    const radarOn = /^(1|on|true)$/i.test(process.env.URFAEL_RADAR || _renv.URFAEL_RADAR || '') || (parseInt(process.env.URFAEL_RADAR_DAYS || _renv.URFAEL_RADAR_DAYS, 10) || 0) > 0;
+    if (!radarOn) { console.log(dim('radar is an owner-only competitor watch, off by default. Enable it with ') + gold('URFAEL_RADAR=1') + dim(' in ~/.claude/urfael/provider.env.')); return; }
     const claudeBin = setup.claudePath();
     if (!claudeBin) { console.error(bad('✗') + ' the claude CLI is required for the analysis. ' + dim('Install Claude Code first: https://claude.com/claude-code')); process.exit(1); }
     process.stdout.write(dim('scanning rival releases (Hermes, OpenClaw) for anything worth borrowing…\n'));
