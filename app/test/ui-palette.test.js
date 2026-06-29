@@ -19,7 +19,7 @@ test('THEMES carries every named palette with the full token set', () => {
       assert.ok(ui.isSafeColor(ui.THEMES[name][key]), name + '.' + key + ' must be a safe color: ' + ui.THEMES[name][key]);
     }
   }
-  assert.deepStrictEqual([...ui.THEME_NAMES].sort(), ['custom', 'ember', 'gold', 'mono']);
+  assert.deepStrictEqual([...ui.THEME_NAMES].sort(), ['custom', 'ember', 'gold', 'matrix', 'mono', 'nord', 'ocean', 'rose', 'sand', 'violet']);
 });
 
 test('custom slot defaults to the gold identity (no-customization == current look)', () => {
