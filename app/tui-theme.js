@@ -8,17 +8,37 @@ const RST = '\x1b[0m';
 // Four named themes. Each maps the five semantic roles the cockpit paints with:
 //   frame  = box glyphs / rules        accent = live rune / caret / "you" pill / mode glyph
 //   gold   = speaker text + headings   dim    = tool rows, footers, status chrome   bold = your echo
+// fg(c): a foreground ANSI code from EITHER a 256-colour index (0-255) OR a '#rrggbb' hex (truecolor). 256-index is
+// the safe default (works on Terminal.app + every 256 term); hex emits 24-bit for truecolor terminals (iTerm/kitty/
+// wezterm/ghostty/alacritty). Invalid input -> '' (no code), so a bad value never corrupts the line.
+function fg(c) {
+  if (typeof c === 'number' && c >= 0 && c <= 255) return '\x1b[38;5;' + (c | 0) + 'm';
+  const s = String(c == null ? '' : c).trim();
+  if (/^\d{1,3}$/.test(s)) { const n = Math.min(255, parseInt(s, 10)); return '\x1b[38;5;' + n + 'm'; }
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(s);
+  if (m) return '\x1b[38;2;' + parseInt(m[1], 16) + ';' + parseInt(m[2], 16) + ';' + parseInt(m[3], 16) + 'm';
+  return '';
+}
+const DIM = '\x1b[2m', BOLD = '\x1b[1m';
+// Ten named themes (the original four byte-identical; six new, 256-colour so they render everywhere incl. Terminal.app).
+// Each maps the five roles: frame (rules/boxes) · accent (rune/caret/you-pill) · gold (speaker text/headings) · dim · bold.
 const THEMES = Object.freeze({
-  gold:  { frame: '\x1b[38;5;179m', accent: '\x1b[38;5;214m', gold: '\x1b[33m',      dim: '\x1b[2m', bold: '\x1b[1m' },
-  ember: { frame: '\x1b[38;5;130m', accent: '\x1b[38;5;208m', gold: '\x1b[38;5;215m', dim: '\x1b[2m', bold: '\x1b[1m' },
-  mono:  { frame: '\x1b[2m',        accent: '\x1b[1m',         gold: '\x1b[1m',        dim: '\x1b[2m', bold: '\x1b[1m' },
-  custom:{ frame: '\x1b[38;5;179m', accent: '\x1b[38;5;214m', gold: '\x1b[33m',      dim: '\x1b[2m', bold: '\x1b[1m' },
+  gold:   { frame: '\x1b[38;5;179m', accent: '\x1b[38;5;214m', gold: '\x1b[33m',      dim: DIM, bold: BOLD },
+  ember:  { frame: '\x1b[38;5;130m', accent: '\x1b[38;5;208m', gold: '\x1b[38;5;215m', dim: DIM, bold: BOLD },
+  mono:   { frame: DIM,              accent: BOLD,             gold: BOLD,             dim: DIM, bold: BOLD },
+  nord:   { frame: fg(67),  accent: fg(81),  gold: fg(110), dim: DIM, bold: BOLD },   // cool arctic blue
+  matrix: { frame: fg(22),  accent: fg(46),  gold: fg(40),  dim: DIM, bold: BOLD },   // green-on-black
+  rose:   { frame: fg(132), accent: fg(211), gold: fg(218), dim: DIM, bold: BOLD },   // warm pink
+  violet: { frame: fg(97),  accent: fg(141), gold: fg(183), dim: DIM, bold: BOLD },   // royal purple
+  ocean:  { frame: fg(31),  accent: fg(44),  gold: fg(80),  dim: DIM, bold: BOLD },   // teal / cyan
+  sand:   { frame: fg(94),  accent: fg(130), gold: fg(136), dim: DIM, bold: BOLD },   // muted earth, reads on a LIGHT background
+  custom: { frame: '\x1b[38;5;179m', accent: '\x1b[38;5;214m', gold: '\x1b[33m',     dim: DIM, bold: BOLD },  // user-paintable; see resolveTheme
 });
 // 16-colour fallback: same roles on the 8 base colours, so structure survives a vt100-ish terminal.
 const THEME_16 = Object.freeze({ frame: '\x1b[33m', accent: '\x1b[1m\x1b[33m', gold: '\x1b[33m', dim: '\x1b[2m', bold: '\x1b[1m' });
 const THEME_PLAIN = Object.freeze({ frame: '', accent: '', gold: '', dim: '', bold: '' });
 
-const THEME_NAMES = ['gold', 'ember', 'mono', 'custom'];
+const THEME_NAMES = ['gold', 'ember', 'mono', 'nord', 'matrix', 'rose', 'violet', 'ocean', 'sand', 'custom'];
 const ANIM_NAMES = ['oracle', 'rune', 'ember', 'braille', 'scry', 'shimmer'];   // oracle (changing rune+word) is the default
 
 // supports256(env): cheap, honest probe — COLORTERM=truecolor or a 256-capable TERM.
@@ -39,8 +59,13 @@ function resolveTheme(env, isTTY) {
   if (!supports256(env)) return Object.freeze({ ...THEME_16, RST });
   const base = THEMES[name] || THEMES.gold;
   const pal = { ...base, RST };
-  if (name === 'custom' && /^\d{1,3}$/.test(env.URFAEL_TUI_ACCENT || '')) {
-    pal.accent = `\x1b[38;5;${Math.min(255, parseInt(env.URFAEL_TUI_ACCENT, 10))}m`;
+  // CUSTOM theme: paint each role from your own colour — a 256 index (0-255) OR a #rrggbb hex (truecolor). Set any of
+  // URFAEL_TUI_FRAME / URFAEL_TUI_ACCENT / URFAEL_TUI_GOLD; unset roles keep the gold base. This is the terminal
+  // equivalent of Hermes's user/imported themes: define your own full palette, not just one accent.
+  if (name === 'custom') {
+    const f = fg(env.URFAEL_TUI_FRAME || ''); if (f) pal.frame = f;
+    const a = fg(env.URFAEL_TUI_ACCENT || ''); if (a) pal.accent = a;
+    const g = fg(env.URFAEL_TUI_GOLD || ''); if (g) pal.gold = g;
   }
   return Object.freeze(pal);
 }
