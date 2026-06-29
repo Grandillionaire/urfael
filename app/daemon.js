@@ -252,6 +252,10 @@ function councilStreamOne({ prompt, model, allowedTools, onDelta, onTool }) {
 // deny. It is the daemon's env — a remote sender can NEVER select it. Anything but 'full' is Fortress.
 const AGENT_MODE = String(process.env.URFAEL_MODE || 'fortress').toLowerCase() === 'full' ? 'full' : 'fortress';
 const FALLBACK_ON = process.env.URFAEL_FALLBACK !== '0';   // owner local turns retry once on the other tier after a retryable failure; URFAEL_FALLBACK=0 to disable
+// An internal tool (an internal watch). It is OFF by
+// default and entirely invisible — no dashboard section, no endpoints, no scan — unless the owner explicitly opts in
+// with URFAEL_INTERNAL=1 (or URFAEL_INTERNAL_DAYS=N to also schedule). A downloaded copy never sees it.
+const RADAR_ENABLED = /^(1|on|true)$/i.test(process.env.URFAEL_INTERNAL || '') || (parseInt(process.env.URFAEL_INTERNAL_DAYS, 10) || 0) > 0;
 if (AGENT_MODE === 'full') { try { logEvent({ ev: 'WARN', msg: 'URFAEL_MODE=full — remote owner/member turns can browse the web (still sandboxed: no write, no shell, no bypass, credential-deny holds).' }); } catch {} }
 
 // the in-flight /ask response stream — brain events are written to it as NDJSON
@@ -2105,6 +2109,12 @@ const server = http.createServer(async (req, res) => {
   } else if (req.url === '/radar' || /^\/radar\//.test(req.url || '')) {
     // GET /radar -> list internal reports + their approval status. GET /radar/<file> -> one report's markdown.
     // POST /radar/approve {file, status} -> mark a report approved|dismissed|pending. Local-owner only (0600 socket).
+    // OWNER-ONLY: invisible unless explicitly enabled. A downloaded copy gets {enabled:false, reports:[]} and 404s.
+    if (!RADAR_ENABLED) {
+      if (req.url === '/radar') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ enabled: false, reports: [], pending: 0 })); }
+      else { res.writeHead(404); res.end(); }
+      return;
+    }
     const RADAR_DIR = path.join(JDIR, 'radar');
     const APPROVALS = path.join(RADAR_DIR, 'approvals.json');
     const readApprovals = () => { try { return JSON.parse(fs.readFileSync(APPROVALS, 'utf8')); } catch { return {}; } };
@@ -2129,7 +2139,7 @@ const server = http.createServer(async (req, res) => {
       const fmtDate = (f) => { const m = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})/.exec(f); return m ? m[1] + ' ' + m[2] + ':' + m[3] : f; };
       const reports = files.map((f) => ({ file: f, date: fmtDate(f), status: (approvals[f] && approvals[f].status) || 'pending' }));
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ reports, pending: reports.filter((r) => r.status === 'pending').length }));
+      res.end(JSON.stringify({ enabled: true, reports, pending: reports.filter((r) => r.status === 'pending').length }));
     }
   } else if (req.url === '/providers') {
     // GET /providers — the curated registry as SAFE metadata for the chat picker. Reuses providers.js validation;
