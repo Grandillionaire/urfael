@@ -21,6 +21,18 @@ test('buildAnalysisPrompt embeds the principles, the repo + release, and the no-
   assert.match(p, /no em dashes or en dashes/);
 });
 
+test('buildAnalysisPrompt drives a beat-it analysis (out-build, not copy) with an honesty guard', () => {
+  const p = radar.buildAnalysisPrompt('x/y', { tagName: 'v9', body: 'Z' }, 'MAP');
+  assert.match(p, /OUT-BUILD/);                       // the framing: beat the execution, do not just match it
+  assert.match(p, /BETTER than theirs/);              // the dedicated section that must reach a "how we win" verdict
+  assert.match(p, /improve on their design/i);        // the four beat-it moves are spelled out
+  assert.match(p, /add on top/i);
+  assert.match(p, /simplify or cut/i);
+  assert.match(p, /note HOW they built it and any weakness/);  // study their implementation, not just the feature
+  assert.match(p, /do NOT manufacture superiority/i); // the guard: honesty outranks bravado
+  assert.match(p, /five numbered sections/);          // grew from four to five
+});
+
 test('assembleReport carries the human-gate framing and each item', () => {
   const md = radar.assembleReport([{ repo: 'a/b', rel: { tagName: 'v1', name: 'First' }, analysis: 'TAKE NOTHING' }], '2026-06-24');
   assert.match(md, /Nothing here has been implemented or shipped/);

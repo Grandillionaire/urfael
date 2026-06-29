@@ -39,22 +39,35 @@ function newReleases(releases, lastTag, cap) {
 
 function buildAnalysisPrompt(repo, release, urfaelMap) {
   return [
-    "You are Urfael's competitor radar. A rival self-hosted AI agent just shipped a release. Decide, honestly,",
-    "whether anything in it is worth borrowing for Urfael, and if so, how to do it in Urfael's style.", '',
+    "You are Urfael's competitor radar. A rival self-hosted AI agent just shipped a release. Urfael's aim is not to",
+    "copy it but to OUT-BUILD it: take the good idea, then beat the execution. Study what they shipped carefully,",
+    "judge honestly how it fits Urfael, and for anything worth engaging, work out how Urfael does it BETTER than",
+    "they did, not merely the same.", '',
     PRINCIPLES, '',
-    'WHAT URFAEL ALREADY IS (its competitive map; check claims against this, do not assume we lack something):',
+    'WHAT URFAEL ALREADY IS (its competitive map; check every claim against this, do not assume we lack something):',
     String(urfaelMap || '(map unavailable)').slice(0, 12000), '',
     'THE NEW RELEASE, ' + repo + ' ' + release.tagName + ' (' + (release.name || '') + ', ' + (release.publishedAt || '') + '):',
     String(release.body || '(no release notes)').slice(0, 8000), '',
     'Produce a concise markdown analysis with exactly these sections:',
-    '1. What they shipped (the substantive new capabilities; ignore version-bump and chore noise).',
-    '2. Do we already have it? (and do we do it better? be specific; often we may already win.)',
-    '3. Worth borrowing? For each candidate: fit with our principles (name any veto), value (high/med/low),',
-    '   effort (S/M/L), and a recommendation (borrow-idea / adapt / skip).',
-    '4. Implementation sketch for anything you recommend, in Urfael zero-dep style, naming the files it touches.',
-    'Be honest and terse. If there is nothing worth taking, say so plainly. Never recommend anything that violates',
-    'a principle. House style: no em dashes or en dashes.',
-    'Output ONLY the four numbered sections as markdown, starting at section 1. Do not add a preamble, a top-level',
+    '1. What they shipped. The substantive new capabilities only (ignore version-bump and chore noise). For each,',
+    '   note HOW they built it and any weakness, rough edge, fragility, or code smell in their approach.',
+    '2. Do we already have it? And do we already do it better? Be specific; often we already win, in which case the',
+    '   move is to say so plainly, not to borrow.',
+    '3. Worth engaging? For each candidate: fit with our principles (name any veto), value (high/med/low), effort',
+    '   (S/M/L), and a recommendation: improve-on / extend / adapt / borrow-idea / skip.',
+    '4. How we make it BETTER than theirs. This is the point of the exercise. For each thing worth engaging, choose',
+    '   the strongest move and justify concretely WHY ours wins:',
+    '   - improve on their design: they did it clumsily, fragile, or unsafe; we do it cleaner, safer, better tested.',
+    '   - add on top: extend past what they shipped to something they did not reach.',
+    '   - elevate: smaller, zero-dependency, more elegant, more secure, up to current best standards.',
+    '   - simplify or cut: drop the counterintuitive or over-engineered parts and ship only the essence.',
+    '   Do NOT manufacture superiority: if their approach is genuinely good and we cannot beat it, say so plainly',
+    '   and adapt it faithfully, with attribution. Honesty outranks bravado.',
+    '5. Implementation sketch for anything you recommend, in Urfael zero-dep style, naming the files it touches and',
+    '   the tests it needs.',
+    'Be honest and terse. If there is nothing worth taking, say so plainly. Never recommend anything that violates a',
+    'principle. House style: no em dashes or en dashes.',
+    'Output ONLY the five numbered sections as markdown, starting at section 1. Do not add a preamble, a top-level',
     'title, or restate the release header (it is already printed above your output).',
   ].join('\n');
 }
@@ -110,10 +123,13 @@ async function fetchBody(repo, tag) {
 // headless session instead of trying to attach to ours and hanging.
 const NESTED_CLAUDE_ENV = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_SSE_PORT'];
 function brainEnv(env) { const e = { ...(env || process.env) }; for (const k of NESTED_CLAUDE_ENV) delete e[k]; return e; }
-function analyzeArgs(prompt) { return ['-p', prompt, '--model', 'sonnet', '--permission-mode', 'acceptEdits', '--strict-mcp-config', '--allowedTools', '']; }
+function analyzeArgs(prompt, model) { return ['-p', prompt, '--model', model || 'opus', '--permission-mode', 'acceptEdits', '--strict-mcp-config', '--allowedTools', '']; }
 async function analyze(prompt, claudeBin, env) {
   if (!claudeBin) return '';
-  return (await sh(claudeBin, analyzeArgs(prompt), { env: brainEnv(env), timeout: 240000 })).trim();
+  // a once-a-day deep competitive analysis: quality matters far more than latency, so default to the strongest
+  // model (override with URFAEL_RADAR_MODEL) and give it real headroom. launchd imposes no wall-clock limit.
+  const model = (env && env.URFAEL_RADAR_MODEL) || 'opus';
+  return (await sh(claudeBin, analyzeArgs(prompt, model), { env: brainEnv(env), timeout: 420000 })).trim();
 }
 
 // run({ claudeBin, env, now }) → { analyzed, reportPath, repos }. The whole pass, fail-soft (never throws).
