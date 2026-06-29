@@ -45,7 +45,9 @@ function has(bin) { // scan PATH for an executable — no shell (avoids the shel
   const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
   return (process.env.PATH || '').split(path.delimiter).some((d) => d && exts.some((e) => { try { fs.accessSync(path.join(d, bin + e), fs.constants.X_OK); return true; } catch { return false; } }));
 }
-function claudePath() { return ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude'].find((p) => { try { fs.accessSync(p); return true; } catch { return false; } }) || (has('claude') ? 'claude' : ''); }
+function claudePath() { // include the native Claude Code install dirs (~/.local/bin is now the default) so we resolve it even when PATH is bare (e.g. a launchd cron)
+  const home = os.homedir();
+  return ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude', path.join(home, '.local', 'bin', 'claude'), path.join(home, '.claude', 'local', 'claude')].find((p) => { try { fs.accessSync(p); return true; } catch { return false; } }) || (has('claude') ? 'claude' : ''); }
 
 // Best-effort auto-detect of who the user is, so we can fill the CLAUDE.md {{PLACEHOLDERS}} instead of making
 // them hand-edit (a step everyone forgets — then the brain literally addresses you as "{{USER_NAME}}").
