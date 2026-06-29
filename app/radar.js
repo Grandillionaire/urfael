@@ -101,9 +101,19 @@ async function fetchBody(repo, tag) {
   const out = await sh('gh', ['release', 'view', tag, '--repo', repo, '--json', 'body'], { timeout: 30000 });
   try { return String(JSON.parse(out).body || ''); } catch { return ''; }
 }
+// Release notes are UNTRUSTED external content (a prompt-injection vector), so spawn the brain hardened the
+// same way the daemon's stateless untrusted handler does: --strict-mcp-config (no ambient MCP servers — this
+// also stops a hang when a configured server, e.g. a claude.ai connector, blocks on interactive auth), no
+// tools at all (--allowedTools '' — the notes can not make it act), a non-interactive permission mode (never
+// stalls waiting on a prompt with no TTY), and a pinned fast model. We also strip the parent Claude Code
+// session markers so a nested `claude -p` (radar run by hand from inside a Claude session) starts a fresh
+// headless session instead of trying to attach to ours and hanging.
+const NESTED_CLAUDE_ENV = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_SSE_PORT'];
+function brainEnv(env) { const e = { ...(env || process.env) }; for (const k of NESTED_CLAUDE_ENV) delete e[k]; return e; }
+function analyzeArgs(prompt) { return ['-p', prompt, '--model', 'sonnet', '--permission-mode', 'acceptEdits', '--strict-mcp-config', '--allowedTools', '']; }
 async function analyze(prompt, claudeBin, env) {
   if (!claudeBin) return '';
-  return (await sh(claudeBin, ['-p', prompt], { env, timeout: 180000 })).trim();
+  return (await sh(claudeBin, analyzeArgs(prompt), { env: brainEnv(env), timeout: 240000 })).trim();
 }
 
 // run({ claudeBin, env, now }) → { analyzed, reportPath, repos }. The whole pass, fail-soft (never throws).
@@ -130,4 +140,4 @@ async function run(opts = {}) {
   return { analyzed: items.length, reportPath, repos: cfg.repos };
 }
 
-module.exports = { run, newReleases, buildAnalysisPrompt, assembleReport, defaultConfig, loadConfig, loadState, saveState, fetchReleases, PRINCIPLES, DEFAULT_REPOS, CONFIG, STATE, REPORT_DIR };
+module.exports = { run, newReleases, buildAnalysisPrompt, assembleReport, defaultConfig, loadConfig, loadState, saveState, fetchReleases, analyzeArgs, brainEnv, NESTED_CLAUDE_ENV, PRINCIPLES, DEFAULT_REPOS, CONFIG, STATE, REPORT_DIR };
