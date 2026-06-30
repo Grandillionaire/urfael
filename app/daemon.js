@@ -26,7 +26,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -722,9 +722,12 @@ const brain = {
       const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 180000); // exit handler resolves
       proc.on('exit', () => {
         clearTimeout(timer); inflightScoped.delete(proc);
-        let txt = '';
-        try { const j = JSON.parse(out); txt = typeof j.result === 'string' ? j.result : ''; } catch {}
-        logEvent({ ev: 'remote_turn', channel: ctx.channel || '', principal: ctx.principal || '', role: ctx.role || '', profile: String(profile.name), model, permissionMode: permMode, allowedTools: profile.allowedTools.join(','), in: text.length, out: txt.length });
+        let txt = '', ju = {};
+        // capture the scoped child's token usage too: --output-format json already emits a `usage` block; we used to
+        // parse `out` only for j.result and discard j.usage, so every remote principal read $0 in any cost rollup.
+        // Now the remote_turn line carries tokens (fail-soft to 0 if the child omitted usage), so per-principal cost is real.
+        try { const j = JSON.parse(out); txt = typeof j.result === 'string' ? j.result : ''; ju = (j && j.usage) || {}; } catch {}
+        logEvent({ ev: 'remote_turn', channel: ctx.channel || '', principal: ctx.principal || '', role: ctx.role || '', profile: String(profile.name), model, permissionMode: permMode, allowedTools: profile.allowedTools.join(','), in: text.length, out: txt.length, tokIn: ju.input_tokens || 0, tokOut: ju.output_tokens || 0, tokCache: ju.cache_read_input_tokens || 0 });
         recordSession({ t: new Date().toISOString(), channel: ctx.channel || String(profile.name), principal: ctx.principal || '', role: ctx.role || '', profile: String(profile.name), model, user: text, urfael: txt });
         // per-turn user-model dialectic is channel-agnostic — but ONLY for the OWNER's own remote turns (their phone),
         // never a member/guest, so an untrusted teammate can't reshape the owner's USER.md. (Honcho is always-on; this
@@ -857,6 +860,57 @@ function usageSummary() {
     rates,
     today: round(acc.today), last7d: round(acc.last7d), last30d: round(acc.last30d),
   };
+}
+
+// ---- per-principal / per-channel usage rollup — the dimension a per-AGENT cost scope structurally can't express ----
+// Reads the SAME bounded log tail as usageSummary(), collects every {ev:'turn'|'remote_turn'} line, and hands them to
+// the PURE lib.rollupUsage to group cost/tokens by principal or channel. Local mic turns carry no principal/channel and
+// land under 'local' (the owner's own compute, never attributed to a teammate — see the note). Cost is the same
+// ESTIMATE caveat as usageSummary()/vitals(): env-overridable, rounded to cents at the edge, and meaningless in
+// LOCAL_MODE (a local-GPU model / proxy / Bedrock / Vertex), where we zero the dollar figure + flag `local: true`
+// exactly as vitals() does rather than show a fabricated number. The token sums stay exact regardless.
+function usageRollup(by, opts) {
+  const dim = by === 'channel' ? 'channel' : 'principal';
+  const rates = priceRates();
+  const records = [];
+  for (const ln of tailLines(LOGFILE, 1 << 20)) {
+    if (!ln) continue; let e; try { e = JSON.parse(ln); } catch { continue; }
+    if (e && (e.ev === 'turn' || e.ev === 'remote_turn')) records.push(e);
+  }
+  const roll = rollupUsage(records, rates, { by: dim });
+  const cents = (b) => ({ turns: b.turns, tokIn: b.tokIn, tokOut: b.tokOut, tokCache: b.tokCache, costUsd: LOCAL_MODE ? 0 : Math.round(b.costUsd * 100) / 100 });
+  const groups = {};
+  for (const k of Object.keys(roll.groups)) groups[k] = cents(roll.groups[k]);
+  const out = { by: roll.by, groups, total: cents(roll.total), rates, local: LOCAL_MODE,
+    note: roll.note + (LOCAL_MODE ? "; LOCAL_MODE is active (non-Anthropic backend) so the dollar meter is zeroed, the token counts still hold" : '') };
+  if (opts && opts.verify) out.verify = usageVerify(records);
+  return out;
+}
+// --verify: prove the very lines we summed are the ones the Ledger of Record committed to. `urfael audit --verify`
+// proves the chain is internally consistent; this closes the loop by recomputing each counted record's payloadDigest
+// the same way appendChain() did — auditChain.digest(auditChain.canonicalJSON(payload)) over the payload BEFORE
+// logEvent stamps `t` — and confirming it appears among the chain's digests. So the rollup's inputs are chain-witnessed,
+// not just trusted. FAIL-CLOSED: any read error leaves the digest set empty -> records read unwitnessed, never a throw.
+function chainDigestSet() {
+  const set = new Set();
+  try {
+    for (const ln of fs.readFileSync(CHAINFILE, 'utf8').split('\n')) {
+      if (!ln) continue; let e; try { e = JSON.parse(ln); } catch { continue; }
+      if (e && typeof e.payloadDigest === 'string') set.add(e.payloadDigest);
+    }
+  } catch {}
+  return set;
+}
+function usageVerify(records) {
+  const set = chainDigestSet();
+  let witnessed = 0, missing = 0;
+  for (const rec of records) {
+    const { t, ...payload } = rec;   // strip the log stamp; the chain digested the payload BEFORE `t` was added
+    const d = auditChain.digest(auditChain.canonicalJSON(payload));
+    if (set.has(d)) witnessed++; else missing++;
+  }
+  return { verified: missing === 0, counted: records.length, witnessed, missing,
+    note: 'each counted turn was re-hashed and checked against audit-chain.jsonl; verify the chain itself with `urfael audit --verify`' };
 }
 
 // ---- session archive: every turn appended to a daily JSONL in the private memory repo -----------
@@ -2146,10 +2200,14 @@ const server = http.createServer(async (req, res) => {
     // a key's NAME (authEnv) may appear, never a value. The socket is 0600 so this is owner-only regardless.
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ providers: providerList().map((e) => ({ id: e.id, label: e.label, kind: e.kind, baseUrl: e.baseUrl, big_model: e.big_model, small_model: e.small_model, authKind: e.authKind, authLabel: e.authLabel, verified: e.verified, cost: e.cost, speed: e.speed, quality: e.quality })) }));
-  } else if (req.url === '/usage') {
-    // GET /usage — tokens/turns/ESTIMATED cost for today / last 7d / last 30d, from the bounded log tail.
+  } else if (req.url === '/usage' || (req.url || '').startsWith('/usage?')) {
+    // GET /usage — backward-compatible. Bare → tokens/turns/ESTIMATED cost for today / last 7d / last 30d
+    // (usageSummary, the shape the dashboard + HUD depend on). ?by=principal|channel → the per-key rollup; add
+    // &verify=1 to cross-check every counted line against the Ledger of Record (closes the loop to audit --verify).
+    let by = null, verify = false;
+    try { const sp = new URL(req.url, 'http://x').searchParams; const b = sp.get('by'); by = (b === 'principal' || b === 'channel') ? b : null; verify = sp.get('verify') === '1' || sp.get('verify') === 'true'; } catch {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(usageSummary()));
+    res.end(JSON.stringify(by ? usageRollup(by, { verify }) : usageSummary()));
   } else if (req.url === '/learn') {
     // GET /learn — the learning ledger: what Urfael has learned, verified, quarantined, retired (with confidence).
     const items = learn.load(MEMORY_DIR);

@@ -58,6 +58,49 @@ function budgetState(usage, limits) {
   return { level, pctTurns, pctTok, peak };
 }
 
+// ---- USAGE ROLLUP: cost per PRINCIPAL / per CHANNEL — the dimension a per-AGENT scope can't express -------------
+// turnCostEst(rec, rates) → USD ESTIMATE for one logged turn record, mirroring daemon.turnCost but kept PURE here so
+// the rollup is unit-testable. The model string is matched loosely ('opus' substring -> opus tier, else sonnet) so
+// it works for an alias ('opus'/'sonnet') OR a pinned id; cache reads bill at ~0.1x the input rate. `rates` is the
+// {sonnet:{in,out},opus:{in,out}} bag the daemon derives from env (priceRates), so an env override flows straight
+// through as a parameter — never read here. No fs, no env, no throw.
+function turnCostEst(rec, rates) {
+  const r = rates || {};
+  const tier = /opus/i.test(String((rec && rec.model) || '')) ? (r.opus || {}) : (r.sonnet || {});
+  const inR = Number(tier.in) || 0, outR = Number(tier.out) || 0;
+  const tin = (rec && rec.tokIn) || 0, tout = (rec && rec.tokOut) || 0, tcache = (rec && rec.tokCache) || 0;
+  return (tin * inR + tcache * inR * 0.1 + tout * outR) / 1e6;
+}
+// rollupUsage(records, rates, {by}) → group every counted turn by PRINCIPAL or CHANNEL and sum turns/tokens/cost,
+// plus a `total` that equals the sum of all groups (the invariant the tests pin). `by` ∈ {'principal','channel'}.
+// A record's key is rec[by]; an empty/missing key falls under 'local' — a local {ev:'turn'} carries no principal or
+// channel, and that bucket is the OWNER's own compute, NOT attributable to any remote teammate (the note says so,
+// so the rollup can never imply a teammate caused the owner's spend). Counts both {ev:'turn'} and {ev:'remote_turn'}.
+// PURE + FAIL-CLOSED: a non-array / garbage input yields an empty rollup (zero total) and never throws — parity with
+// audit-chain.verify(). Cost stays a raw float here; the renderers round to cents for display.
+function rollupUsage(records, rates, opts) {
+  const by = (opts && opts.by === 'channel') ? 'channel' : 'principal';
+  const groups = {};
+  const total = { turns: 0, tokIn: 0, tokOut: 0, tokCache: 0, costUsd: 0 };
+  const note = by === 'channel'
+    ? "per-channel cost is an ESTIMATE (env-overridable rates) read from the bounded log tail; 'local' is the owner's on-machine turns, not a remote channel"
+    : "per-principal cost is an ESTIMATE (env-overridable rates) read from the bounded log tail; the 'local' bucket is the owner's own compute, not attributable to any remote teammate";
+  if (Array.isArray(records)) {
+    for (const rec of records) {
+      if (!rec || typeof rec !== 'object') continue;
+      if (rec.ev !== 'turn' && rec.ev !== 'remote_turn') continue;
+      const raw = rec[by];
+      const key = (raw == null || raw === '') ? 'local' : String(raw);
+      const g = groups[key] || (groups[key] = { turns: 0, tokIn: 0, tokOut: 0, tokCache: 0, costUsd: 0 });
+      const cost = turnCostEst(rec, rates);
+      const tin = rec.tokIn || 0, tout = rec.tokOut || 0, tcache = rec.tokCache || 0;
+      g.turns++; g.tokIn += tin; g.tokOut += tout; g.tokCache += tcache; g.costUsd += cost;
+      total.turns++; total.tokIn += tin; total.tokOut += tout; total.tokCache += tcache; total.costUsd += cost;
+    }
+  }
+  return { by, groups, total, note };
+}
+
 // Permission profiles — the STRUCTURAL sandbox for remote/untrusted turns.
 // The daemon maps each /ask to a profile by its `channel`: the local voice overlay sends no channel
 // (=> 'local', full power); every remote channel (telegram/discord/…) is sandboxed. resolveProfile is
@@ -856,4 +899,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
