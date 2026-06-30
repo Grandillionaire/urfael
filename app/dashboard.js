@@ -290,6 +290,7 @@ mark.hl{background:linear-gradient(180deg,rgba(240,199,104,.08),rgba(240,199,104
   </section>
   <section><h2>Usage &amp; cost (est.)</h2><div id="usage"><span class="empty">…</span></div>
     <div class="usage-note">cost is an estimate from override-able rates, read from the recent log tail</div>
+    <div id="usage-by-principal" style="margin-top:10px"></div>
   </section>
   <section><h2>Ask</h2>
     <div class="ask-wrap"><textarea id="q" placeholder="ask the brain…"></textarea><button id="send">send</button></div>
@@ -323,6 +324,18 @@ function usage(){return api('/api/usage').then(function(u){
   var rows=[['today',u.today],['last 7d',u.last7d],['last 30d',u.last30d]];
   $('#usage').innerHTML=rows.map(function(r){var b=r[1]||{};
     return '<div class="ucard"><div class="uk">'+esc(r[0])+'</div><div class="uc">$'+esc((b.costUsd||0).toFixed(2))+'<span class="muted" style="font-size:11px"> est.</span></div><div class="ut">'+esc(b.turns||0)+' turns · '+esc(ktok((b.tokIn||0)+(b.tokOut||0)))+' tok</div></div>';
+  }).join('');
+}).catch(function(){})}
+// per-principal cost rollup — who/which sender spent what. The 'local' bucket is the owner's own compute, not a
+// teammate; presentational only (the daemon already gated this socket to the owner). Hidden until there is data.
+function usageByPrincipal(){return api('/api/usage?by=principal').then(function(u){
+  var box=$('#usage-by-principal'); if(!box)return;
+  var groups=(u&&u.groups)||{}; var keys=Object.keys(groups).sort(function(a,b){return (groups[b].costUsd-groups[a].costUsd)||(groups[b].turns-groups[a].turns)});
+  if(!keys.length){box.innerHTML='';return}
+  var dec=u.local?2:4;
+  var head='<div class="muted" style="margin:6px 0">by principal'+(u.local?' · LOCAL_MODE (cost meter off)':'')+'</div>';
+  box.innerHTML=head+keys.map(function(k){var g=groups[k];
+    return '<div class="row"><span class="ch">'+esc(k)+'</span> <span class="t">'+esc(g.turns||0)+' turns · '+esc(ktok((g.tokIn||0)+(g.tokOut||0)))+' tok</span> <span class="muted">$'+esc((g.costUsd||0).toFixed(dec))+' est</span></div>';
   }).join('');
 }).catch(function(){})}
 function reminders(){return api('/api/reminders').then(function(rs){
@@ -465,7 +478,7 @@ function prefs(){return api('/api/prefs').then(function(d){
     // belt-and-suspenders (server already gated): only our token names + a conservative color charset
     if(/^--[a-z0-9]+$/i.test(k)&&typeof val==='string'&&/^[#a-z0-9(),.%/ -]+$/i.test(val)) rs.setProperty(k,val); }
 }).catch(function(){})}
-function tick(){vit();usage();reminders();jobs();learn();audit();prefs();radar()}
+function tick(){vit();usage();usageByPrincipal();reminders();jobs();learn();audit();prefs();radar()}
 tick();setInterval(tick,5000);
 </script></body></html>`;
 }
@@ -514,7 +527,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (req.method === 'GET' && pathname === '/api/vitals') return sendJson(res, 200, (await daemonGet('/vitals')) || {});
-    if (req.method === 'GET' && pathname === '/api/usage') return sendJson(res, 200, (await daemonGet('/usage')) || {});
+    if (req.method === 'GET' && pathname === '/api/usage') { const by = u.searchParams.get('by'); const qp = (by === 'principal' || by === 'channel') ? '?by=' + by : ''; return sendJson(res, 200, (await daemonGet('/usage' + qp)) || {}); }
     if (req.method === 'GET' && pathname === '/api/reminders') return sendJson(res, 200, (await daemonGet('/reminders')) || []);
     if (req.method === 'GET' && pathname === '/api/jobs') return sendJson(res, 200, (await daemonGet('/jobs')) || []);
     if (req.method === 'GET' && pathname === '/api/learn') return sendJson(res, 200, (await daemonGet('/learn')) || {});

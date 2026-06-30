@@ -1128,6 +1128,48 @@ function readStdinAdapter(maxBytes) {
     }
     return;
   }
+  if (cmd === 'usage') {
+    // tokens / turns / ESTIMATED cost. Bare → today / 7d / 30d totals (the usageSummary windows). --by principal|channel
+    // → the per-key rollup (who/which channel spent what), the dimension a per-AGENT scope can't express. --verify adds a
+    // Ledger-of-Record cross-check that every counted turn is chain-witnessed. --json prints the raw payload.
+    const json = rest.includes('--json'), verify = rest.includes('--verify');
+    const byFlag = flag(rest, '--by');
+    const wantRollup = verify || byFlag != null;
+    const by = byFlag === 'channel' ? 'channel' : 'principal';   // default the rollup dimension to principal
+    const ktok = (n) => { n = n || 0; return n >= 1000 ? Math.round(n / 1000) + 'k' : String(n); };
+    let p = '/usage';
+    if (wantRollup) { p += '?by=' + by + (verify ? '&verify=1' : ''); }
+    const u = await req('GET', p);
+    if (json) { console.log(JSON.stringify(u, null, 2)); return; }
+    if (!wantRollup) {
+      if (!u || !u.today) { console.log(dim('no usage recorded yet')); return; }
+      console.log(gold('Usage & cost (est.)'));
+      for (const [label, b] of [['today', u.today], ['7d', u.last7d], ['30d', u.last30d]]) {
+        const w = b || {};
+        console.log('  ' + gold(label.padEnd(6)) + '$' + (w.costUsd || 0).toFixed(2) + dim(' est') + '  ' + dim((w.turns || 0) + ' turns · ' + ktok((w.tokIn || 0) + (w.tokOut || 0)) + ' tok'));
+      }
+      console.log(dim('  ' + (u.note || '')));
+      console.log(dim('  per principal:  ') + gold('urfael usage --by principal') + dim('   ·   per channel:  ') + gold('urfael usage --by channel'));
+      return;
+    }
+    const groups = (u && u.groups) || {};
+    const keys = Object.keys(groups).sort((a, b) => (groups[b].costUsd - groups[a].costUsd) || (groups[b].turns - groups[a].turns));
+    if (!keys.length) { console.log(dim('no usage recorded yet for that dimension')); return; }
+    const cents = u.local ? 2 : 4;   // raw-Anthropic shows sub-cent estimates; LOCAL_MODE zeroes the dollar meter
+    console.log(gold('Usage by ' + (u.by || by)) + dim('  ·  ' + keys.length + ' ' + (u.by || by) + (keys.length === 1 ? '' : 's') + (u.local ? '  · LOCAL_MODE: cost meter off' : '')));
+    const row = (k, g) => '  ' + gold(String(k).slice(0, 18).padEnd(18)) + dim(String(g.turns || 0).padStart(4) + ' turns ') + ktok((g.tokIn || 0) + (g.tokOut || 0)).padStart(7) + ' tok  ' + ('$' + (g.costUsd || 0).toFixed(cents)).padStart(10) + dim(' est');
+    for (const k of keys) console.log(row(k, groups[k]));
+    console.log(dim('  ' + '─'.repeat(46)));
+    console.log(row('total', u.total || {}));
+    if (u.note) console.log(dim('  ' + u.note));
+    if (u.verify) {
+      if (u.verify.verified) console.log(gold('  ✓ ledger-witnessed') + dim('  · all ' + (u.verify.counted || 0) + ' counted turns appear in the Ledger of Record'));
+      else console.log('\x1b[31m  ✗ ' + (u.verify.missing || 0) + ' of ' + (u.verify.counted || 0) + ' counted turns are NOT in the ledger\x1b[0m' + dim('  (run `urfael audit --verify`)'));
+    } else {
+      console.log(dim('  check the inputs against the ledger:  ') + gold('urfael usage --by ' + (u.by || by) + ' --verify'));
+    }
+    return;
+  }
   if (cmd === 'audit') {
     if (rest.includes('--verify')) {
       // Ledger of Record: walk the tamper-evident hash chain and prove it's intact (or pinpoint the first break).
