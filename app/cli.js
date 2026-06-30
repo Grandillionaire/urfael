@@ -1303,8 +1303,8 @@ function readStdinAdapter(maxBytes) {
     }
     return;
   }
-  if (cmd === 'jobs') { for (const j of await req('GET', '/jobs')) console.log(`${j.id}  ${j.kind}  ${gold(j.state)}  ${dim(j.createdAt || '')}`); return; }
-  if (cmd === 'job') { if (!rest[0]) { console.log('usage: urfael job <id>'); return; } const j = await req('GET', '/job/' + rest[0]); console.log(JSON.stringify({ ...j, log: undefined }, null, 2)); if (j.log) console.log(dim('--- log tail ---\n') + j.log); return; }
+  if (cmd === 'jobs') { for (const j of await req('GET', '/jobs')) console.log(`${j.id}  ${j.kind}  ${gold(j.state)}  ${dim('scope=' + (j.scope || '?'))}  ${dim(j.createdAt || '')}`); return; }
+  if (cmd === 'job') { if (!rest[0]) { console.log('usage: urfael job <id>'); return; } const j = await req('GET', '/job/' + rest[0]); console.log(dim('scope: ') + gold((j.spec && j.spec.scope) || '(unset)')); console.log(JSON.stringify({ ...j, log: undefined }, null, 2)); if (j.log) console.log(dim('--- log tail ---\n') + j.log); return; }
   if (cmd === 'cancel') { if (!rest[0]) { console.log('usage: urfael cancel <id>'); return; } console.log(JSON.stringify(await req('POST', `/job/${rest[0]}/cancel`))); return; }
   if (cmd === 'schedule') {
     // the dedicated Reminders & Calendar channel: add / move / cancel a reminder or calendar event in plain English.
