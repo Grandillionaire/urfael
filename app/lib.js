@@ -191,6 +191,36 @@ function resolveProfile(name) {
   return { name: known ? key : 'untrusted', ...p };
 }
 
+// ---- DELEGATED BACKGROUND SCOPE — derive a background child's capabilities from the SPAWNING turn's profile -------
+// A background /job spawned on behalf of a turn must NOT get a hardcoded toolset; it must inherit the originating
+// principal's trust scope so an untrusted turn fails CLOSED to a no-egress child. delegateScope(name) reads the SAME
+// PROFILES map as resolveProfile (single source of truth — the trust model can never fork from a copied list): the
+// child allowlist = the profile's allowlist INTERSECTED with a delegation FLOOR that by construction can NEVER carry
+// Bash/computer-use (a background child gets file + optional web tools, never a shell). FAIL-CLOSED exactly like
+// resolveProfile: any non-string / unknown name → 'untrusted' (Read/Grep/Glob, NO egress). 'local' inherits the full
+// floor (so an owner's own background job is unchanged); 'full' keeps web reach but no Write/Edit; 'untrusted'/'guest'
+// get NO egress. Returns the resolved profile object, its canonical scope label, the floored allowlist, and whether
+// that allowlist carries a network-egress tool. Pure, no I/O.
+const DELEGATE_FLOOR = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Write', 'Edit']; // delegation ceiling — NEVER Bash/computer-use
+function delegateScope(name) {
+  const profile = resolveProfile(name);                                  // fail-closed to 'untrusted' for non-string/unknown
+  const base = Array.isArray(profile.allowedTools) ? profile.allowedTools : DELEGATE_FLOOR; // null === 'local' inherit → the full floor
+  const allowedTools = base.filter((t) => DELEGATE_FLOOR.includes(t));   // ∩ floor: order-preserving, can never widen past the floor
+  const egress = allowedTools.some((t) => t === 'WebFetch' || t === 'WebSearch');
+  return { profile, scope: profile.name, allowedTools, egress };
+}
+// narrowScope(requested, ceiling) — enforce the DELEGATION NARROWING invariant (mirror of profileFor: a request may
+// only ever NARROW its scope, never widen it). The requested scope is honoured ONLY when its delegate capability is a
+// SUBSET of the ceiling's (every tool within, and no egress the ceiling lacks); otherwise it is clamped DOWN to the
+// ceiling. Built on delegateScope so it stays single-sourced from PROFILES. Fail-closed: a garbage requested/ceiling
+// each resolve through delegateScope to the most-restricted 'untrusted'. Returns the effective canonical scope name.
+function narrowScope(requested, ceiling) {
+  const cap = delegateScope(ceiling);
+  const req = delegateScope(requested);
+  const within = req.allowedTools.every((t) => cap.allowedTools.includes(t)) && (!req.egress || cap.egress);
+  return within ? req.scope : cap.scope;
+}
+
 // ---- TEAM / MULTI-OWNER MODE -------------------------------------------------------------------------
 // Multiple allowlisted principals per channel, each with a role. The CRITICAL invariant: a role can only
 // NARROW access for a remote turn, never widen it. A remote turn is NEVER 'local' (full power) no matter the
@@ -937,4 +967,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
