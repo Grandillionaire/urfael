@@ -811,4 +811,49 @@ function fallbackModelFor(m) {
   return MODELS.sonnet;
 }
 
-module.exports = { classifyError, fallbackModelFor, MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+// resolvePromptText({ argv, readFile, readStdin, stdinIsTTY, maxBytes }) → the prompt string to hand the brain.
+// The CLI's default branch ("everything is a question") used to just join argv with spaces. This resolver lets a
+// prompt ALSO come from a file (`--file <path>`, alias `--message-file`) or from stdin (a lone `-`, or any non-TTY
+// pipe). The point is privacy + ergonomics: argv is visible in `ps` and your shell history, a file or a pipe is
+// not, and a file carries multiline / JSON / quote-heavy text no shell would survive. Precedence is deterministic
+// (argv wins, then file, then stdin) so the injected readers prove which source was used. ALL IO is injected; this
+// function never touches fs or process, so it stays pure + unit-testable, and fail-CLOSED: it throws rather than
+// silently send an empty or truncated prompt (the daemon caps the body at 256KB and an overflow truncates to '').
+async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, maxBytes = 256 * 1024 } = {}) {
+  const words = [];
+  let filePath = null, dashStdin = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a == null) continue;                                            // a missing leading token (bare `urfael`) → skip, never a prompt word
+    if (a === '--file' || a === '--message-file') {                     // --message-file is the rival's name; accept it as an alias
+      const v = argv[i + 1];
+      if (v == null) throw new Error('missing path after ' + a);        // a flag with no value is a usage error, not a prompt
+      filePath = v; i++; continue;                                      // last one wins
+    }
+    if (a === '-') { dashStdin = true; continue; }                      // the conventional stdin sentinel
+    if (typeof a === 'string' && a[0] === '-') continue;                // any other flag is consumed elsewhere, never a prompt word
+    words.push(a);
+  }
+
+  let text;
+  const argvText = words.join(' ').trim();
+  if (argvText) {
+    text = argvText;                                                    // (a) argv wins; file/stdin are NOT read, so the readers stay un-called
+  } else if (filePath != null) {
+    try { text = await readFile(filePath); }                            // (b) fail-closed: any read error (ENOENT/EISDIR/perm) becomes a loud throw
+    catch (e) { throw new Error('cannot read prompt file: ' + filePath + ' (' + ((e && e.code) || (e && e.message) || e) + ')'); }
+  } else if (dashStdin || stdinIsTTY === false) {
+    text = await readStdin();                                           // (c) explicit `-` OR a piped / non-TTY invocation
+  } else {
+    throw new Error('no prompt: pass text, --file <path>, or pipe stdin'); // (d) interactive TTY with nothing to say → fail-closed, never block on stdin
+  }
+
+  text = String(text == null ? '' : text);
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);              // strip a single leading UTF-8 BOM (parity with --message-file); keep all other whitespace intact
+  const bytes = Buffer.byteLength(text, 'utf8');
+  if (bytes > maxBytes) throw new Error('prompt too large: ' + bytes + ' bytes > ' + maxBytes + ' cap'); // cap LAST + loud, client-side, before the daemon truncates an oversized body to empty
+  if (text.trim() === '') throw new Error('empty prompt');             // an empty file / blank pipe is a mistake, not a turn
+  return text;
+}
+
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };

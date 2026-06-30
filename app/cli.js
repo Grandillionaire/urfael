@@ -221,6 +221,26 @@ function printPluginPreview(ph, m) {
   console.log(dim('   sandbox   ') + dim('docker ' + p.cellArgs));
 }
 
+// A prompt can come from argv, a file (`--file <path>`, alias `--message-file`), or stdin (`urfael -`, or any pipe).
+// These two adapters are the ONLY IO lib.resolvePromptText touches; they live here so that resolver stays pure and
+// unit-tested with injected fakes. PROMPT_MAX_BYTES caps the prompt client-side with headroom under the daemon's
+// 256KB body cap, so an oversized prompt fails LOUD here instead of being silently truncated to '' on the wire.
+const PROMPT_MAX_BYTES = 200000;
+const readFileAdapter = (p) => fs.readFileSync(p, 'utf8');               // throws on missing / dir / perm → fail-closed (mirrors the `skills scan` read above)
+function readStdinAdapter(maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let len = 0, capped = false;
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (c) => {
+      if (capped) return;                                               // already one chunk past the cap → drop the rest so a runaway pipe can't exhaust memory
+      chunks.push(c); len += Buffer.byteLength(c, 'utf8');
+      if (len > maxBytes) capped = true;                                // keep the chunk that crossed it so the resolver still sees an over-cap body and rejects loud
+    });
+    process.stdin.on('end', () => resolve(chunks.join('')));
+    process.stdin.on('error', reject);
+  });
+}
+
 (async () => {
   const [cmd, ...rest] = process.argv.slice(2);
   if (cmd === 'logo') { console.log(banner()); return; }
@@ -259,7 +279,7 @@ function printPluginPreview(ph, m) {
     console.log(gold('✓ updated') + dim('  ·  restart the daemon to run the new code:  ') + gold('urfael shutdown') + dim(' then your next command'));
     return;
   }
-  if (!cmd) { console.log(reg.renderBare(helpUI)); return; }                          // bare urfael → the "start here" card
+  if (!cmd && process.stdin.isTTY) { console.log(reg.renderBare(helpUI)); return; }    // bare urfael → the "start here" card (but a piped `echo … | urfael` falls through to read stdin)
   if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
     console.log(rest[0] ? reg.renderOne(rest[0], helpUI) : reg.renderFull(helpUI));   // `help <cmd>` drills in; `help` is the grouped reference
     return;
@@ -1289,5 +1309,16 @@ function printPluginPreview(ph, m) {
       return;
     }
   }
-  await ask([cmd, ...rest].join(' '));
+  // resolve the prompt from argv, a --file/--message-file path, or stdin (a lone `-` or a pipe). Intercepting the
+  // flags here means `urfael --file ./p.md` no longer mis-sends the literal "--file ./p.md" as a question.
+  try {
+    const text = await require('./lib').resolvePromptText({
+      argv: [cmd, ...rest],
+      readFile: readFileAdapter,
+      readStdin: () => readStdinAdapter(PROMPT_MAX_BYTES),
+      stdinIsTTY: process.stdin.isTTY,
+      maxBytes: PROMPT_MAX_BYTES,
+    });
+    await ask(text);
+  } catch (e) { console.error(bad('✗') + ' ' + ((e && e.message) || e)); process.exit(1); }
 })();
