@@ -31,6 +31,33 @@ function classifyModel(text) {
   return MODELS.sonnet;
 }
 
+// ---- PER-PRINCIPAL MODEL CAP (owner-set ceiling on auto-routing) -------------------------------------
+// The owner can pin a per-principal MAXIMUM tier in team.json (key `maxModel`, alias `model`) so a member/guest
+// can never burn the expensive tier on a cost-DoS prompt. It is a CEILING, not a floor: a capped principal's
+// turn auto-routes as usual (classifyModel), then is LOWERED if it would exceed the cap — it can never RAISE a
+// tier a remote sender could otherwise reach. Opt-in: no cap → behaviour is byte-identical to today.
+//
+// normPinModel(v) — the fail-closed validator: returns 'opus' | 'sonnet' | null. Accepts ONLY the two real tier
+// names, case-insensitively; everything else (objects/arrays/numbers/'', 'haiku', a pinned id, a sender-shaped
+// string) → null. Mirrors resolveProfile's string discipline so junk — or a forged socket payload — can name at
+// most one of the two tiers and never inject an arbitrary model id. PURE.
+function normPinModel(v) {
+  if (typeof v !== 'string') return null;
+  const k = v.trim().toLowerCase();
+  return (k === 'opus' || k === 'sonnet') ? k : null;
+}
+// capModel(classified, cap) — clamp an auto-routed model DOWN to the cap. `classified` is whatever classifyModel
+// returned (an alias or an env-pinned id); the tier is read with the same loose /opus/i match turnCost uses, so it
+// survives a pinned id. A valid cap that ranks BELOW the classified tier lowers it (opus → MODELS.sonnet); an equal/
+// higher cap, or an invalid/unset cap, returns `classified` UNCHANGED — the cap can only ever lower, never raise. PURE.
+function capModel(classified, cap) {
+  const c = normPinModel(cap);
+  if (!c) return classified;                                            // invalid/unset cap → pure passthrough to auto-routing
+  const tier = /opus/i.test(String(classified == null ? '' : classified)) ? 'opus' : 'sonnet';
+  if (c === 'sonnet' && tier === 'opus') return MODELS.sonnet;          // opus auto-route blocked: lowered to the sonnet cap
+  return classified;                                                    // cap is at/above the classified tier → no change
+}
+
 // ---- USAGE GUARDRAIL: a self-imposed budget Urfael ENFORCES, not just displays ------------------------
 // Honest on a flat-rate subscription: budgets are TURNS + TOKENS over a rolling window (default 5h — the Claude
 // usage window), never fabricated dollars. Unset limits → dormant (fail-OPEN: an unconfigured budget never blocks
@@ -194,7 +221,12 @@ function buildRoster(teamJson, envOwners) {
       if (!Array.isArray(list)) continue;
       const seen = new Set();
       roster[ch] = list.filter((x) => x && x.id != null && !seen.has(String(x.id)) && seen.add(String(x.id)))
-        .map((x) => ({ id: String(x.id), name: typeof x.name === 'string' && x.name.trim() ? x.name.trim().slice(0, 60) : String(x.id), role: normRole(x.role) }));
+        .map((x) => {
+          const e = { id: String(x.id), name: typeof x.name === 'string' && x.name.trim() ? x.name.trim().slice(0, 60) : String(x.id), role: normRole(x.role) };
+          const cap = normPinModel(x.maxModel != null ? x.maxModel : x.model);   // owner-set per-principal ceiling (alias `model`); junk → dropped
+          if (cap) e.model = cap;                                                // omit when absent/invalid so existing rosters stay byte-identical
+          return e;
+        });
     }
   }
   return roster;
@@ -209,7 +241,10 @@ function resolvePrincipal(roster, channel, senderId) {
   const id = String(senderId);
   const p = list.find((x) => x && String(x.id) === id);
   if (!p) return null;
-  return { id, name: typeof p.name === 'string' ? p.name : id, role: normRole(p.role) };
+  const out = { id, name: typeof p.name === 'string' ? p.name : id, role: normRole(p.role) };
+  const cap = normPinModel(p.model != null ? p.model : p.maxModel);   // surface the owner-set cap; undefined when absent (backward compatible)
+  if (cap) out.model = cap;
+  return out;
 }
 
 // The channels a roster can have (used to validate `urfael team add`).
@@ -248,9 +283,12 @@ function addPrincipal(team, channel, principal) {
   if (!id) return { team: t, error: 'an id is required' };
   const role = normRole(principal && principal.role);
   const name = (principal && typeof principal.name === 'string' && principal.name.trim()) ? principal.name.trim().slice(0, 60) : id;
+  // optional per-principal model CEILING — canonical key `maxModel` (alias `model`); only a real tier is kept, junk stripped
+  const cap = normPinModel(principal && (principal.maxModel != null ? principal.maxModel : principal.model));
   if (!Array.isArray(t[channel])) t[channel] = [];
   const existing = t[channel].find((x) => x && String(x.id) === id);
-  if (existing) { existing.name = name; existing.role = role; } else t[channel].push({ id, name, role });
+  if (existing) { existing.name = name; existing.role = role; if (cap) existing.maxModel = cap; else delete existing.maxModel; }
+  else { const e = { id, name, role }; if (cap) e.maxModel = cap; t[channel].push(e); }
   return { team: t, error: null };
 }
 function removePrincipal(team, channel, id) {
@@ -899,4 +937,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };

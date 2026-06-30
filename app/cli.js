@@ -1103,12 +1103,23 @@ function readStdinAdapter(maxBytes) {
       return;
     }
     if (sub === 'add' && rest[1] && rest[2]) {
-      // urfael team add <channel> <id> [name] [role]
-      const [, channel, id, name, role] = rest;
-      const { team, error } = lib.addPrincipal(readTeam(), channel, { id, name: name || id, role });
+      // urfael team add <channel> <id> [name] [role] [--max opus|sonnet]
+      // --max sets an OWNER-imposed model CEILING for this principal: their turns auto-route as usual but can never
+      // exceed this tier, so a member/guest can't burn the costly tier on a heavy prompt. Invalid values are ignored.
+      let maxModel = '';
+      const pos = [];
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i];
+        if (a === '--max' || a === '--max-model') { maxModel = rest[i + 1] || ''; i++; continue; }
+        const mm = typeof a === 'string' && a.match(/^--max(?:-model)?=(.+)$/); if (mm) { maxModel = mm[1]; continue; }
+        pos.push(a);
+      }
+      const [, channel, id, name, role] = pos;
+      const { team, error } = lib.addPrincipal(readTeam(), channel, { id, name: name || id, role, maxModel });
       if (error) { console.error('✗ ' + error); process.exit(1); }
       const shownRole = /^(owner|member|guest)$/.test(role || '') ? role : 'guest';
-      writeTeam(team); console.log(gold('✓ added ') + id + dim(' to ' + channel + ' as ' + shownRole + '. Takes effect live.'));
+      const cap = lib.normPinModel(maxModel);
+      writeTeam(team); console.log(gold('✓ added ') + id + dim(' to ' + channel + ' as ' + shownRole + (cap ? ', capped at ' + cap : '') + '. Takes effect live.'));
       return;
     }
     if ((sub === 'remove' || sub === 'rm') && rest[1] && rest[2]) {
@@ -1117,14 +1128,14 @@ function readStdinAdapter(maxBytes) {
       writeTeam(team); console.log(gold('✓ removed ') + rest[2] + dim(' from ' + rest[1]));
       return;
     }
-    if (sub === 'add' || sub === 'remove' || sub === 'rm') { console.log('usage: urfael team add <channel> <id> [name] [owner|member|guest]   ·   urfael team remove <channel> <id>'); return; }
+    if (sub === 'add' || sub === 'remove' || sub === 'rm') { console.log('usage: urfael team add <channel> <id> [name] [owner|member|guest] [--max opus|sonnet]   ·   urfael team remove <channel> <id>'); return; }
     // default: show the roster
     const team = readTeam();
     const chans = Object.keys(team).filter((c) => Array.isArray(team[c]) && team[c].length);
     if (!chans.length) { console.log(dim('single-owner mode — no team.json yet.')); console.log(dim('  add a teammate:  ') + gold('urfael team add telegram <chat-id> "Sam" member')); return; }
     for (const c of chans) {
       console.log(gold(c));
-      for (const p of team[c]) { const role = p.role === 'owner' ? gold('owner ') : p.role === 'guest' ? dim('guest ') : 'member'; console.log(`  ${role}  ${dim(String(p.id).slice(0, 18).padEnd(18))}  ${p.name || ''}`); }
+      for (const p of team[c]) { const role = p.role === 'owner' ? gold('owner ') : p.role === 'guest' ? dim('guest ') : 'member'; const cap = lib.normPinModel(p.maxModel != null ? p.maxModel : p.model); console.log(`  ${role}  ${dim(String(p.id).slice(0, 18).padEnd(18))}  ${p.name || ''}${cap ? dim('  ≤' + cap) : ''}`); }
     }
     return;
   }

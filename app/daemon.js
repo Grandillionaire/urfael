@@ -26,7 +26,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -704,7 +704,9 @@ const brain = {
       }
       const permMode = (profile.permissionMode && profile.permissionMode !== 'bypassPermissions') ? profile.permissionMode : 'acceptEdits';
       if (inflightScoped.size >= MAX_SCOPED) { resolve({ text: '(busy — too many remote requests in flight; try again in a moment)', model: '' }); return; }
-      const model = classifyModel(text);
+      // auto-route, then CLAMP DOWN to the owner-set per-principal cap (if any). The cap can only LOWER the tier, never
+      // raise it, so a capped member/guest can't burn the expensive tier on a cost-DoS prompt; no cap → classifyModel as before.
+      const model = capModel(classifyModel(text), normPinModel(ctx.modelCap));
       // per-call random delimiter so attacker text can't forge/close the untrusted envelope.
       const nonce = crypto.randomBytes(9).toString('hex');
       const payload =
@@ -1839,7 +1841,10 @@ const server = http.createServer(async (req, res) => {
       // voice stream's `active` nor the serialized local chain, so phone traffic can't block or cross the mic.
       res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
       const who = typeof parsed.principal === 'string' ? parsed.principal.slice(0, 60) : '';
-      try { const r = await brain.askScoped(text, profile, { channel: String(parsed.channel), principal: who, role: typeof parsed.role === 'string' ? parsed.role : '' }); res.write(JSON.stringify({ kind: 'done', text: r.text, model: r.model }) + '\n'); }
+      // per-principal model CAP set by the OWNER in the roster (the bridge rides it on the same trusted socket as `role`);
+      // re-validated inside askScoped so a forged payload can only ever name one of the two real tiers, never an arbitrary id.
+      const modelCap = typeof parsed.model === 'string' ? parsed.model : '';
+      try { const r = await brain.askScoped(text, profile, { channel: String(parsed.channel), principal: who, role: typeof parsed.role === 'string' ? parsed.role : '', modelCap }); res.write(JSON.stringify({ kind: 'done', text: r.text, model: r.model }) + '\n'); }
       catch { res.write(JSON.stringify({ kind: 'done', text: '(brain error)', model: '' }) + '\n'); }
       try { res.end(); } catch {}
       return;

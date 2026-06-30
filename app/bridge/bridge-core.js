@@ -49,7 +49,9 @@ function audit(o) { try { fs.appendFileSync(AUDIT, JSON.stringify({ t: new Date(
 // role to a sandbox profile and attributes the turn). collapse the NDJSON stream to the final 'done' text.
 function askDaemon(text, channel, principal) {
   return new Promise((resolve) => {
-    const payload = JSON.stringify(principal ? { text, channel, role: principal.role, principal: principal.name } : { text, channel });
+    // principal.model is the owner-set per-principal MODEL CAP (a ceiling on auto-routing); sent ONLY when present,
+    // so a roster with no cap produces a byte-identical payload. The daemon re-validates it (normPinModel) on receipt.
+    const payload = JSON.stringify(principal ? { text, channel, role: principal.role, principal: principal.name, ...(principal.model ? { model: principal.model } : {}) } : { text, channel });
     const req = http.request({ socketPath: SOCK, method: 'POST', path: '/ask',
       headers: { 'Content-Type': 'application/json' }, timeout: 200000 }, (res) => {
       let buf = '', final = '';
