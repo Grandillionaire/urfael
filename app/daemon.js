@@ -26,7 +26,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -741,6 +741,28 @@ const brain = {
     });
   },
 };
+
+// delegateBackground(turn) — the OWNER-GATED seam for in-turn background delegation. Given a turn's RESOLVED trust
+// context ({ profile, principal, role, channel, prompt, ... }), it stamps the spawning profile's scope onto a job
+// spec (delegateScope → single-sourced from PROFILES) and enqueues it as a scope-derived detached child. It is the
+// one obvious place a future owner-approved "go work on this in the background" would call; it is NOT wired to any
+// remote/auto-trigger (the socket is owner-only, and the no-egress property is a fail-closed GUARANTEE, not a new
+// remote trigger). Fail-closed: an unknown/garbage profile resolves through delegateScope to 'untrusted' (no egress).
+function delegateBackground(turn) {
+  const t = turn || {};
+  const scope = delegateScope(t.profile).scope;                          // canonical scope label, fail-closed to 'untrusted'
+  const kind = (t.kind === 'goal' || t.kind === 'research') ? t.kind : 'ask';
+  if (kind === 'goal' && !t.repo) return { error: "'goal' delegation requires spec.repo (isolated, never-push worktree)" };
+  const spec = { kind, prompt: String(t.prompt || t.text || ''), scope,
+    principal: String(t.principal || ''), role: String(t.role || ''), channel: String(t.channel || '') };
+  if (t.model) spec.model = String(t.model);
+  if (t.repo) spec.repo = String(t.repo);
+  let job;
+  try { job = jobstore.create(spec); runner.run(jobstore.get(job.id)); }
+  catch (e) { logEvent({ ev: 'job_create_error', err: String((e && e.message) || e) }); return { error: 'could not persist job' }; }
+  logEvent({ ev: 'job_create', id: job.id, kind, scope, principal: spec.principal.slice(0, 60), role: spec.role, channel: spec.channel, delegated: true });
+  return { id: job.id, scope };
+}
 
 // Live vitals for the HUD: parse the telemetry log + memory git, no new secrets.
 const START_MS = Date.now();
@@ -2262,10 +2284,18 @@ const server = http.createServer(async (req, res) => {
     if (spec.maxIters != null) spec.maxIters = clamp(spec.maxIters, 1, 50);
     if (spec.maxMins != null) spec.maxMins = clamp(spec.maxMins, 1, 240);
     if (spec.turnTimeout != null) spec.turnTimeout = clamp(spec.turnTimeout, 30, 3600);
+    // TRUST-SCOPE the child off the request context, mirroring the /ask turn boundary. The daemon socket is owner-only
+    // (0600) so a bare request is 'local' (full inherit — preserves existing owner ask/research behaviour). A request
+    // carrying a channel is treated as remote-origin: its CEILING is profileFor(role) (untrusted|guest), and an explicit
+    // spec.scope may only NARROW, never widen past that ceiling (narrowScope, fail-closed). The child's tools are then
+    // DERIVED from spec.scope by runner.argvFor(delegateScope), so an untrusted-origin job is structurally no-egress.
+    const ceiling = ('channel' in spec && spec.channel) ? profileFor(spec.role, AGENT_MODE).name : 'local';
+    const requested = (typeof spec.scope === 'string' && spec.scope) ? spec.scope : ceiling; // absent → the ceiling (local for the owner socket)
+    spec.scope = narrowScope(requested, ceiling);
     let job;
     try { job = jobstore.create(spec); runner.run(jobstore.get(job.id)); }   // a jobs-dir I/O fault must 500, not hang the client
     catch (e) { logEvent({ ev: 'job_create_error', err: String((e && e.message) || e) }); res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'could not persist job' })); return; }
-    logEvent({ ev: 'job_create', id: job.id, kind: spec.kind });
+    logEvent({ ev: 'job_create', id: job.id, kind: spec.kind, scope: spec.scope, principal: typeof spec.principal === 'string' ? spec.principal.slice(0, 60) : '', role: typeof spec.role === 'string' ? spec.role : '' });
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: job.id, state: 'running' }));
   } else if (req.url && req.url.startsWith('/recall')) {
     // GET /recall?q=<query>&k=<n> — BM25-ranked recall over the WHOLE archive via the warm inverted index
@@ -2298,7 +2328,7 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify(ranked.map((e) => ({ t: e.t, channel: e.channel || '', user: e.user || '', urfael: e.urfael || '', score: e.score }))));
   } else if (req.url === '/jobs') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(jobstore.list().map((j) => ({ id: j.id, kind: j.kind, state: j.state, createdAt: j.createdAt, endedAt: j.endedAt }))));
+    res.end(JSON.stringify(jobstore.list().map((j) => ({ id: j.id, kind: j.kind, state: j.state, scope: (j.spec && j.spec.scope) || '', createdAt: j.createdAt, endedAt: j.endedAt }))));
   } else if (req.url && req.url.startsWith('/job/')) {
     const m = req.url.match(/^\/job\/([A-Za-z0-9-]{4,64})(\/cancel)?$/); // id validated; never interpolated into a shell
     if (!m) { res.writeHead(404); res.end(); return; }

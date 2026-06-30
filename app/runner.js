@@ -8,6 +8,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const store = require('./jobstore');
+const { delegateScope } = require('./lib');
 
 const VAULT = path.join(os.homedir(), process.env.URFAEL_VAULT_DIR || 'Urfael');
 const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude']
@@ -17,6 +18,19 @@ const NOTIFY = path.join(__dirname, 'bridge', 'notify.js'); // best-effort; a no
 // one-way phone push for "job done / needs you". Single-destination by construction (see the bridge).
 function notify(text) {
   try { const p = spawn(process.execPath, [NOTIFY, text], { detached: true, stdio: 'ignore', env: process.env }); p.unref(); } catch {}
+}
+
+// Per-principal re-entry attribution: a background child's output is UNREVIEWED, so every result note + notify carries
+// who spawned it, over which channel, at which inherited scope, plus an explicit honesty caveat — a delegated result
+// is never presented as owner-verified. Pure string build from the job spec.
+function attribution(s) {
+  const principal = String((s && s.principal) || 'owner');
+  const role = String((s && s.role) || 'owner');
+  const channel = String((s && s.channel) || 'local');
+  const scope = delegateScope(s && s.scope).scope;             // single-sourced; fail-closed to 'untrusted'
+  return { principal, role, channel, scope,
+    header: 'Delegated by ' + principal + '/' + role + ' over ' + channel + ', scope=' + scope + '.',
+    caveat: 'This ran as a background child under the spawning turn\'s scope; results are unreviewed.' };
 }
 
 function argvFor(job) {
@@ -45,11 +59,16 @@ function argvFor(job) {
     }
     return args;
   }
-  // ask / research: sandboxed one-shot — no bypass, no computer-use, write a result note into the vault.
-  const prompt = String(s.prompt || s.goal || '') +
+  // ask / research: sandboxed one-shot — no bypass, no computer-use, write a result note into the vault. The toolset
+  // is DERIVED from the spawning turn's trust scope (delegateScope), never hardcoded: an untrusted-scoped child is
+  // structurally no-egress (Read/Grep/Glob), an owner 'local' job keeps the full floor. The daemon stamps spec.scope
+  // ('local' for the owner socket); an absent/garbage scope here fails CLOSED to 'untrusted' (no egress).
+  const a = attribution(s);
+  const prompt = a.header + '\n' + a.caveat + '\n\n' + String(s.prompt || s.goal || '') +
     '\n\nWhen done, write your findings to a logo-headed note in 03_Resources/ of this vault and open it.';
+  const allowed = delegateScope(s.scope).allowedTools.join(',');
   return [CLAUDE_BIN, '-p', prompt, '--model', String(s.model || 'sonnet'), '--permission-mode', 'acceptEdits',
-    '--allowedTools', 'Read,Grep,Glob,WebFetch,WebSearch,Write,Edit', '--strict-mcp-config']; // note-writing, no shell
+    '--allowedTools', allowed, '--strict-mcp-config']; // scope-derived allowlist, never a shell
 }
 
 function run(job) {
@@ -71,7 +90,8 @@ function run(job) {
     if (typeof fd === 'number') try { fs.closeSync(fd); } catch {}
     const state = signal ? 'cancelled' : (code === 0 ? 'done' : 'failed');
     store.update(id, { state, pid: null, endedAt: new Date().toISOString(), exitCode: code });
-    notify('Urfael job ' + id + ' (' + job.kind + ') ' + state + '.');
+    const a = attribution(job.spec || {});
+    notify('Urfael job ' + id + ' (' + job.kind + ') ' + state + '. ' + a.header + ' ' + a.caveat);
   });
   proc.unref();
   return proc.pid;
@@ -89,4 +109,4 @@ function cancel(id) {
   return true;
 }
 
-module.exports = { run, cancel };
+module.exports = { run, cancel, argvFor, attribution };
