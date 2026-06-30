@@ -526,12 +526,22 @@ function readStdinAdapter(maxBytes) {
     if (sub === 'export' && rest[1]) { if (!hub.exportSkill(rest[1])) { console.error('✗ no such skill: ' + rest[1]); process.exit(1); } return; }
     if (sub === 'scan' && rest[1]) {
       let text = ''; try { text = fs.readFileSync(rest[1], 'utf8'); } catch (e) { console.error('✗ cannot read ' + rest[1] + ': ' + (e && e.message || e)); process.exit(1); }
-      const { flags } = hub.scan(text);
-      if (!flags.length) { console.log(gold('✓ scan clean') + dim(' — no dangerous patterns found (still your call)')); return; }
-      const dangers = flags.filter((f) => f.level === 'danger').length;
-      console.log((dangers ? gold('⚠ ' + dangers + ' DANGER') + dim(' + ' + (flags.length - dangers) + ' warn') : gold('⚠ ' + flags.length + ' warning')) + dim(' flag(s):'));
-      for (const f of flags) console.log('  ' + (f.level === 'danger' ? gold('[DANGER]') : dim('[warn]  ')) + ' ' + f.why + (f.sample ? dim('  «' + f.sample + '»') : ''));
-      if (dangers) process.exit(1); // non-zero exit so scripts/pipelines can gate on a dirty scan
+      const result = hub.scan(text);
+      const { flags } = result;
+      if (!flags.length) console.log(gold('✓ scan clean') + dim(' — no dangerous patterns found (still your call)'));
+      else {
+        const dangers = flags.filter((f) => f.level === 'danger').length;
+        console.log((dangers ? gold('⚠ ' + dangers + ' DANGER') + dim(' + ' + (flags.length - dangers) + ' warn') : gold('⚠ ' + flags.length + ' warning')) + dim(' flag(s):'));
+        for (const f of flags) console.log('  ' + (f.level === 'danger' ? gold('[DANGER]') : dim('[warn]  ')) + ' ' + f.why + (f.sample ? dim('  «' + f.sample + '»') : ''));
+      }
+      // Capability footprint + structured verdict — mirrors the install preview so a pre-install `scan` shows the
+      // exact same "what would this touch" view. Single scanner: this is scan()'s own output, not a second pass.
+      const caps = hub.capabilityLines(result);
+      console.log(gold('  capabilities ') + dim(caps.length ? caps.join(', ') : 'none - inert markdown, runs nothing on its own'));
+      console.log(gold('  verdict      ') + (result.verdict === 'block' ? gold(result.verdict) : dim(result.verdict)));
+      // gate on the structured verdict, not just dangers: block already implies dangers>0 OR score>=9, so this is
+      // strictly stronger (it also catches the warn-only score>=9 pile-up scan() already treats as block).
+      if (result.verdict === 'block') process.exit(1); // non-zero exit so scripts/pipelines can gate on a dirty scan
       return;
     }
     if (sub === 'install' && rest[1]) { const r = await hub.installFromUrl(rest[1], { yes: rest.includes('--yes') }); if (!r.ok) process.exit(1); return; }
