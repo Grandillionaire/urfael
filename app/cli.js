@@ -1048,6 +1048,55 @@ function readStdinAdapter(maxBytes) {
     for (const j of cj) console.log(`${j.id}  ${gold((j.at || '').replace('T', ' ').slice(0, 16))}  ${(j.prompt || '').slice(0, 60)}${j.repeat ? dim('  (' + JSON.stringify(j.repeat) + ')') : ''}`);
     return;
   }
+  if (cmd === 'blueprint' || cmd === 'blueprints') {
+    // Automation Blueprints: a curated catalog that fills out to a read/fetch-only AGENT cron. The pure core lives in
+    // ./blueprints.js (action-fixed to cron.agent — no script/toolset/model field is representable); creation reuses
+    // the EXISTING POST /cron path, which re-validates via normalizeCron and enforces the URFAEL_SCRIPT_CRON gate.
+    const bp = require('./blueprints');
+    const id = (rest[0] && !rest[0].includes('=')) ? rest[0] : '';
+    if (!id) {                                                          // bare: list the catalog
+      const items = bp.list();
+      console.log(frame('automation blueprints', items.map((b) => gold(b.id.padEnd(22)) + dim(b.title)).concat(['', dim('set one up:  ') + gold('urfael blueprint <id>')])));
+      return;
+    }
+    const m = bp.get(id);
+    if (!m) {
+      const near = bp.match(id).slice(0, 3).map((x) => x.id);
+      console.log(bad('✗ no blueprint "' + id + '"') + (near.length ? dim('   did you mean: ') + near.map(gold).join(', ') : ''));
+      console.log(dim('list them:  ') + gold('urfael blueprint'));
+      return;
+    }
+    // collect slot=value pairs (first '=' splits; a value may itself contain '=')
+    const pairs = {}; let hasVals = false;
+    for (const a of rest.slice(1)) { const eq = a.indexOf('='); if (eq > 0) { pairs[a.slice(0, eq)] = a.slice(eq + 1); hasVals = true; } }
+    if (!hasVals) {                                                     // show the form + a ready-to-fill CLI line + the seed
+      const schema = bp.formSchema(m);
+      const lines = [gold(schema.title), dim(schema.description), ''];
+      for (const f of schema.fields) {
+        lines.push(gold('  ' + f.name.padEnd(14)) + dim(f.type + ', ' + (f.optional ? 'optional' : 'required')) + (f.options.length ? dim('  [' + f.options.join(', ') + ']') : ''));
+        if (f.help) lines.push(dim('    ' + f.help));
+      }
+      const tmpl = schema.fields.map((f) => {
+        let ph = (f.default !== '' && f.default != null) ? f.default : f.type === 'time' ? '08:00' : f.type === 'weekdays' ? 'mon,wed,fri' : (f.options[0] || ('<' + f.name + '>'));
+        if (/\s/.test(String(ph))) ph = JSON.stringify(ph);
+        return f.name + '=' + ph;
+      }).join(' ');
+      lines.push('');
+      lines.push(dim('fill it in and run:'));
+      lines.push('  ' + gold('urfael blueprint ' + m.id + (tmpl ? ' ' + tmpl : '')));
+      console.log(frame('blueprint: ' + m.id, lines));
+      console.log(dim('\nor just describe it in chat and Urfael will set it up:\n'));
+      console.log(bp.conversationalSeed(m));
+      return;
+    }
+    let spec;
+    try { spec = bp.fill(m, pairs); }
+    catch (e) { console.error(bad('✗ ' + ((e && e.message) || 'could not fill blueprint'))); process.exit(1); }
+    if (!spec) { console.error(bad('✗ that blueprint could not be filled')); process.exit(1); }
+    const r = await req('POST', '/cron', spec);
+    console.log(r && r.error ? bad('✗ ' + r.error) : gold('✓ ' + (r.kind || 'agent') + ' blueprint ' + m.id + ' scheduled as cron ' + r.id) + dim('  first run ' + r.at));
+    return;
+  }
   if (cmd === 'hook') {
     // manage webhook event triggers. `add` prints the secret ONCE; store it (sent as the X-Urfael-Hook header).
     const sub = rest[0];
