@@ -226,9 +226,6 @@ const COMMANDS = [
   { name: 'setup', group: 'SYSTEM', starter: true, aliases: ['init', 'onboard'], bareSummary: 'onboarding — auth + provider',
     summary: 'onboarding wizard — pick subscription / API key / local model',
     usage: 'urfael setup', examples: ['urfael setup'], see: ['doctor', 'status'] },
-  { name: 'radar', group: 'SYSTEM', hidden: true, bareSummary: 'internal maintenance',   // OWNER-ONLY: off by default + kept out of help so a downloaded copy never surfaces it
-    summary: 'watch Hermes + OpenClaw for updates of note, honestly',
-    usage: 'urfael radar', examples: ['urfael radar'], see: ['doctor', 'status'] },
   { name: 'status', group: 'SYSTEM', starter: true, bareSummary: 'the Hearth — a live vitals card',
     summary: 'the Hearth — model, 7-day tokens, facts, seal, uptime',
     usage: 'urfael status', examples: ['urfael status'], see: ['doctor', 'tui', 'model'] },

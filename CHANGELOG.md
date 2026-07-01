@@ -39,11 +39,7 @@ The "one-click download" release.
 
 ## [0.8.5] - 2026-06-24
 
-The "stay ahead, honestly" release.
-
-### Added
-
-
+The resilience release.
 
 ### Changed
 
