@@ -282,12 +282,6 @@ mark.hl{background:linear-gradient(180deg,rgba(240,199,104,.08),rgba(240,199,104
     </div>
     <div id="chatgrid"></div>
   </section>
-  <section id="radar-section" hidden>
-    <h2>Radar <span class="muted" id="radar-pending" style="font-size:12px"></span></h2>
-    <div class="usage-note">Internal tool. Nothing is auto-implemented; approve the worthwhile ones and Urfael builds them when you next work together.</div>
-    <div id="radar-list" style="margin-top:10px"><span class="empty">…</span></div>
-    <div id="radar-view" hidden></div>
-  </section>
   <section><h2>Usage &amp; cost (est.)</h2><div id="usage"><span class="empty">…</span></div>
     <div class="usage-note">cost is an estimate from override-able rates, read from the recent log tail</div>
     <div id="usage-by-principal" style="margin-top:10px"></div>
@@ -371,35 +365,6 @@ function audit(){return api('/api/audit').then(function(d){
   var a=d&&d.activity; if(!a||!a.length){$('#audit').innerHTML='<span class="empty">no remote (principal) activity yet</span>';return}
   $('#audit').innerHTML=a.slice(0,30).map(function(e){return '<div class="row"><span class="t">'+esc((e.t||'').replace('T',' ').slice(0,16))+'</span> <span class="ch">'+esc(e.channel||'?')+'</span> '+esc(e.principal||'—')+' <span class="muted">'+esc(e.role||'')+' · '+esc(e.profile||'')+'</span></div>'}).join('');
 }).catch(function(){})}
-// ---- internal tool: list reports, read one, approve/dismiss ----
-function radar(){return api('/api/radar').then(function(d){
-  // OWNER-ONLY: the daemon reports enabled=false for a normal/downloaded copy -> keep the whole section hidden.
-  if(!d||!d.enabled){ $('#radar-section').hidden=true; return; }
-  $('#radar-section').hidden=false;
-  var rs=(d&&d.reports)||[]; var pend=(d&&d.pending)||0;
-  $('#radar-pending').textContent = pend ? ('· '+pend+' pending') : '';
-  if(!rs.length){$('#radar-list').innerHTML='<span class="empty">no reports yet (the daily scan writes one only when a rival ships)</span>';return}
-  $('#radar-list').innerHTML=rs.map(function(r){
-    var badge = r.status==='approved' ? '<span class="ch" style="color:#8fae6e">approved</span>' : r.status==='dismissed' ? '<span class="ch" style="color:#888">dismissed</span>' : '<span class="ch" style="color:var(--gold2)">pending</span>';
-    return '<div class="row" style="display:flex;align-items:center;gap:10px"><span class="t" style="flex:1">'+esc(r.date)+'</span> '+badge+' <button data-rf="'+esc(r.file)+'" class="rv" style="padding:5px 11px;min-height:0">view</button></div>';
-  }).join('');
-  document.querySelectorAll('#radar-list .rv').forEach(function(b){ b.addEventListener('click',function(){ radarView(b.getAttribute('data-rf')); }); });
-}).catch(function(){})}
-function radarView(file){
-  api('/api/radar/'+encodeURIComponent(file)).then(function(d){
-    var md=(d&&d.markdown)||'(could not read report)';
-    var v=$('#radar-view'); v.hidden=false;
-    v.innerHTML='<div style="margin:12px 0 8px"><button id="radar-back" style="padding:5px 11px;min-height:0">‹ back</button> '
-      +'<button data-st="approved" class="ra" style="padding:5px 11px;min-height:0;background:#3a4a2a;color:#cfe6b0">✓ approve</button> '
-      +'<button data-st="dismissed" class="ra" style="padding:5px 11px;min-height:0;background:#2a2419;color:#998">dismiss</button></div>'
-      +'<pre style="white-space:pre-wrap;word-break:break-word;background:#0c0b09;border:1px solid #2a2419;border-radius:8px;padding:14px;color:#e7dfc9;font:12.5px/1.6 ui-monospace,Menlo,monospace;max-height:60vh;overflow:auto">'+esc(md)+'</pre>';
-    $('#radar-list').hidden=true;
-    $('#radar-back').addEventListener('click',function(){ v.hidden=true; $('#radar-list').hidden=false; });
-    v.querySelectorAll('.ra').forEach(function(b){ b.addEventListener('click',function(){
-      api('/api/radar/approve',{method:'POST',body:JSON.stringify({file:file,status:b.getAttribute('data-st')})}).then(function(){ v.hidden=true; $('#radar-list').hidden=false; radar(); }).catch(function(){});
-    }); });
-  }).catch(function(){});
-}
 // ---- key-point highlighting: after generation completes, the brain's ==marked== phrases get a gold marker so the
 // eye lands on the point first. Escape FIRST (XSS-safe), then turn the escaped ==...== into a <mark>. Only applied
 // on completion, never mid-stream, so the highlight is a deliberate finish, not a flicker.
@@ -478,7 +443,7 @@ function prefs(){return api('/api/prefs').then(function(d){
     // belt-and-suspenders (server already gated): only our token names + a conservative color charset
     if(/^--[a-z0-9]+$/i.test(k)&&typeof val==='string'&&/^[#a-z0-9(),.%/ -]+$/i.test(val)) rs.setProperty(k,val); }
 }).catch(function(){})}
-function tick(){vit();usage();usageByPrincipal();reminders();jobs();learn();audit();prefs();radar()}
+function tick(){vit();usage();usageByPrincipal();reminders();jobs();learn();audit();prefs()}
 tick();setInterval(tick,5000);
 </script></body></html>`;
 }
@@ -543,10 +508,6 @@ const server = http.createServer(async (req, res) => {
     // ---- multi-chat manager: open/list/talk-to/close independent provider-bound chats (like new terminal windows) ----
     if (req.method === 'GET' && pathname === '/api/providers') return sendJson(res, 200, (await daemonGet('/providers')) || { providers: [] });
     if (req.method === 'GET' && pathname === '/api/chats') { const v = await daemonGet('/vitals'); return sendJson(res, 200, (v && v.chats) || []); }
-    // internal tool: list reports + their approval status, read one, approve/dismiss
-    if (req.method === 'GET' && pathname === '/api/radar') return sendJson(res, 200, (await daemonGet('/radar')) || { reports: [] });
-    if (req.method === 'GET' && /^\/api\/radar\/[0-9TZ:.\-]+\.md$/.test(pathname)) return sendJson(res, 200, (await daemonGet('/radar/' + encodeURIComponent(pathname.slice('/api/radar/'.length)))) || {});
-    if (req.method === 'POST' && pathname === '/api/radar/approve') { const body = await readBody(req); let p = {}; try { p = JSON.parse(body); } catch {} return sendJson(res, 200, (await daemonPostJson('/radar/approve', { file: p.file, status: p.status })) || { ok: false }); }
     if (req.method === 'POST' && pathname === '/api/chat') {
       const body = await readBody(req); let p = {}; try { p = JSON.parse(body); } catch {}
       const model = (p.model === 'opus' || p.model === 'sonnet') ? p.model : 'sonnet';

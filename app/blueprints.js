@@ -115,8 +115,8 @@ function slotPlaceholder(s) {
   return 'text';
 }
 
-// slashCommand(m, values?) → '/blueprint <id> name=val …' with free-text values quoted. The canonical command form
-// (an internal representation). It is a validated REPRESENTATION — like a2ui, it is not consumed by a
+// slashCommand(m, values?) → '/blueprint <id> name=val …' with free-text values quoted. The canonical command form.
+// It is a validated REPRESENTATION — like a2ui, it is not consumed by a
 // live TUI renderer in this phase; tui.js/slash.js stay a fixed catalog until they can run it (honesty rule).
 function slashCommand(m, values) {
   const v = validateManifest(m);
@@ -158,7 +158,7 @@ function conversationalSeed(m) {
 // fill(m, values) → OUR-native normalizeCron spec { kind:'agent', deliver, prompt, repeat, [inMins] } | null (when the
 // manifest itself is invalid; never throws for that). Throws BlueprintFillError on a bad VALUE: an unknown slot name
 // (so a typo like tiem= can NOT silently default), an enum value not in options, a missing required slot, a bad HH:MM,
-// or an over-length text value (internal validation). The schedule is mapped to a NATIVE
+// or an over-length text value. The schedule is mapped to a NATIVE
 // repeat shape ONLY ({days,at} | {dailyAt} | {everyMins}); it NEVER emits kind:'script', a script body, a toolset, a
 // model, a provider, or a {cron:'…'}/raw schedule string. lib.normalizeCron remains the single schedule validator.
 function fill(m, values) {

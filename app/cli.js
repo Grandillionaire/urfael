@@ -746,26 +746,6 @@ function readStdinAdapter(maxBytes) {
   if (cmd === 'quickstart' || cmd === 'quick') { await require('./quickstart').run(); return; }
   // setup: the onboarding wizard (auth mode + provider config). Pure CLI, runs BEFORE ensureDaemon.
   if (cmd === 'setup' || cmd === 'init' || cmd === 'onboard') { await require('./setup').run(); return; }
-  // radar: internal maintenance scan; writes a report to approve. Pure CLI.
-  if (cmd === 'radar') {
-    const radar = require('./radar'); const setup = require('./setup');
-    // OWNER-ONLY tool, off by default. A downloaded copy never runs a competitor scan unless the owner opts in.
-    const _renv = (() => { try { return setup.readEnv(); } catch { return {}; } })();
-    const radarOn = /^(1|on|true)$/i.test(process.env.URFAEL_INTERNAL || _renv.URFAEL_INTERNAL || '') || (parseInt(process.env.URFAEL_INTERNAL_DAYS || _renv.URFAEL_INTERNAL_DAYS, 10) || 0) > 0;
-    if (!radarOn) { console.log(dim('radar is an owner-only maintenance tool, off by default. Enable it with ') + gold('URFAEL_INTERNAL=1') + dim(' in ~/.claude/urfael/provider.env.')); return; }
-    const claudeBin = setup.claudePath();
-    if (!claudeBin) { console.error(bad('✗') + ' the claude CLI is required for the analysis. ' + dim('Install Claude Code first: https://claude.com/claude-code')); process.exit(1); }
-    process.stdout.write(dim('working…\n'));
-    const r = await radar.run({ claudeBin, env: { ...process.env, ...setup.readEnv() } });
-    if (!r.analyzed) console.log(gold('✓ no new releases') + dim('  (watching ' + r.repos.join(', ') + '; needs `gh` installed + authed)'));
-    else {
-      console.log(gold('✓ analyzed ' + r.analyzed + ' new release' + (r.analyzed === 1 ? '' : 's')) + dim('  →  ') + (r.reportPath || '(report write failed)')); console.log(dim('  Review + approve in the dashboard (Radar), or open the file above. I implement the approved items.'));
-      // notify the owner when run by the daily launchd cron, so a new report is never silently buried in a log. macOS only; fail-soft.
-      if (process.platform === 'darwin') { try { const msg = 'Radar: ' + r.analyzed + ' new rival release' + (r.analyzed === 1 ? '' : 's') + ' to review'; require('child_process').spawn('osascript', ['-e', 'display notification "' + msg.replace(/["\\]/g, "'") + '" with title "Urfael"'], { stdio: 'ignore' }).unref(); } catch {} }
-    }
-    return;
-  }
-
   // stop is best-effort BEFORE ensureDaemon — never spawn a brain just to abort nothing
   if (cmd === 'stop') { const r = await req('POST', '/abort').catch(() => ({ ok: false })); console.log(r && r.ok ? gold('stopped') : dim('nothing to stop')); return; }
 

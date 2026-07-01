@@ -252,10 +252,6 @@ function councilStreamOne({ prompt, model, allowedTools, onDelta, onTool }) {
 // deny. It is the daemon's env — a remote sender can NEVER select it. Anything but 'full' is Fortress.
 const AGENT_MODE = String(process.env.URFAEL_MODE || 'fortress').toLowerCase() === 'full' ? 'full' : 'fortress';
 const FALLBACK_ON = process.env.URFAEL_FALLBACK !== '0';   // owner local turns retry once on the other tier after a retryable failure; URFAEL_FALLBACK=0 to disable
-// An internal tool (an internal watch). It is OFF by
-// default and entirely invisible — no dashboard section, no endpoints, no scan — unless the owner explicitly opts in
-// with URFAEL_INTERNAL=1 (or URFAEL_INTERNAL_DAYS=N to also schedule). A downloaded copy never sees it.
-const RADAR_ENABLED = /^(1|on|true)$/i.test(process.env.URFAEL_INTERNAL || '') || (parseInt(process.env.URFAEL_INTERNAL_DAYS, 10) || 0) > 0;
 if (AGENT_MODE === 'full') { try { logEvent({ ev: 'WARN', msg: 'URFAEL_MODE=full — remote owner/member turns can browse the web (still sandboxed: no write, no shell, no bypass, credential-deny holds).' }); } catch {} }
 
 // the in-flight /ask response stream — brain events are written to it as NDJSON
@@ -2187,41 +2183,6 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ current: PKG_VERSION, kind: updateStatus.kind, available: !!updateStatus.available,
       behind: updateStatus.behind || 0, latest: updateStatus.latest || '', branch: updateStatus.branch || '',
       official: !!updateStatus.official, downloadUrl: updater.RELEASES_URL, note: updater.summarize(updateStatus) || '' }));
-  } else if (req.url === '/radar' || /^\/radar\//.test(req.url || '')) {
-    // GET /radar -> list internal reports + their approval status. GET /radar/<file> -> one report's markdown.
-    // POST /radar/approve {file, status} -> mark a report approved|dismissed|pending. Local-owner only (0600 socket).
-    // OWNER-ONLY: invisible unless explicitly enabled. A downloaded copy gets {enabled:false, reports:[]} and 404s.
-    if (!RADAR_ENABLED) {
-      if (req.url === '/radar') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ enabled: false, reports: [], pending: 0 })); }
-      else { res.writeHead(404); res.end(); }
-      return;
-    }
-    const RADAR_DIR = path.join(JDIR, 'radar');
-    const APPROVALS = path.join(RADAR_DIR, 'approvals.json');
-    const readApprovals = () => { try { return JSON.parse(fs.readFileSync(APPROVALS, 'utf8')); } catch { return {}; } };
-    const SAFE_REPORT = /^[0-9TZ:.\-]+\.md$/;   // the radar filename shape (an ISO stamp + .md); no path traversal
-    if (req.method === 'POST' && req.url === '/radar/approve') {
-      const body = await readBody(req); let p = {}; try { p = JSON.parse(body); } catch {}
-      const file = typeof p.file === 'string' ? p.file : '';
-      const status = (p.status === 'approved' || p.status === 'dismissed' || p.status === 'pending') ? p.status : '';
-      if (!SAFE_REPORT.test(file) || !status) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'need {file, status}' })); return; }
-      const a = readApprovals(); a[file] = { status, t: new Date().toISOString() };
-      try { fs.mkdirSync(RADAR_DIR, { recursive: true }); fs.writeFileSync(APPROVALS, JSON.stringify(a, null, 2), { mode: 0o600 }); } catch {}
-      logEvent({ ev: 'radar_approve', file, status });
-      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true }));
-    } else if (/^\/radar\/[0-9TZ:.\-]+\.md$/.test(req.url || '')) {
-      const file = decodeURIComponent(req.url.slice('/radar/'.length));
-      if (!SAFE_REPORT.test(file)) { res.writeHead(404); res.end(); return; }
-      let md = ''; try { md = fs.readFileSync(path.join(RADAR_DIR, file), 'utf8'); } catch {}
-      res.writeHead(md ? 200 : 404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ file, markdown: md }));
-    } else {
-      const approvals = readApprovals();
-      let files = []; try { files = fs.readdirSync(RADAR_DIR).filter((f) => SAFE_REPORT.test(f)).sort().reverse(); } catch {}
-      const fmtDate = (f) => { const m = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})/.exec(f); return m ? m[1] + ' ' + m[2] + ':' + m[3] : f; };
-      const reports = files.map((f) => ({ file: f, date: fmtDate(f), status: (approvals[f] && approvals[f].status) || 'pending' }));
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ enabled: true, reports, pending: reports.filter((r) => r.status === 'pending').length }));
-    }
   } else if (req.url === '/providers') {
     // GET /providers — the curated registry as SAFE metadata for the chat picker. Reuses providers.js validation;
     // a key's NAME (authEnv) may appear, never a value. The socket is 0600 so this is owner-only regardless.
@@ -2586,14 +2547,6 @@ function listen() {
         }
       } catch {} }, 120000);
       if (t.unref) t.unref();
-    }
-    // internal tool (opt-in URFAEL_INTERNAL_DAYS): every N days, run maintenance and notify the owner if a new
-    // one was analyzed. It only writes a REPORT to review; it never implements or ships anything on its own.
-    { const days = parseInt(process.env.URFAEL_INTERNAL_DAYS, 10) || 0;
-      if (days > 0) {
-        const scan = async () => { try { const r = await require('./radar').run({ claudeBin: CLAUDE_BIN, env: process.env }); if (r.analyzed) notifyOwner('Radar: ' + r.analyzed + ' new rival release(s) analyzed. Review: ' + r.reportPath, {}); } catch {} };
-        const t = setInterval(scan, days * 86400000); if (t.unref) t.unref();
-      }
     }
     // self-update check (ON by default; URFAEL_UPDATE_CHECK=0 disables): a first check ~20s after boot, then every N
     // days (URFAEL_UPDATE_CHECK_DAYS, default 1). READ-ONLY — it only notifies the owner; the pull is human-confirmed.
