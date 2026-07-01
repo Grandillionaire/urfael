@@ -221,6 +221,26 @@ function printPluginPreview(ph, m) {
   console.log(dim('   sandbox   ') + dim('docker ' + p.cellArgs));
 }
 
+// A prompt can come from argv, a file (`--file <path>`, alias `--message-file`), or stdin (`urfael -`, or any pipe).
+// These two adapters are the ONLY IO lib.resolvePromptText touches; they live here so that resolver stays pure and
+// unit-tested with injected fakes. PROMPT_MAX_BYTES caps the prompt client-side with headroom under the daemon's
+// 256KB body cap, so an oversized prompt fails LOUD here instead of being silently truncated to '' on the wire.
+const PROMPT_MAX_BYTES = 200000;
+const readFileAdapter = (p) => fs.readFileSync(p, 'utf8');               // throws on missing / dir / perm → fail-closed (mirrors the `skills scan` read above)
+function readStdinAdapter(maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let len = 0, capped = false;
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (c) => {
+      if (capped) return;                                               // already one chunk past the cap → drop the rest so a runaway pipe can't exhaust memory
+      chunks.push(c); len += Buffer.byteLength(c, 'utf8');
+      if (len > maxBytes) capped = true;                                // keep the chunk that crossed it so the resolver still sees an over-cap body and rejects loud
+    });
+    process.stdin.on('end', () => resolve(chunks.join('')));
+    process.stdin.on('error', reject);
+  });
+}
+
 (async () => {
   const [cmd, ...rest] = process.argv.slice(2);
   if (cmd === 'logo') { console.log(banner()); return; }
@@ -259,7 +279,7 @@ function printPluginPreview(ph, m) {
     console.log(gold('✓ updated') + dim('  ·  restart the daemon to run the new code:  ') + gold('urfael shutdown') + dim(' then your next command'));
     return;
   }
-  if (!cmd) { console.log(reg.renderBare(helpUI)); return; }                          // bare urfael → the "start here" card
+  if (!cmd && process.stdin.isTTY) { console.log(reg.renderBare(helpUI)); return; }    // bare urfael → the "start here" card (but a piped `echo … | urfael` falls through to read stdin)
   if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
     console.log(rest[0] ? reg.renderOne(rest[0], helpUI) : reg.renderFull(helpUI));   // `help <cmd>` drills in; `help` is the grouped reference
     return;
@@ -506,12 +526,22 @@ function printPluginPreview(ph, m) {
     if (sub === 'export' && rest[1]) { if (!hub.exportSkill(rest[1])) { console.error('✗ no such skill: ' + rest[1]); process.exit(1); } return; }
     if (sub === 'scan' && rest[1]) {
       let text = ''; try { text = fs.readFileSync(rest[1], 'utf8'); } catch (e) { console.error('✗ cannot read ' + rest[1] + ': ' + (e && e.message || e)); process.exit(1); }
-      const { flags } = hub.scan(text);
-      if (!flags.length) { console.log(gold('✓ scan clean') + dim(' — no dangerous patterns found (still your call)')); return; }
-      const dangers = flags.filter((f) => f.level === 'danger').length;
-      console.log((dangers ? gold('⚠ ' + dangers + ' DANGER') + dim(' + ' + (flags.length - dangers) + ' warn') : gold('⚠ ' + flags.length + ' warning')) + dim(' flag(s):'));
-      for (const f of flags) console.log('  ' + (f.level === 'danger' ? gold('[DANGER]') : dim('[warn]  ')) + ' ' + f.why + (f.sample ? dim('  «' + f.sample + '»') : ''));
-      if (dangers) process.exit(1); // non-zero exit so scripts/pipelines can gate on a dirty scan
+      const result = hub.scan(text);
+      const { flags } = result;
+      if (!flags.length) console.log(gold('✓ scan clean') + dim(' — no dangerous patterns found (still your call)'));
+      else {
+        const dangers = flags.filter((f) => f.level === 'danger').length;
+        console.log((dangers ? gold('⚠ ' + dangers + ' DANGER') + dim(' + ' + (flags.length - dangers) + ' warn') : gold('⚠ ' + flags.length + ' warning')) + dim(' flag(s):'));
+        for (const f of flags) console.log('  ' + (f.level === 'danger' ? gold('[DANGER]') : dim('[warn]  ')) + ' ' + f.why + (f.sample ? dim('  «' + f.sample + '»') : ''));
+      }
+      // Capability footprint + structured verdict — mirrors the install preview so a pre-install `scan` shows the
+      // exact same "what would this touch" view. Single scanner: this is scan()'s own output, not a second pass.
+      const caps = hub.capabilityLines(result);
+      console.log(gold('  capabilities ') + dim(caps.length ? caps.join(', ') : 'none - inert markdown, runs nothing on its own'));
+      console.log(gold('  verdict      ') + (result.verdict === 'block' ? gold(result.verdict) : dim(result.verdict)));
+      // gate on the structured verdict, not just dangers: block already implies dangers>0 OR score>=9, so this is
+      // strictly stronger (it also catches the warn-only score>=9 pile-up scan() already treats as block).
+      if (result.verdict === 'block') process.exit(1); // non-zero exit so scripts/pipelines can gate on a dirty scan
       return;
     }
     if (sub === 'install' && rest[1]) { const r = await hub.installFromUrl(rest[1], { yes: rest.includes('--yes') }); if (!r.ok) process.exit(1); return; }
@@ -1018,6 +1048,55 @@ function printPluginPreview(ph, m) {
     for (const j of cj) console.log(`${j.id}  ${gold((j.at || '').replace('T', ' ').slice(0, 16))}  ${(j.prompt || '').slice(0, 60)}${j.repeat ? dim('  (' + JSON.stringify(j.repeat) + ')') : ''}`);
     return;
   }
+  if (cmd === 'blueprint' || cmd === 'blueprints') {
+    // Automation Blueprints: a curated catalog that fills out to a read/fetch-only AGENT cron. The pure core lives in
+    // ./blueprints.js (action-fixed to cron.agent — no script/toolset/model field is representable); creation reuses
+    // the EXISTING POST /cron path, which re-validates via normalizeCron and enforces the URFAEL_SCRIPT_CRON gate.
+    const bp = require('./blueprints');
+    const id = (rest[0] && !rest[0].includes('=')) ? rest[0] : '';
+    if (!id) {                                                          // bare: list the catalog
+      const items = bp.list();
+      console.log(frame('automation blueprints', items.map((b) => gold(b.id.padEnd(22)) + dim(b.title)).concat(['', dim('set one up:  ') + gold('urfael blueprint <id>')])));
+      return;
+    }
+    const m = bp.get(id);
+    if (!m) {
+      const near = bp.match(id).slice(0, 3).map((x) => x.id);
+      console.log(bad('✗ no blueprint "' + id + '"') + (near.length ? dim('   did you mean: ') + near.map(gold).join(', ') : ''));
+      console.log(dim('list them:  ') + gold('urfael blueprint'));
+      return;
+    }
+    // collect slot=value pairs (first '=' splits; a value may itself contain '=')
+    const pairs = {}; let hasVals = false;
+    for (const a of rest.slice(1)) { const eq = a.indexOf('='); if (eq > 0) { pairs[a.slice(0, eq)] = a.slice(eq + 1); hasVals = true; } }
+    if (!hasVals) {                                                     // show the form + a ready-to-fill CLI line + the seed
+      const schema = bp.formSchema(m);
+      const lines = [gold(schema.title), dim(schema.description), ''];
+      for (const f of schema.fields) {
+        lines.push(gold('  ' + f.name.padEnd(14)) + dim(f.type + ', ' + (f.optional ? 'optional' : 'required')) + (f.options.length ? dim('  [' + f.options.join(', ') + ']') : ''));
+        if (f.help) lines.push(dim('    ' + f.help));
+      }
+      const tmpl = schema.fields.map((f) => {
+        let ph = (f.default !== '' && f.default != null) ? f.default : f.type === 'time' ? '08:00' : f.type === 'weekdays' ? 'mon,wed,fri' : (f.options[0] || ('<' + f.name + '>'));
+        if (/\s/.test(String(ph))) ph = JSON.stringify(ph);
+        return f.name + '=' + ph;
+      }).join(' ');
+      lines.push('');
+      lines.push(dim('fill it in and run:'));
+      lines.push('  ' + gold('urfael blueprint ' + m.id + (tmpl ? ' ' + tmpl : '')));
+      console.log(frame('blueprint: ' + m.id, lines));
+      console.log(dim('\nor just describe it in chat and Urfael will set it up:\n'));
+      console.log(bp.conversationalSeed(m));
+      return;
+    }
+    let spec;
+    try { spec = bp.fill(m, pairs); }
+    catch (e) { console.error(bad('✗ ' + ((e && e.message) || 'could not fill blueprint'))); process.exit(1); }
+    if (!spec) { console.error(bad('✗ that blueprint could not be filled')); process.exit(1); }
+    const r = await req('POST', '/cron', spec);
+    console.log(r && r.error ? bad('✗ ' + r.error) : gold('✓ ' + (r.kind || 'agent') + ' blueprint ' + m.id + ' scheduled as cron ' + r.id) + dim('  first run ' + r.at));
+    return;
+  }
   if (cmd === 'hook') {
     // manage webhook event triggers. `add` prints the secret ONCE; store it (sent as the X-Urfael-Hook header).
     const sub = rest[0];
@@ -1083,12 +1162,23 @@ function printPluginPreview(ph, m) {
       return;
     }
     if (sub === 'add' && rest[1] && rest[2]) {
-      // urfael team add <channel> <id> [name] [role]
-      const [, channel, id, name, role] = rest;
-      const { team, error } = lib.addPrincipal(readTeam(), channel, { id, name: name || id, role });
+      // urfael team add <channel> <id> [name] [role] [--max opus|sonnet]
+      // --max sets an OWNER-imposed model CEILING for this principal: their turns auto-route as usual but can never
+      // exceed this tier, so a member/guest can't burn the costly tier on a heavy prompt. Invalid values are ignored.
+      let maxModel = '';
+      const pos = [];
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i];
+        if (a === '--max' || a === '--max-model') { maxModel = rest[i + 1] || ''; i++; continue; }
+        const mm = typeof a === 'string' && a.match(/^--max(?:-model)?=(.+)$/); if (mm) { maxModel = mm[1]; continue; }
+        pos.push(a);
+      }
+      const [, channel, id, name, role] = pos;
+      const { team, error } = lib.addPrincipal(readTeam(), channel, { id, name: name || id, role, maxModel });
       if (error) { console.error('✗ ' + error); process.exit(1); }
       const shownRole = /^(owner|member|guest)$/.test(role || '') ? role : 'guest';
-      writeTeam(team); console.log(gold('✓ added ') + id + dim(' to ' + channel + ' as ' + shownRole + '. Takes effect live.'));
+      const cap = lib.normPinModel(maxModel);
+      writeTeam(team); console.log(gold('✓ added ') + id + dim(' to ' + channel + ' as ' + shownRole + (cap ? ', capped at ' + cap : '') + '. Takes effect live.'));
       return;
     }
     if ((sub === 'remove' || sub === 'rm') && rest[1] && rest[2]) {
@@ -1097,14 +1187,56 @@ function printPluginPreview(ph, m) {
       writeTeam(team); console.log(gold('✓ removed ') + rest[2] + dim(' from ' + rest[1]));
       return;
     }
-    if (sub === 'add' || sub === 'remove' || sub === 'rm') { console.log('usage: urfael team add <channel> <id> [name] [owner|member|guest]   ·   urfael team remove <channel> <id>'); return; }
+    if (sub === 'add' || sub === 'remove' || sub === 'rm') { console.log('usage: urfael team add <channel> <id> [name] [owner|member|guest] [--max opus|sonnet]   ·   urfael team remove <channel> <id>'); return; }
     // default: show the roster
     const team = readTeam();
     const chans = Object.keys(team).filter((c) => Array.isArray(team[c]) && team[c].length);
     if (!chans.length) { console.log(dim('single-owner mode — no team.json yet.')); console.log(dim('  add a teammate:  ') + gold('urfael team add telegram <chat-id> "Sam" member')); return; }
     for (const c of chans) {
       console.log(gold(c));
-      for (const p of team[c]) { const role = p.role === 'owner' ? gold('owner ') : p.role === 'guest' ? dim('guest ') : 'member'; console.log(`  ${role}  ${dim(String(p.id).slice(0, 18).padEnd(18))}  ${p.name || ''}`); }
+      for (const p of team[c]) { const role = p.role === 'owner' ? gold('owner ') : p.role === 'guest' ? dim('guest ') : 'member'; const cap = lib.normPinModel(p.maxModel != null ? p.maxModel : p.model); console.log(`  ${role}  ${dim(String(p.id).slice(0, 18).padEnd(18))}  ${p.name || ''}${cap ? dim('  ≤' + cap) : ''}`); }
+    }
+    return;
+  }
+  if (cmd === 'usage') {
+    // tokens / turns / ESTIMATED cost. Bare → today / 7d / 30d totals (the usageSummary windows). --by principal|channel
+    // → the per-key rollup (who/which channel spent what), the dimension a per-AGENT scope can't express. --verify adds a
+    // Ledger-of-Record cross-check that every counted turn is chain-witnessed. --json prints the raw payload.
+    const json = rest.includes('--json'), verify = rest.includes('--verify');
+    const byFlag = flag(rest, '--by');
+    const wantRollup = verify || byFlag != null;
+    const by = byFlag === 'channel' ? 'channel' : 'principal';   // default the rollup dimension to principal
+    const ktok = (n) => { n = n || 0; return n >= 1000 ? Math.round(n / 1000) + 'k' : String(n); };
+    let p = '/usage';
+    if (wantRollup) { p += '?by=' + by + (verify ? '&verify=1' : ''); }
+    const u = await req('GET', p);
+    if (json) { console.log(JSON.stringify(u, null, 2)); return; }
+    if (!wantRollup) {
+      if (!u || !u.today) { console.log(dim('no usage recorded yet')); return; }
+      console.log(gold('Usage & cost (est.)'));
+      for (const [label, b] of [['today', u.today], ['7d', u.last7d], ['30d', u.last30d]]) {
+        const w = b || {};
+        console.log('  ' + gold(label.padEnd(6)) + '$' + (w.costUsd || 0).toFixed(2) + dim(' est') + '  ' + dim((w.turns || 0) + ' turns · ' + ktok((w.tokIn || 0) + (w.tokOut || 0)) + ' tok'));
+      }
+      console.log(dim('  ' + (u.note || '')));
+      console.log(dim('  per principal:  ') + gold('urfael usage --by principal') + dim('   ·   per channel:  ') + gold('urfael usage --by channel'));
+      return;
+    }
+    const groups = (u && u.groups) || {};
+    const keys = Object.keys(groups).sort((a, b) => (groups[b].costUsd - groups[a].costUsd) || (groups[b].turns - groups[a].turns));
+    if (!keys.length) { console.log(dim('no usage recorded yet for that dimension')); return; }
+    const cents = u.local ? 2 : 4;   // raw-Anthropic shows sub-cent estimates; LOCAL_MODE zeroes the dollar meter
+    console.log(gold('Usage by ' + (u.by || by)) + dim('  ·  ' + keys.length + ' ' + (u.by || by) + (keys.length === 1 ? '' : 's') + (u.local ? '  · LOCAL_MODE: cost meter off' : '')));
+    const row = (k, g) => '  ' + gold(String(k).slice(0, 18).padEnd(18)) + dim(String(g.turns || 0).padStart(4) + ' turns ') + ktok((g.tokIn || 0) + (g.tokOut || 0)).padStart(7) + ' tok  ' + ('$' + (g.costUsd || 0).toFixed(cents)).padStart(10) + dim(' est');
+    for (const k of keys) console.log(row(k, groups[k]));
+    console.log(dim('  ' + '─'.repeat(46)));
+    console.log(row('total', u.total || {}));
+    if (u.note) console.log(dim('  ' + u.note));
+    if (u.verify) {
+      if (u.verify.verified) console.log(gold('  ✓ ledger-witnessed') + dim('  · all ' + (u.verify.counted || 0) + ' counted turns appear in the Ledger of Record'));
+      else console.log('\x1b[31m  ✗ ' + (u.verify.missing || 0) + ' of ' + (u.verify.counted || 0) + ' counted turns are NOT in the ledger\x1b[0m' + dim('  (run `urfael audit --verify`)'));
+    } else {
+      console.log(dim('  check the inputs against the ledger:  ') + gold('urfael usage --by ' + (u.by || by) + ' --verify'));
     }
     return;
   }
@@ -1220,8 +1352,8 @@ function printPluginPreview(ph, m) {
     }
     return;
   }
-  if (cmd === 'jobs') { for (const j of await req('GET', '/jobs')) console.log(`${j.id}  ${j.kind}  ${gold(j.state)}  ${dim(j.createdAt || '')}`); return; }
-  if (cmd === 'job') { if (!rest[0]) { console.log('usage: urfael job <id>'); return; } const j = await req('GET', '/job/' + rest[0]); console.log(JSON.stringify({ ...j, log: undefined }, null, 2)); if (j.log) console.log(dim('--- log tail ---\n') + j.log); return; }
+  if (cmd === 'jobs') { for (const j of await req('GET', '/jobs')) console.log(`${j.id}  ${j.kind}  ${gold(j.state)}  ${dim('scope=' + (j.scope || '?'))}  ${dim(j.createdAt || '')}`); return; }
+  if (cmd === 'job') { if (!rest[0]) { console.log('usage: urfael job <id>'); return; } const j = await req('GET', '/job/' + rest[0]); console.log(dim('scope: ') + gold((j.spec && j.spec.scope) || '(unset)')); console.log(JSON.stringify({ ...j, log: undefined }, null, 2)); if (j.log) console.log(dim('--- log tail ---\n') + j.log); return; }
   if (cmd === 'cancel') { if (!rest[0]) { console.log('usage: urfael cancel <id>'); return; } console.log(JSON.stringify(await req('POST', `/job/${rest[0]}/cancel`))); return; }
   if (cmd === 'schedule') {
     // the dedicated Reminders & Calendar channel: add / move / cancel a reminder or calendar event in plain English.
@@ -1289,5 +1421,16 @@ function printPluginPreview(ph, m) {
       return;
     }
   }
-  await ask([cmd, ...rest].join(' '));
+  // resolve the prompt from argv, a --file/--message-file path, or stdin (a lone `-` or a pipe). Intercepting the
+  // flags here means `urfael --file ./p.md` no longer mis-sends the literal "--file ./p.md" as a question.
+  try {
+    const text = await require('./lib').resolvePromptText({
+      argv: [cmd, ...rest],
+      readFile: readFileAdapter,
+      readStdin: () => readStdinAdapter(PROMPT_MAX_BYTES),
+      stdinIsTTY: process.stdin.isTTY,
+      maxBytes: PROMPT_MAX_BYTES,
+    });
+    await ask(text);
+  } catch (e) { console.error(bad('✗') + ' ' + ((e && e.message) || e)); process.exit(1); }
 })();
