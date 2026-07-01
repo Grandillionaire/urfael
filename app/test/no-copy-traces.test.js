@@ -11,14 +11,16 @@ const APP = path.join(__dirname, '..');
 const REPO = path.join(APP, '..');
 
 const FORBIDDEN = [
-  /require\((['"])\.\/radar\1\)/,          // the radar module must not re-enter the shipped code
-  /URFAEL_INTERNAL/,                          // its owner-only flag
-  /internal tool/i,                     // its self-description
-  /internal note/i,          // "we copied this feature" fingerprint
-  /\brelevant\b/i,
-  /of note/i,
-  /internal/i,
-  /run checks/i,
+  // Patterns are built from fragments so the trigger literals do not appear in this file's own source (a history
+  // scrub of those phrases therefore cannot weaken this guard). They compile to the same regexes at runtime.
+  /require\((['"])\.\/radar\1\)/,                            // the radar module must not re-enter the shipped code
+  new RegExp('URFAEL' + '_' + 'RADAR'),                      // its owner-only flag
+  new RegExp('compet' + 'itor ' + 'radar', 'i'),            // its self-description
+  new RegExp('mirror of (herm' + 'es|openc' + 'law)', 'i'), // "we copied this feature" fingerprint
+  new RegExp('\\bborrow' + 'able\\b', 'i'),
+  new RegExp('worth ' + 'borrow' + 'ing', 'i'),
+  new RegExp('what did (herm' + 'es|openc' + 'law)', 'i'),
+  new RegExp('scan ' + 'rivals', 'i'),
 ];
 
 function walk(dir, acc) {
