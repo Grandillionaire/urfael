@@ -213,6 +213,20 @@ test('renderTranscript: you-pill, urfael-sigil, collapsed tool row with a tally,
   assert.ok(plain.some((r) => r.includes('Working on it▌')), 'streaming caret on the live answer');
 });
 
+test('wrap / wrapAnsi break on WORD boundaries, never mid-word (long words still hard-break)', () => {
+  // a word that does not fit moves whole to the next row, it is not cut by letter
+  assert.deepEqual(rend.wrap('the quick brown fox jumps', 10), ['the quick', 'brown fox', 'jumps']);
+  assert.deepEqual(rend.wrapAnsi('the quick brown fox jumps', 10).map((r) => r.replace(/\s+$/, '')), ['the quick', 'brown fox', 'jumps']);
+  // a single word longer than the width is hard-broken as a last resort (a URL can never overflow the pane)
+  assert.deepEqual(rend.wrap('supercalifragilistic', 8), ['supercal', 'ifragili', 'stic']);
+  // every row stays within the visible width
+  for (const row of rend.wrapAnsi('lorem ipsum dolor sit amet consectetur', 12)) assert.ok(rend.visLen(row) <= 12);
+  // active SGR is carried across a word break so styling survives the wrap
+  const styled = rend.wrapAnsi('\x1b[1malpha beta gamma\x1b[0m', 7);
+  assert.ok(styled.every((r) => /alpha|beta|gamma/.test(r)), 'words stay whole under styling');
+  assert.match(styled[1], /^\x1b\[1m/, 'bold carried onto the wrapped row');
+});
+
 test('renderTranscript: a done-footer "╶ …" extends its rule to the width', () => {
   const rows = rend.renderTranscript([{ who: 'sys', text: '╶ claude-sonnet-4 · 2.4s · 1.2k tok' }], 60, TH, {});
   assert.equal(rend.visLen(rows[0]), 60);

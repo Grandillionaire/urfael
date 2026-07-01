@@ -120,33 +120,55 @@ function renderWorkerOnly(clipped, rowIndex, caretCol, out) {
 
 function resetFrame() { prevFrame = null; }
 
-// wrap one logical line to `width` cols, returning >=1 physical rows (preserves blank lines).
+// wrap one logical line to `width` cols by WORD, returning >=1 physical rows (preserves blank lines). Breaks at
+// the last space that fits so a word is never split across rows; a single word longer than `width` is hard-broken
+// as a last resort (so a URL or long token still cannot overflow the pane).
 function wrap(s, width) {
   const out = [];
   for (const para of String(s).split('\n')) {
     if (para === '') { out.push(''); continue; }
-    let cur = para;
-    while (cur.length > width) { out.push(cur.slice(0, width)); cur = cur.slice(width); }
-    out.push(cur);
+    let start = 0;
+    while (para.length - start > width) {
+      let brk = -1;
+      for (let j = start + width; j > start; j--) { if (para[j] === ' ') { brk = j; break; } }
+      if (brk < 0) { out.push(para.slice(start, start + width)); start += width; }   // no space to break on: hard split
+      else { out.push(para.slice(start, brk)); start = brk + 1; }                    // break at the space, consume it
+    }
+    out.push(para.slice(start));
   }
   return out.length ? out : [''];
 }
 
-// ANSI-aware wrap: break a styled line into rows ≤ width VISIBLE cells, never splitting an SGR sequence, and
-// carrying the active SGR across each break so colour/bold survive a wrap (markdown answers stay styled).
+// ANSI-aware WORD wrap: break a styled line into rows ≤ width VISIBLE cells, preferring space boundaries so a word
+// is never cut mid-word (a single word longer than width is hard-broken as a last resort). Never splits an SGR
+// sequence, and carries the active SGR across each break so colour/bold survive a wrap (markdown answers stay styled).
 function wrapAnsi(s, width) {
   const out = [];
+  const ANSI = /^\x1b\[[0-9;?]*[ -\/]*[@-~]/;
+  const COMBINING = /[̀-ͯ]/;                                   // zero-width combining marks
   for (const para of String(s).split('\n')) {
     if (para === '') { out.push(''); continue; }
-    let row = '', active = '', vis = 0, i = 0;
+    // tokenize into ANSI (zero width), single spaces (break points), and words (runs of visible chars)
+    const toks = [];
+    let i = 0;
     while (i < para.length) {
-      if (para[i] === '\x1b') {
-        const m = /^\x1b\[[0-9;?]*[ -\/]*[@-~]/.exec(para.slice(i));
-        if (m) { const c = m[0]; row += c; if (/^\x1b\[0?m$/.test(c)) active = ''; else active += c; i += c.length; continue; }
+      if (para[i] === '\x1b') { const m = ANSI.exec(para.slice(i)); if (m) { toks.push({ kind: 'ansi', t: m[0], vis: 0 }); i += m[0].length; continue; } }
+      if (para[i] === ' ') { toks.push({ kind: 'space', t: ' ', vis: 1 }); i++; continue; }
+      let t = '', vis = 0;
+      while (i < para.length && para[i] !== ' ' && para[i] !== '\x1b') { const c = para[i]; t += c; if (!COMBINING.test(c)) vis++; i++; }
+      toks.push({ kind: 'word', t, vis });
+    }
+    let row = '', vis = 0, active = '';
+    const flush = () => { out.push(row + (active ? '\x1b[0m' : '')); row = active; vis = 0; };
+    for (const tk of toks) {
+      if (tk.kind === 'ansi') { row += tk.t; if (/^\x1b\[0?m$/.test(tk.t)) active = ''; else active += tk.t; continue; }
+      if (tk.kind === 'space') { if (vis + 1 > width) flush(); else { row += ' '; vis += 1; } continue; }
+      if (tk.vis > width) {                                             // over-long word: hard-break, carrying SGR
+        for (const c of tk.t) { const cw = COMBINING.test(c) ? 0 : 1; if (vis + cw > width) flush(); row += c; vis += cw; }
+        continue;
       }
-      if (/[̀-ͯ]/.test(para[i])) { row += para[i]; i++; continue; }       // zero-width combining mark
-      row += para[i]; vis++; i++;
-      if (vis >= width) { out.push(row + (active ? '\x1b[0m' : '')); row = active; vis = 0; }
+      if (vis > 0 && vis + tk.vis > width) flush();                     // word does not fit: move the whole word down
+      row += tk.t; vis += tk.vis;
     }
     out.push(row + (active ? '\x1b[0m' : ''));
   }
