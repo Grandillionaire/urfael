@@ -238,6 +238,24 @@ function scan(text, depth = 0, opts = {}) {
   return { flags, score, verdict, capabilities };
 }
 
+// Owner-facing capability footprint: map scan()'s already-computed capabilities to fixed, plain-English labels.
+// Pure fold over a FROZEN key->label table in a deterministic order (so a test can freeze the preview); [] when the
+// skill touches nothing. NEVER derive a label from a flag .why string — the labels are the contract, the flags rot.
+// Owner copy, so no em/en dashes (the labels use a comma or a slash, never a dash).
+const CAPABILITY_LABELS = Object.freeze({
+  network: 'reaches the network',
+  secretRead: 'reads credentials/secrets',
+  shellExec: 'shells out / executes code',
+  fsWrite: 'writes files',
+  persistence: 'installs autostart/persistence',
+  pkgInstall: 'installs packages',
+  clipboard: 'reads/writes the clipboard',
+});
+function capabilityLines(result) {
+  const caps = (result && result.capabilities) || [];
+  return Object.keys(CAPABILITY_LABELS).filter((k) => caps.includes(k)).map((k) => CAPABILITY_LABELS[k]);
+}
+
 // Fetch a single .md over https (no redirects to other hosts blindly; capped). Resolves
 // { contentType, body } or rejects. Refuses non-https and oversize bodies fail-closed.
 // SSRF guard: refuse loopback / link-local / private (RFC1918, CGNAT, ULA) hosts so a redirect can't aim the
@@ -303,7 +321,8 @@ async function installFromUrl(url, opts = {}) {
   if (path.dirname(path.resolve(dest)) !== path.resolve(SKILLS_DIR)) { console.error('✗ refusing to write outside the skills dir'); return { ok: false, error: 'path escape' }; }
   const overwrite = fs.existsSync(dest); // a slug collision could overwrite an existing TRUSTED skill — flag it loudly, never under --yes
 
-  const { flags } = scan(body);
+  const result = scan(body);
+  const { flags } = result;
 
   // ALWAYS show the full content the human is being asked to trust, then the scan verdict.
   // The body is UNTRUSTED: strip terminal control/ANSI escapes so it can't spoof the display (hide the verdict,
@@ -315,6 +334,12 @@ async function installFromUrl(url, opts = {}) {
   process.stdout.write(safeBody.endsWith('\n') ? safeBody : safeBody + '\n');
   process.stdout.write(dim('─'.repeat(60)) + '\n');
   reportFlags(flags);
+  // Capability footprint + structured verdict — the SAME block `urfael skills scan` prints, so the install preview
+  // and the standalone scan agree. Purely additive: it only surfaces what scan() already computed; the
+  // confirm/--yes/overwrite/never-execute logic below is untouched.
+  const caps = capabilityLines(result);
+  process.stdout.write(gold('  capabilities ') + dim(caps.length ? caps.join(', ') : 'none - inert markdown, runs nothing on its own') + '\n');
+  process.stdout.write(gold('  verdict      ') + (result.verdict === 'block' ? gold(result.verdict) : dim(result.verdict)) + '\n');
 
   const danger = flags.some((f) => f.level === 'danger');
   if (opts.yes) {
@@ -404,4 +429,4 @@ function entryFor(file) {
   return { slug, title: m.name || slug, description: m.desc || '', url: 'https://YOUR-HOST/skills/' + slug + '.md', author: '', sha256: crypto.createHash('sha256').update(body, 'utf8').digest('hex'), tags: [] };
 }
 
-module.exports = { listLocal, exportSkill, scan, installFromUrl, slugify, meta, SKILLS_DIR, hubIndexUrl, parseIndex, fetchIndex, searchEntries, findEntry, hubInstall, entryFor };
+module.exports = { listLocal, exportSkill, scan, capabilityLines, installFromUrl, slugify, meta, SKILLS_DIR, hubIndexUrl, parseIndex, fetchIndex, searchEntries, findEntry, hubInstall, entryFor };

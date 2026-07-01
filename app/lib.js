@@ -31,6 +31,33 @@ function classifyModel(text) {
   return MODELS.sonnet;
 }
 
+// ---- PER-PRINCIPAL MODEL CAP (owner-set ceiling on auto-routing) -------------------------------------
+// The owner can pin a per-principal MAXIMUM tier in team.json (key `maxModel`, alias `model`) so a member/guest
+// can never burn the expensive tier on a cost-DoS prompt. It is a CEILING, not a floor: a capped principal's
+// turn auto-routes as usual (classifyModel), then is LOWERED if it would exceed the cap — it can never RAISE a
+// tier a remote sender could otherwise reach. Opt-in: no cap → behaviour is byte-identical to today.
+//
+// normPinModel(v) — the fail-closed validator: returns 'opus' | 'sonnet' | null. Accepts ONLY the two real tier
+// names, case-insensitively; everything else (objects/arrays/numbers/'', 'haiku', a pinned id, a sender-shaped
+// string) → null. Mirrors resolveProfile's string discipline so junk — or a forged socket payload — can name at
+// most one of the two tiers and never inject an arbitrary model id. PURE.
+function normPinModel(v) {
+  if (typeof v !== 'string') return null;
+  const k = v.trim().toLowerCase();
+  return (k === 'opus' || k === 'sonnet') ? k : null;
+}
+// capModel(classified, cap) — clamp an auto-routed model DOWN to the cap. `classified` is whatever classifyModel
+// returned (an alias or an env-pinned id); the tier is read with the same loose /opus/i match turnCost uses, so it
+// survives a pinned id. A valid cap that ranks BELOW the classified tier lowers it (opus → MODELS.sonnet); an equal/
+// higher cap, or an invalid/unset cap, returns `classified` UNCHANGED — the cap can only ever lower, never raise. PURE.
+function capModel(classified, cap) {
+  const c = normPinModel(cap);
+  if (!c) return classified;                                            // invalid/unset cap → pure passthrough to auto-routing
+  const tier = /opus/i.test(String(classified == null ? '' : classified)) ? 'opus' : 'sonnet';
+  if (c === 'sonnet' && tier === 'opus') return MODELS.sonnet;          // opus auto-route blocked: lowered to the sonnet cap
+  return classified;                                                    // cap is at/above the classified tier → no change
+}
+
 // ---- USAGE GUARDRAIL: a self-imposed budget Urfael ENFORCES, not just displays ------------------------
 // Honest on a flat-rate subscription: budgets are TURNS + TOKENS over a rolling window (default 5h — the Claude
 // usage window), never fabricated dollars. Unset limits → dormant (fail-OPEN: an unconfigured budget never blocks
@@ -56,6 +83,49 @@ function budgetState(usage, limits) {
   const peak = Math.max(pctTurns, pctTok);
   const level = !l.active ? 'ok' : peak >= 100 ? 'over' : peak >= (l.warnPct || 80) ? 'warn' : 'ok';
   return { level, pctTurns, pctTok, peak };
+}
+
+// ---- USAGE ROLLUP: cost per PRINCIPAL / per CHANNEL — the dimension a per-AGENT scope can't express -------------
+// turnCostEst(rec, rates) → USD ESTIMATE for one logged turn record, mirroring daemon.turnCost but kept PURE here so
+// the rollup is unit-testable. The model string is matched loosely ('opus' substring -> opus tier, else sonnet) so
+// it works for an alias ('opus'/'sonnet') OR a pinned id; cache reads bill at ~0.1x the input rate. `rates` is the
+// {sonnet:{in,out},opus:{in,out}} bag the daemon derives from env (priceRates), so an env override flows straight
+// through as a parameter — never read here. No fs, no env, no throw.
+function turnCostEst(rec, rates) {
+  const r = rates || {};
+  const tier = /opus/i.test(String((rec && rec.model) || '')) ? (r.opus || {}) : (r.sonnet || {});
+  const inR = Number(tier.in) || 0, outR = Number(tier.out) || 0;
+  const tin = (rec && rec.tokIn) || 0, tout = (rec && rec.tokOut) || 0, tcache = (rec && rec.tokCache) || 0;
+  return (tin * inR + tcache * inR * 0.1 + tout * outR) / 1e6;
+}
+// rollupUsage(records, rates, {by}) → group every counted turn by PRINCIPAL or CHANNEL and sum turns/tokens/cost,
+// plus a `total` that equals the sum of all groups (the invariant the tests pin). `by` ∈ {'principal','channel'}.
+// A record's key is rec[by]; an empty/missing key falls under 'local' — a local {ev:'turn'} carries no principal or
+// channel, and that bucket is the OWNER's own compute, NOT attributable to any remote teammate (the note says so,
+// so the rollup can never imply a teammate caused the owner's spend). Counts both {ev:'turn'} and {ev:'remote_turn'}.
+// PURE + FAIL-CLOSED: a non-array / garbage input yields an empty rollup (zero total) and never throws — parity with
+// audit-chain.verify(). Cost stays a raw float here; the renderers round to cents for display.
+function rollupUsage(records, rates, opts) {
+  const by = (opts && opts.by === 'channel') ? 'channel' : 'principal';
+  const groups = {};
+  const total = { turns: 0, tokIn: 0, tokOut: 0, tokCache: 0, costUsd: 0 };
+  const note = by === 'channel'
+    ? "per-channel cost is an ESTIMATE (env-overridable rates) read from the bounded log tail; 'local' is the owner's on-machine turns, not a remote channel"
+    : "per-principal cost is an ESTIMATE (env-overridable rates) read from the bounded log tail; the 'local' bucket is the owner's own compute, not attributable to any remote teammate";
+  if (Array.isArray(records)) {
+    for (const rec of records) {
+      if (!rec || typeof rec !== 'object') continue;
+      if (rec.ev !== 'turn' && rec.ev !== 'remote_turn') continue;
+      const raw = rec[by];
+      const key = (raw == null || raw === '') ? 'local' : String(raw);
+      const g = groups[key] || (groups[key] = { turns: 0, tokIn: 0, tokOut: 0, tokCache: 0, costUsd: 0 });
+      const cost = turnCostEst(rec, rates);
+      const tin = rec.tokIn || 0, tout = rec.tokOut || 0, tcache = rec.tokCache || 0;
+      g.turns++; g.tokIn += tin; g.tokOut += tout; g.tokCache += tcache; g.costUsd += cost;
+      total.turns++; total.tokIn += tin; total.tokOut += tout; total.tokCache += tcache; total.costUsd += cost;
+    }
+  }
+  return { by, groups, total, note };
 }
 
 // Permission profiles — the STRUCTURAL sandbox for remote/untrusted turns.
@@ -121,6 +191,36 @@ function resolveProfile(name) {
   return { name: known ? key : 'untrusted', ...p };
 }
 
+// ---- DELEGATED BACKGROUND SCOPE — derive a background child's capabilities from the SPAWNING turn's profile -------
+// A background /job spawned on behalf of a turn must NOT get a hardcoded toolset; it must inherit the originating
+// principal's trust scope so an untrusted turn fails CLOSED to a no-egress child. delegateScope(name) reads the SAME
+// PROFILES map as resolveProfile (single source of truth — the trust model can never fork from a copied list): the
+// child allowlist = the profile's allowlist INTERSECTED with a delegation FLOOR that by construction can NEVER carry
+// Bash/computer-use (a background child gets file + optional web tools, never a shell). FAIL-CLOSED exactly like
+// resolveProfile: any non-string / unknown name → 'untrusted' (Read/Grep/Glob, NO egress). 'local' inherits the full
+// floor (so an owner's own background job is unchanged); 'full' keeps web reach but no Write/Edit; 'untrusted'/'guest'
+// get NO egress. Returns the resolved profile object, its canonical scope label, the floored allowlist, and whether
+// that allowlist carries a network-egress tool. Pure, no I/O.
+const DELEGATE_FLOOR = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Write', 'Edit']; // delegation ceiling — NEVER Bash/computer-use
+function delegateScope(name) {
+  const profile = resolveProfile(name);                                  // fail-closed to 'untrusted' for non-string/unknown
+  const base = Array.isArray(profile.allowedTools) ? profile.allowedTools : DELEGATE_FLOOR; // null === 'local' inherit → the full floor
+  const allowedTools = base.filter((t) => DELEGATE_FLOOR.includes(t));   // ∩ floor: order-preserving, can never widen past the floor
+  const egress = allowedTools.some((t) => t === 'WebFetch' || t === 'WebSearch');
+  return { profile, scope: profile.name, allowedTools, egress };
+}
+// narrowScope(requested, ceiling) — enforce the DELEGATION NARROWING invariant (mirror of profileFor: a request may
+// only ever NARROW its scope, never widen it). The requested scope is honoured ONLY when its delegate capability is a
+// SUBSET of the ceiling's (every tool within, and no egress the ceiling lacks); otherwise it is clamped DOWN to the
+// ceiling. Built on delegateScope so it stays single-sourced from PROFILES. Fail-closed: a garbage requested/ceiling
+// each resolve through delegateScope to the most-restricted 'untrusted'. Returns the effective canonical scope name.
+function narrowScope(requested, ceiling) {
+  const cap = delegateScope(ceiling);
+  const req = delegateScope(requested);
+  const within = req.allowedTools.every((t) => cap.allowedTools.includes(t)) && (!req.egress || cap.egress);
+  return within ? req.scope : cap.scope;
+}
+
 // ---- TEAM / MULTI-OWNER MODE -------------------------------------------------------------------------
 // Multiple allowlisted principals per channel, each with a role. The CRITICAL invariant: a role can only
 // NARROW access for a remote turn, never widen it. A remote turn is NEVER 'local' (full power) no matter the
@@ -151,7 +251,12 @@ function buildRoster(teamJson, envOwners) {
       if (!Array.isArray(list)) continue;
       const seen = new Set();
       roster[ch] = list.filter((x) => x && x.id != null && !seen.has(String(x.id)) && seen.add(String(x.id)))
-        .map((x) => ({ id: String(x.id), name: typeof x.name === 'string' && x.name.trim() ? x.name.trim().slice(0, 60) : String(x.id), role: normRole(x.role) }));
+        .map((x) => {
+          const e = { id: String(x.id), name: typeof x.name === 'string' && x.name.trim() ? x.name.trim().slice(0, 60) : String(x.id), role: normRole(x.role) };
+          const cap = normPinModel(x.maxModel != null ? x.maxModel : x.model);   // owner-set per-principal ceiling (alias `model`); junk → dropped
+          if (cap) e.model = cap;                                                // omit when absent/invalid so existing rosters stay byte-identical
+          return e;
+        });
     }
   }
   return roster;
@@ -166,7 +271,10 @@ function resolvePrincipal(roster, channel, senderId) {
   const id = String(senderId);
   const p = list.find((x) => x && String(x.id) === id);
   if (!p) return null;
-  return { id, name: typeof p.name === 'string' ? p.name : id, role: normRole(p.role) };
+  const out = { id, name: typeof p.name === 'string' ? p.name : id, role: normRole(p.role) };
+  const cap = normPinModel(p.model != null ? p.model : p.maxModel);   // surface the owner-set cap; undefined when absent (backward compatible)
+  if (cap) out.model = cap;
+  return out;
 }
 
 // The channels a roster can have (used to validate `urfael team add`).
@@ -205,9 +313,12 @@ function addPrincipal(team, channel, principal) {
   if (!id) return { team: t, error: 'an id is required' };
   const role = normRole(principal && principal.role);
   const name = (principal && typeof principal.name === 'string' && principal.name.trim()) ? principal.name.trim().slice(0, 60) : id;
+  // optional per-principal model CEILING — canonical key `maxModel` (alias `model`); only a real tier is kept, junk stripped
+  const cap = normPinModel(principal && (principal.maxModel != null ? principal.maxModel : principal.model));
   if (!Array.isArray(t[channel])) t[channel] = [];
   const existing = t[channel].find((x) => x && String(x.id) === id);
-  if (existing) { existing.name = name; existing.role = role; } else t[channel].push({ id, name, role });
+  if (existing) { existing.name = name; existing.role = role; if (cap) existing.maxModel = cap; else delete existing.maxModel; }
+  else { const e = { id, name, role }; if (cap) e.maxModel = cap; t[channel].push(e); }
   return { team: t, error: null };
 }
 function removePrincipal(team, channel, id) {
@@ -811,4 +922,49 @@ function fallbackModelFor(m) {
   return MODELS.sonnet;
 }
 
-module.exports = { classifyError, fallbackModelFor, MODELS, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+// resolvePromptText({ argv, readFile, readStdin, stdinIsTTY, maxBytes }) → the prompt string to hand the brain.
+// The CLI's default branch ("everything is a question") used to just join argv with spaces. This resolver lets a
+// prompt ALSO come from a file (`--file <path>`, alias `--message-file`) or from stdin (a lone `-`, or any non-TTY
+// pipe). The point is privacy + ergonomics: argv is visible in `ps` and your shell history, a file or a pipe is
+// not, and a file carries multiline / JSON / quote-heavy text no shell would survive. Precedence is deterministic
+// (argv wins, then file, then stdin) so the injected readers prove which source was used. ALL IO is injected; this
+// function never touches fs or process, so it stays pure + unit-testable, and fail-CLOSED: it throws rather than
+// silently send an empty or truncated prompt (the daemon caps the body at 256KB and an overflow truncates to '').
+async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, maxBytes = 256 * 1024 } = {}) {
+  const words = [];
+  let filePath = null, dashStdin = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a == null) continue;                                            // a missing leading token (bare `urfael`) → skip, never a prompt word
+    if (a === '--file' || a === '--message-file') {                     // --message-file is the rival's name; accept it as an alias
+      const v = argv[i + 1];
+      if (v == null) throw new Error('missing path after ' + a);        // a flag with no value is a usage error, not a prompt
+      filePath = v; i++; continue;                                      // last one wins
+    }
+    if (a === '-') { dashStdin = true; continue; }                      // the conventional stdin sentinel
+    if (typeof a === 'string' && a[0] === '-') continue;                // any other flag is consumed elsewhere, never a prompt word
+    words.push(a);
+  }
+
+  let text;
+  const argvText = words.join(' ').trim();
+  if (argvText) {
+    text = argvText;                                                    // (a) argv wins; file/stdin are NOT read, so the readers stay un-called
+  } else if (filePath != null) {
+    try { text = await readFile(filePath); }                            // (b) fail-closed: any read error (ENOENT/EISDIR/perm) becomes a loud throw
+    catch (e) { throw new Error('cannot read prompt file: ' + filePath + ' (' + ((e && e.code) || (e && e.message) || e) + ')'); }
+  } else if (dashStdin || stdinIsTTY === false) {
+    text = await readStdin();                                           // (c) explicit `-` OR a piped / non-TTY invocation
+  } else {
+    throw new Error('no prompt: pass text, --file <path>, or pipe stdin'); // (d) interactive TTY with nothing to say → fail-closed, never block on stdin
+  }
+
+  text = String(text == null ? '' : text);
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);              // strip a single leading UTF-8 BOM (parity with --message-file); keep all other whitespace intact
+  const bytes = Buffer.byteLength(text, 'utf8');
+  if (bytes > maxBytes) throw new Error('prompt too large: ' + bytes + ' bytes > ' + maxBytes + ' cap'); // cap LAST + loud, client-side, before the daemon truncates an oversized body to empty
+  if (text.trim() === '') throw new Error('empty prompt');             // an empty file / blank pipe is a mistake, not a turn
+  return text;
+}
+
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };

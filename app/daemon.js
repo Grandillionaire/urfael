@@ -26,7 +26,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, routeOverride, budgetLimits, budgetState, segmentSentences, resolveProfile, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -704,7 +704,9 @@ const brain = {
       }
       const permMode = (profile.permissionMode && profile.permissionMode !== 'bypassPermissions') ? profile.permissionMode : 'acceptEdits';
       if (inflightScoped.size >= MAX_SCOPED) { resolve({ text: '(busy — too many remote requests in flight; try again in a moment)', model: '' }); return; }
-      const model = classifyModel(text);
+      // auto-route, then CLAMP DOWN to the owner-set per-principal cap (if any). The cap can only LOWER the tier, never
+      // raise it, so a capped member/guest can't burn the expensive tier on a cost-DoS prompt; no cap → classifyModel as before.
+      const model = capModel(classifyModel(text), normPinModel(ctx.modelCap));
       // per-call random delimiter so attacker text can't forge/close the untrusted envelope.
       const nonce = crypto.randomBytes(9).toString('hex');
       const payload =
@@ -722,9 +724,12 @@ const brain = {
       const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 180000); // exit handler resolves
       proc.on('exit', () => {
         clearTimeout(timer); inflightScoped.delete(proc);
-        let txt = '';
-        try { const j = JSON.parse(out); txt = typeof j.result === 'string' ? j.result : ''; } catch {}
-        logEvent({ ev: 'remote_turn', channel: ctx.channel || '', principal: ctx.principal || '', role: ctx.role || '', profile: String(profile.name), model, permissionMode: permMode, allowedTools: profile.allowedTools.join(','), in: text.length, out: txt.length });
+        let txt = '', ju = {};
+        // capture the scoped child's token usage too: --output-format json already emits a `usage` block; we used to
+        // parse `out` only for j.result and discard j.usage, so every remote principal read $0 in any cost rollup.
+        // Now the remote_turn line carries tokens (fail-soft to 0 if the child omitted usage), so per-principal cost is real.
+        try { const j = JSON.parse(out); txt = typeof j.result === 'string' ? j.result : ''; ju = (j && j.usage) || {}; } catch {}
+        logEvent({ ev: 'remote_turn', channel: ctx.channel || '', principal: ctx.principal || '', role: ctx.role || '', profile: String(profile.name), model, permissionMode: permMode, allowedTools: profile.allowedTools.join(','), in: text.length, out: txt.length, tokIn: ju.input_tokens || 0, tokOut: ju.output_tokens || 0, tokCache: ju.cache_read_input_tokens || 0 });
         recordSession({ t: new Date().toISOString(), channel: ctx.channel || String(profile.name), principal: ctx.principal || '', role: ctx.role || '', profile: String(profile.name), model, user: text, urfael: txt });
         // per-turn user-model dialectic is channel-agnostic — but ONLY for the OWNER's own remote turns (their phone),
         // never a member/guest, so an untrusted teammate can't reshape the owner's USER.md. (Honcho is always-on; this
@@ -736,6 +741,28 @@ const brain = {
     });
   },
 };
+
+// delegateBackground(turn) — the OWNER-GATED seam for in-turn background delegation. Given a turn's RESOLVED trust
+// context ({ profile, principal, role, channel, prompt, ... }), it stamps the spawning profile's scope onto a job
+// spec (delegateScope → single-sourced from PROFILES) and enqueues it as a scope-derived detached child. It is the
+// one obvious place a future owner-approved "go work on this in the background" would call; it is NOT wired to any
+// remote/auto-trigger (the socket is owner-only, and the no-egress property is a fail-closed GUARANTEE, not a new
+// remote trigger). Fail-closed: an unknown/garbage profile resolves through delegateScope to 'untrusted' (no egress).
+function delegateBackground(turn) {
+  const t = turn || {};
+  const scope = delegateScope(t.profile).scope;                          // canonical scope label, fail-closed to 'untrusted'
+  const kind = (t.kind === 'goal' || t.kind === 'research') ? t.kind : 'ask';
+  if (kind === 'goal' && !t.repo) return { error: "'goal' delegation requires spec.repo (isolated, never-push worktree)" };
+  const spec = { kind, prompt: String(t.prompt || t.text || ''), scope,
+    principal: String(t.principal || ''), role: String(t.role || ''), channel: String(t.channel || '') };
+  if (t.model) spec.model = String(t.model);
+  if (t.repo) spec.repo = String(t.repo);
+  let job;
+  try { job = jobstore.create(spec); runner.run(jobstore.get(job.id)); }
+  catch (e) { logEvent({ ev: 'job_create_error', err: String((e && e.message) || e) }); return { error: 'could not persist job' }; }
+  logEvent({ ev: 'job_create', id: job.id, kind, scope, principal: spec.principal.slice(0, 60), role: spec.role, channel: spec.channel, delegated: true });
+  return { id: job.id, scope };
+}
 
 // Live vitals for the HUD: parse the telemetry log + memory git, no new secrets.
 const START_MS = Date.now();
@@ -857,6 +884,57 @@ function usageSummary() {
     rates,
     today: round(acc.today), last7d: round(acc.last7d), last30d: round(acc.last30d),
   };
+}
+
+// ---- per-principal / per-channel usage rollup — the dimension a per-AGENT cost scope structurally can't express ----
+// Reads the SAME bounded log tail as usageSummary(), collects every {ev:'turn'|'remote_turn'} line, and hands them to
+// the PURE lib.rollupUsage to group cost/tokens by principal or channel. Local mic turns carry no principal/channel and
+// land under 'local' (the owner's own compute, never attributed to a teammate — see the note). Cost is the same
+// ESTIMATE caveat as usageSummary()/vitals(): env-overridable, rounded to cents at the edge, and meaningless in
+// LOCAL_MODE (a local-GPU model / proxy / Bedrock / Vertex), where we zero the dollar figure + flag `local: true`
+// exactly as vitals() does rather than show a fabricated number. The token sums stay exact regardless.
+function usageRollup(by, opts) {
+  const dim = by === 'channel' ? 'channel' : 'principal';
+  const rates = priceRates();
+  const records = [];
+  for (const ln of tailLines(LOGFILE, 1 << 20)) {
+    if (!ln) continue; let e; try { e = JSON.parse(ln); } catch { continue; }
+    if (e && (e.ev === 'turn' || e.ev === 'remote_turn')) records.push(e);
+  }
+  const roll = rollupUsage(records, rates, { by: dim });
+  const cents = (b) => ({ turns: b.turns, tokIn: b.tokIn, tokOut: b.tokOut, tokCache: b.tokCache, costUsd: LOCAL_MODE ? 0 : Math.round(b.costUsd * 100) / 100 });
+  const groups = {};
+  for (const k of Object.keys(roll.groups)) groups[k] = cents(roll.groups[k]);
+  const out = { by: roll.by, groups, total: cents(roll.total), rates, local: LOCAL_MODE,
+    note: roll.note + (LOCAL_MODE ? "; LOCAL_MODE is active (non-Anthropic backend) so the dollar meter is zeroed, the token counts still hold" : '') };
+  if (opts && opts.verify) out.verify = usageVerify(records);
+  return out;
+}
+// --verify: prove the very lines we summed are the ones the Ledger of Record committed to. `urfael audit --verify`
+// proves the chain is internally consistent; this closes the loop by recomputing each counted record's payloadDigest
+// the same way appendChain() did — auditChain.digest(auditChain.canonicalJSON(payload)) over the payload BEFORE
+// logEvent stamps `t` — and confirming it appears among the chain's digests. So the rollup's inputs are chain-witnessed,
+// not just trusted. FAIL-CLOSED: any read error leaves the digest set empty -> records read unwitnessed, never a throw.
+function chainDigestSet() {
+  const set = new Set();
+  try {
+    for (const ln of fs.readFileSync(CHAINFILE, 'utf8').split('\n')) {
+      if (!ln) continue; let e; try { e = JSON.parse(ln); } catch { continue; }
+      if (e && typeof e.payloadDigest === 'string') set.add(e.payloadDigest);
+    }
+  } catch {}
+  return set;
+}
+function usageVerify(records) {
+  const set = chainDigestSet();
+  let witnessed = 0, missing = 0;
+  for (const rec of records) {
+    const { t, ...payload } = rec;   // strip the log stamp; the chain digested the payload BEFORE `t` was added
+    const d = auditChain.digest(auditChain.canonicalJSON(payload));
+    if (set.has(d)) witnessed++; else missing++;
+  }
+  return { verified: missing === 0, counted: records.length, witnessed, missing,
+    note: 'each counted turn was re-hashed and checked against audit-chain.jsonl; verify the chain itself with `urfael audit --verify`' };
 }
 
 // ---- session archive: every turn appended to a daily JSONL in the private memory repo -----------
@@ -1785,7 +1863,10 @@ const server = http.createServer(async (req, res) => {
       // voice stream's `active` nor the serialized local chain, so phone traffic can't block or cross the mic.
       res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
       const who = typeof parsed.principal === 'string' ? parsed.principal.slice(0, 60) : '';
-      try { const r = await brain.askScoped(text, profile, { channel: String(parsed.channel), principal: who, role: typeof parsed.role === 'string' ? parsed.role : '' }); res.write(JSON.stringify({ kind: 'done', text: r.text, model: r.model }) + '\n'); }
+      // per-principal model CAP set by the OWNER in the roster (the bridge rides it on the same trusted socket as `role`);
+      // re-validated inside askScoped so a forged payload can only ever name one of the two real tiers, never an arbitrary id.
+      const modelCap = typeof parsed.model === 'string' ? parsed.model : '';
+      try { const r = await brain.askScoped(text, profile, { channel: String(parsed.channel), principal: who, role: typeof parsed.role === 'string' ? parsed.role : '', modelCap }); res.write(JSON.stringify({ kind: 'done', text: r.text, model: r.model }) + '\n'); }
       catch { res.write(JSON.stringify({ kind: 'done', text: '(brain error)', model: '' }) + '\n'); }
       try { res.end(); } catch {}
       return;
@@ -2146,10 +2227,14 @@ const server = http.createServer(async (req, res) => {
     // a key's NAME (authEnv) may appear, never a value. The socket is 0600 so this is owner-only regardless.
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ providers: providerList().map((e) => ({ id: e.id, label: e.label, kind: e.kind, baseUrl: e.baseUrl, big_model: e.big_model, small_model: e.small_model, authKind: e.authKind, authLabel: e.authLabel, verified: e.verified, cost: e.cost, speed: e.speed, quality: e.quality })) }));
-  } else if (req.url === '/usage') {
-    // GET /usage — tokens/turns/ESTIMATED cost for today / last 7d / last 30d, from the bounded log tail.
+  } else if (req.url === '/usage' || (req.url || '').startsWith('/usage?')) {
+    // GET /usage — backward-compatible. Bare → tokens/turns/ESTIMATED cost for today / last 7d / last 30d
+    // (usageSummary, the shape the dashboard + HUD depend on). ?by=principal|channel → the per-key rollup; add
+    // &verify=1 to cross-check every counted line against the Ledger of Record (closes the loop to audit --verify).
+    let by = null, verify = false;
+    try { const sp = new URL(req.url, 'http://x').searchParams; const b = sp.get('by'); by = (b === 'principal' || b === 'channel') ? b : null; verify = sp.get('verify') === '1' || sp.get('verify') === 'true'; } catch {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(usageSummary()));
+    res.end(JSON.stringify(by ? usageRollup(by, { verify }) : usageSummary()));
   } else if (req.url === '/learn') {
     // GET /learn — the learning ledger: what Urfael has learned, verified, quarantined, retired (with confidence).
     const items = learn.load(MEMORY_DIR);
@@ -2199,10 +2284,18 @@ const server = http.createServer(async (req, res) => {
     if (spec.maxIters != null) spec.maxIters = clamp(spec.maxIters, 1, 50);
     if (spec.maxMins != null) spec.maxMins = clamp(spec.maxMins, 1, 240);
     if (spec.turnTimeout != null) spec.turnTimeout = clamp(spec.turnTimeout, 30, 3600);
+    // TRUST-SCOPE the child off the request context, mirroring the /ask turn boundary. The daemon socket is owner-only
+    // (0600) so a bare request is 'local' (full inherit — preserves existing owner ask/research behaviour). A request
+    // carrying a channel is treated as remote-origin: its CEILING is profileFor(role) (untrusted|guest), and an explicit
+    // spec.scope may only NARROW, never widen past that ceiling (narrowScope, fail-closed). The child's tools are then
+    // DERIVED from spec.scope by runner.argvFor(delegateScope), so an untrusted-origin job is structurally no-egress.
+    const ceiling = ('channel' in spec && spec.channel) ? profileFor(spec.role, AGENT_MODE).name : 'local';
+    const requested = (typeof spec.scope === 'string' && spec.scope) ? spec.scope : ceiling; // absent → the ceiling (local for the owner socket)
+    spec.scope = narrowScope(requested, ceiling);
     let job;
     try { job = jobstore.create(spec); runner.run(jobstore.get(job.id)); }   // a jobs-dir I/O fault must 500, not hang the client
     catch (e) { logEvent({ ev: 'job_create_error', err: String((e && e.message) || e) }); res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'could not persist job' })); return; }
-    logEvent({ ev: 'job_create', id: job.id, kind: spec.kind });
+    logEvent({ ev: 'job_create', id: job.id, kind: spec.kind, scope: spec.scope, principal: typeof spec.principal === 'string' ? spec.principal.slice(0, 60) : '', role: typeof spec.role === 'string' ? spec.role : '' });
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: job.id, state: 'running' }));
   } else if (req.url && req.url.startsWith('/recall')) {
     // GET /recall?q=<query>&k=<n> — BM25-ranked recall over the WHOLE archive via the warm inverted index
@@ -2235,7 +2328,7 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify(ranked.map((e) => ({ t: e.t, channel: e.channel || '', user: e.user || '', urfael: e.urfael || '', score: e.score }))));
   } else if (req.url === '/jobs') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(jobstore.list().map((j) => ({ id: j.id, kind: j.kind, state: j.state, createdAt: j.createdAt, endedAt: j.endedAt }))));
+    res.end(JSON.stringify(jobstore.list().map((j) => ({ id: j.id, kind: j.kind, state: j.state, scope: (j.spec && j.spec.scope) || '', createdAt: j.createdAt, endedAt: j.endedAt }))));
   } else if (req.url && req.url.startsWith('/job/')) {
     const m = req.url.match(/^\/job\/([A-Za-z0-9-]{4,64})(\/cancel)?$/); // id validated; never interpolated into a shell
     if (!m) { res.writeHead(404); res.end(); return; }
