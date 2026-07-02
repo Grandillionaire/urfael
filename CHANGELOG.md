@@ -124,7 +124,7 @@ The "better Claude Code" release. Urfael's brain is the `claude` CLI, so this tu
 
 ## [0.6.0] - 2026-06-21
 
-The "match or beat the field" release. Every addition ships with unit tests, and the security-critical paths are frozen as benchmark checks (`npm run security`, now 95/95 across 10 attack classes).
+The "match or beat the field" release. Every addition ships with unit tests, and the security-critical paths are frozen as benchmark checks (`npm run security`, now 96/96 across 10 attack classes).
 
 ### Added
 

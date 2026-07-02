@@ -2173,7 +2173,11 @@ const server = http.createServer(async (req, res) => {
     req.on('close', () => { closed = true; try { unsub(); } catch {} });
   } else if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, warm: [...sessions.keys()] }));
+    // `bound` is the daemon's AUTHORITATIVE self-report of what it listens on: server.address() returns the unix
+    // socket PATH (a string) when bound to a pipe, or an { port } object when bound to TCP. This is the ground
+    // truth the fortress self-audit reads to prove principle #1 (no inbound port), cross-platform and in-process.
+    res.end(JSON.stringify({ ok: true, warm: [...sessions.keys()], pid: process.pid,
+      bound: ((a) => typeof a === 'string' ? { unix: a } : (a ? { tcpPort: a.port } : null))(server.address()) }));
   } else if (req.url === '/vitals') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(vitals()));
