@@ -7,7 +7,7 @@
 > ```
 >
 > It boots the real daemon and dashboard and attacks them the way the wild did — then prints a pass/fail
-> table. As of the latest run: **10/10 real-world attack classes resisted · 95/95 checks passed.**
+> table. As of the latest run: **10/10 real-world attack classes resisted · 96/96 checks passed.**
 
 Self-hosted AI agents were not compromised hypothetically in 2026. Public reporting documented real ones:
 

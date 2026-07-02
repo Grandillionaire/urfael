@@ -838,6 +838,35 @@ function readStdinAdapter(maxBytes) {
       if (sv && sv.reason !== 'no_seal') add(!!(sv && sv.ok), sv && sv.ok ? ok('✓') : bad('✗'), 'seal', sv && sv.ok ? dim('owner key ' + sv.fp + ' · sealed through seq ' + sv.seq) : bad('does not verify'), 'reseal:  urfael seal');
       else note('seal', 'unsealed (optional) — mint one:  urfael seal');
     } else { note('ledger', '— brain asleep; start it to check the ledger + seal'); }
+    // 8) fortress — principle #1: no inbound port. The socket verdict is on-disk truth; the TCP verdict is the
+    // daemon's OWN server.address() self-report (authoritative + cross-platform). If the brain is asleep the TCP
+    // part is deferred (a note, never a false red). SCOPE: the dashboard is a SEPARATE opt-in process that DOES
+    // bind loopback TCP, so this is scoped strictly to the DAEMON — its self-report, and (best-effort) an lsof on
+    // the daemon's OWN pid, never a bare `lsof -iTCP` that would false-red while the dashboard is up.
+    let sst = null; try { sst = fs.statSync(SOCK); } catch {}
+    const f = require('./fortress').auditFortress({ stat: sst, health: h });
+    if (f.socket.present && !f.socket.ok) {
+      // the socket EXISTS but is wrong (a loosened mode, or a regular file left at the path) — a real, actionable
+      // fault regardless of whether the brain is up.
+      const d = !f.socket.isUnix ? 'not a unix socket' : 'socket mode ' + (f.socket.mode == null ? '?' : f.socket.mode.toString(8)) + ' (want 0600)';
+      add(false, bad('✗'), 'fortress', bad(d), 'check perms:  ls -l ~/.claude/urfael/daemon.sock');
+    } else if (f.tcp.determined && !f.tcp.ok) {
+      add(false, bad('✗'), 'fortress', bad('a TCP port is bound (' + f.tcp.port + '); something is listening'), 'principle #1 is no inbound port; investigate the daemon');
+    } else if (!f.socket.present) {
+      // no socket + brain asleep = the daemon simply is not running, so nothing is listening. Not a fault: defer,
+      // never a false red (the brain row above already flags the sleep).
+      note('fortress', 'brain asleep; no socket yet, so the no-inbound-port check is deferred');
+    } else {
+      let detail = 'no inbound port · 0600 unix socket' + (f.tcp.determined ? ', 0 TCP listeners' : '');
+      // belt-and-suspenders: confirm the DAEMON pid (not the dashboard) has zero TCP listeners, the exact
+      // benchmark incantation scoped to h.pid. Best-effort: a missing lsof degrades to nothing, never a red.
+      if (f.tcp.determined && h && h.pid) {
+        try { execFileSync('lsof', ['-nP', '-a', '-p', String(h.pid), '-iTCP', '-sTCP:LISTEN'], { stdio: ['ignore', 'pipe', 'ignore'] }); }
+        catch (e) { if (e && typeof e.status === 'number') detail += ' (pid-verified)'; } // non-zero exit + no output = 0 listeners
+      }
+      add(true, ok('✓'), 'fortress', dim(detail));
+      if (!f.tcp.determined) note('fortress', 'brain asleep; TCP-listener check deferred (socket verdict only)');
+    }
     if (rest.includes('--json')) { console.log(JSON.stringify({ ok: attention === 0, healthy, attention, checks }, null, 2)); return; }
     const head = attention === 0
       ? ok('✓ all ' + healthy + ' systems nominal')
@@ -1268,7 +1297,12 @@ function readStdinAdapter(maxBytes) {
     const sv = await req('GET', '/seal/verify').catch(() => null);
     const ledger = lv ? { verified: !!lv.ok, count: lv.count, through: lv.through, head: lv.head, reason: lv.ok ? undefined : lv.reason, brokenSeq: lv.brokenSeq } : { verified: false, reason: 'daemon unreachable' };
     const seal = (!sv || sv.reason === 'no_seal') ? { present: false, valid: false } : { present: true, valid: !!sv.ok, fp: sv.fp, seq: sv.seq, headStillInChain: sv.headStillInChain, reason: sv.ok ? undefined : sv.reason };
-    const posture = { noInboundPort: true, untrustedProfile: 'read-only, no shell, no write, no egress, credential-deny', mode: process.env.URFAEL_YOLO === '1' ? 'Full' : 'Fortress' };
+    // posture.noInboundPort is VERIFIED, never asserted: the fortress audit reads the on-disk 0600 unix socket and
+    // the daemon's own server.address() self-report. If the daemon is unreachable this is falsy, so attest.js
+    // render() prints "unknown" rather than overclaiming "none" — the honesty contract this report is built on.
+    const fortressStat = (() => { try { return fs.statSync(SOCK); } catch { return null; } })();
+    const fortressHealth = await req('GET', '/health').catch(() => null);
+    const posture = { noInboundPort: require('./fortress').auditFortress({ stat: fortressStat, health: fortressHealth }).noInboundPort, untrustedProfile: 'read-only, no shell, no write, no egress, credential-deny', mode: process.env.URFAEL_YOLO === '1' ? 'Full' : 'Fortress' };
     const report = at.buildReport({ subject: os.hostname() + ' (Urfael)', ledger, seal, posture }, new Date().toISOString());
     const v = at.verdict(report);
     const bundle = JSON.stringify({ verdict: v, id: at.fingerprint(report), ...report }, null, 2);

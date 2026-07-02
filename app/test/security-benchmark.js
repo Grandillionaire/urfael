@@ -75,6 +75,10 @@ async function main() {
   check('daemon opens NO TCP port (nothing the LAN/internet can reach)', tcpListeners === '', 'lsof: 0 TCP listeners');
   const sockMode = (() => { try { return (fs.statSync(SOCK).mode & 0o777).toString(8); } catch { return '?'; } })();
   check('the socket is owner-only (0600)', sockMode === '600', 'mode ' + sockMode);
+  // REGRESSION: the attestation's no-inbound-port posture must be COMPUTED by the fortress verifier, never a
+  // hardcoded literal — an assert-without-verify is exactly the overclaim `urfael attest` is built to avoid.
+  const cliSrcNet = fs.readFileSync(path.join(APP, 'cli.js'), 'utf8');
+  check('the attest no-inbound-port posture is VERIFIED, not hardcoded true', !/noInboundPort:\s*true\b/.test(cliSrcNet) && /auditFortress\(/.test(cliSrcNet), 'cli.js computes it via fortress.auditFortress; no `noInboundPort: true` literal remains');
 
   // ── 2. AUTH-TOKEN LEAK / ONE-CLICK RCE ────────────────────────────────────
   attackClass('Auth-token leak → one-click RCE',
