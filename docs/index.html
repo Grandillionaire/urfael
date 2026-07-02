@@ -71,7 +71,7 @@
       "name": "Is it actually secure, or is that just a word?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "It is a command: npm run security. It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists 10 of 10 real-world attack classes across 96 of 96 checks. You do not take our word for it. You run it."
+        "text": "It is a command: npm run security. It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists 10 of 10 real-world attack classes across 99 of 99 checks. You do not take our word for it. You run it."
       }
     },
     {
@@ -431,7 +431,7 @@ This restores your tracked files to that snapshot. The current state is checkpoi
   <section id="compare">
     <h2>The honest part</h2>
     <p class="lede">Against Hermes Agent and OpenClaw, Urfael wins where it counts for a machine that lives on your desk: no inbound port, a flat bill, an attack benchmark you run yourself, and a ledger that proves what it did. It loses on raw scale and channel count, and we put that in the same table.</p>
-    <p class="lede" style="margin-top:12px">The security posture is verified by a command and frozen by 533 tests. The newer bridges, Discord voice, and the Android host are code-complete but not yet certified against live accounts, and we label them that way.</p>
+    <p class="lede" style="margin-top:12px">The security posture is verified by a command and frozen by 774 tests. The newer bridges, Discord voice, and the Android host are code-complete but not yet certified against live accounts, and we label them that way.</p>
     <p style="text-align:center;margin:24px 0 0">
       <a href="/compare" style="font-family:ui-monospace,Menlo,monospace;font-size:14px;letter-spacing:.5px;color:#ecd3a0;border:1px solid rgba(212,168,90,.25);padding:11px 22px;border-radius:10px;display:inline-block;margin:5px">The full comparison &rsaquo;</a>
       <a href="/honesty" style="font-family:ui-monospace,Menlo,monospace;font-size:14px;letter-spacing:.5px;color:#ecd3a0;border:1px solid rgba(212,168,90,.25);padding:11px 22px;border-radius:10px;display:inline-block;margin:5px">What&rsquo;s lightly tested &rsaquo;</a>
@@ -539,7 +539,7 @@ cd app &amp;&amp; npm start # the Console opens</pre>
   <section id="faq">
     <h2>Questions, answered honestly</h2>
     <details><summary>What does it cost to run?</summary><div class="ans">By default, your existing Claude subscription, flat-rate. There is no Urfael account and no server you rent from us. You can also point it at any of 30 providers (you pay their per-token rate) or at a local model on your own GPU, where it costs you only electricity. We do not see your traffic; there is nothing to see. On the subscription path, see the next answer about Anthropic's terms.</div></details>
-    <details><summary>Is it actually secure, or is that just a word?</summary><div class="ans">It is a command: <code>npm run security</code>. It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists <b>10 of 10</b> real-world attack classes across <b>96 of 96</b> checks. You do not take our word for it. You run it.</div></details>
+    <details><summary>Is it actually secure, or is that just a word?</summary><div class="ans">It is a command: <code>npm run security</code>. It boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, then prints a pass-or-fail table. The latest run resists <b>10 of 10</b> real-world attack classes across <b>99 of 99</b> checks. You do not take our word for it. You run it.</div></details>
     <details><summary>Does Urfael depend on Anthropic, and what if their terms change?</summary><div class="ans">Urfael is not built, endorsed, or operated by Anthropic, and running it on a flat-rate Claude subscription depends on Anthropic's consumer terms, which we do not control. We say so plainly. It is not a single point of failure: the same Urfael, with the same security guarantees, also runs on any of 30 providers through a documented proxy, or on a local model on your own GPU, with one config line. So if those terms ever change, your cost model changes, not the product.</div></details>
     <p style="text-align:center;margin:26px 0 0"><a href="/faq" style="font-family:ui-monospace,Menlo,monospace;font-size:14px;letter-spacing:.5px;color:#ecd3a0;border:1px solid rgba(212,168,90,.25);padding:11px 22px;border-radius:10px;display:inline-block">Read all 15 questions &rsaquo;</a></p>
   </section>
@@ -560,7 +560,7 @@ cd app &amp;&amp; npm start # the Console opens</pre>
 
 <script>
 /* ---- ground truth: every number on this page reads from here, so it cannot drift from `npm run security` ---- */
-const URFAEL = { classes:10, checks:99, unitTests:533 };
+const URFAEL = { classes:10, checks:99, unitTests:774 };
 const RM = matchMedia('(prefers-reduced-motion:reduce)').matches;
 
 document.getElementById('navSeal').textContent = 'ᚢ '+URFAEL.classes+'/'+URFAEL.classes;

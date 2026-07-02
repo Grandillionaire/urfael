@@ -64,7 +64,7 @@ See [channels/overview.md](channels/overview.md).
 
 ## The security model
 
-The brain is a local daemon reachable only through a `0600` unix socket and never opens a TCP port; the topology is one-way, so nothing reaches in. Default **Fortress** mode keeps remote turns read-only with no egress, and you opt into **Full** mode deliberately. Security-critical paths ship with adversarial regression tests, and `npm run security` attacks the running daemon: the latest run resisted 10 of 10 attack classes across 96 checks. Real-world scale is still small, and the docs say so on purpose.
+The brain is a local daemon reachable only through a `0600` unix socket and never opens a TCP port; the topology is one-way, so nothing reaches in. Default **Fortress** mode keeps remote turns read-only with no egress, and you opt into **Full** mode deliberately. Security-critical paths ship with adversarial regression tests, and `npm run security` attacks the running daemon: the latest run resisted 10 of 10 attack classes across 99 checks. Real-world scale is still small, and the docs say so on purpose.
 
 See [security/model.md](security/model.md). The full Threat Model and benchmark are summarised in [security/threat-model.md](security/threat-model.md), with the source documents at [docs/THREAT-MODEL.md](https://github.com/Grandillionaire/urfael/blob/main/docs/THREAT-MODEL.md) and [docs/SECURITY-BENCHMARK.md](https://github.com/Grandillionaire/urfael/blob/main/docs/SECURITY-BENCHMARK.md).
 
