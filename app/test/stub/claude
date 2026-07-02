@@ -1,0 +1,59 @@
+#!/usr/bin/env node
+'use strict';
+// Deterministic, OFFLINE `claude` stub for the daemon smoke test (app/test/smoke-daemon.test.js).
+// It speaks the exact stream-json protocol the real Claude Code CLI does, so the COMPOSED daemon (the warm
+// Session parser + the /ask turn loop) can be exercised in CI with NO network and NO real claude login.
+//
+// Two modes, mirroring how daemon.js spawns the binary:
+//   1. WARM streaming  — `-p --input-format stream-json --output-format stream-json` + user turns fed over stdin
+//      as NDJSON ({type:'user', message:{...}}). For each user line, emit a couple of content_block_delta
+//      text_delta stream_events, an assistant block, then a terminal `result` event carrying a usage object.
+//      The process stays warm (one child, many turns) until stdin closes, exactly like the real CLI.
+//   2. ONE-SHOT json   — `-p <prompt> ... --output-format json` (used by review / model-user / scoped spawns):
+//      emit a single JSON result object and exit 0.
+// The reply text is fixed and recognisable (URFAEL_SMOKE_OK) so the smoke test can assert a real turn completed
+// end to end. Session._handle in daemon.js is the source of truth for every field name below.
+
+const argv = process.argv.slice(2);
+const flagVal = (name, dflt) => { const i = argv.indexOf(name); return i >= 0 && i + 1 < argv.length ? argv[i + 1] : dflt; };
+const outFmt = flagVal('--output-format', 'text');
+const inFmt = flagVal('--input-format', '');
+
+const REPLY = 'URFAEL_SMOKE_OK: the offline stub answered.';
+const USAGE = { input_tokens: 11, output_tokens: 7, cache_read_input_tokens: 0 };
+const w = (o) => process.stdout.write(JSON.stringify(o) + '\n');
+
+// the stream-json shape Session._handle parses: two partial text deltas, an assistant block, then `result`.
+function streamReply(text) {
+  const half = Math.ceil(text.length / 2);
+  w({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: text.slice(0, half) } } });
+  w({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: text.slice(half) } } });
+  w({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } });
+  w({ type: 'result', subtype: 'success', is_error: false, result: text, usage: USAGE });
+}
+
+if (outFmt === 'stream-json' && inFmt === 'stream-json') {
+  // WARM SESSION: one response per user turn on stdin; stay alive until EOF (the CLI's persistent -p mode).
+  let buf = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (d) => {
+    buf += d;
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+      if (!line) continue;
+      let m; try { m = JSON.parse(line); } catch { continue; }
+      if (m && m.type === 'user') streamReply(REPLY);
+    }
+  });
+  process.stdin.on('end', () => process.exit(0));
+  process.stdin.on('error', () => process.exit(0));
+} else if (outFmt === 'stream-json') {
+  // councilStreamOne style: the prompt arrived as the -p positional; emit one streamed response then exit.
+  streamReply(REPLY);
+  process.exit(0);
+} else {
+  // ONE-SHOT json (review / model-user / askScoped): a single JSON result object, then exit.
+  w({ type: 'result', subtype: 'success', is_error: false, result: REPLY, usage: USAGE });
+  process.exit(0);
+}
