@@ -164,6 +164,86 @@ test('watch fire routing is NO-EGRESS: allowedTools is Read,Grep,Glob and the pr
   assert.match(pidFire.job.prompt, /4242/);
 });
 
+// ── 6. atomic-save survival: fs.watch RE-ARMS after an editor rename-swap ─────
+// Most editors save a file by writing a temp then renaming it OVER the target. That fires a 'rename' and orphans the
+// single-file fs.watch on the now-unlinked inode: it fires ONCE then goes silently dead, so a "watch this file" that
+// advertises repeat delivery degrades to fire-once. These tests drive a rename→change sequence through an INJECTED
+// fs-watch + timer seam (startWatchers({ watchIO })) and assert the watcher re-arms and still fires after the rename.
+function makeFakeIO() {
+  const opens = [];            // every fs.watch handle ever opened { path, opts, cb, closed, close() }
+  const polls = [];            // every fs.watchFile registration
+  let timers = [];             // pending fake timeouts { id, fn }
+  let seq = 1;
+  const io = {
+    watch(p, opts, cb) { const h = { path: p, opts, cb, closed: false, close() { this.closed = true; } }; opens.push(h); return h; },
+    watchFile(p, opts, cb) { polls.push({ path: p, opts, cb, active: true }); },
+    unwatchFile(p) { for (const r of polls) if (r.path === p) r.active = false; },
+    setTimeout(fn) { const id = seq++; timers.push({ id, fn }); return id; },
+    clearTimeout(id) { timers = timers.filter((t) => t.id !== id); },
+  };
+  function runTimers() { let guard = 0; while (timers.length && guard++ < 50) { const pending = timers; timers = []; for (const t of pending) t.fn(); } }
+  return { io, opens, polls, runTimers };
+}
+function freshStore() { try { fs.rmSync(WATCHES_FILE, { force: true }); } catch {} }
+
+test('file watch re-arms after an editor atomic-save (rename) and still fires on the next change', () => {
+  const F = makeFakeIO();
+  const fired = [];
+  freshStore();
+  scheduler.startWatchers((w, meta) => fired.push({ id: w.id, meta }), { watchIO: F.io });
+  const w = scheduler.addWatch({ on: 'file', target: '/tmp/atomic.txt', prompt: 'inspect', repeat: true, debounceMs: 500 });
+  assert.ok(w);
+  assert.equal(F.opens.length, 1, 'armed exactly one fs.watch handle');
+
+  // an atomic save is a BURST (rename + change events); the debounce must still collapse it to ONE fire
+  F.opens[0].cb('rename', 'atomic.txt');
+  F.opens[0].cb('change', 'atomic.txt');
+  F.opens[0].cb('rename', 'atomic.txt');
+  F.runTimers();                                   // the debounce window AND the re-arm window elapse
+  assert.equal(fired.length, 1, 'the whole atomic-save burst fired exactly once (debounce-collapse held)');
+  assert.equal(F.opens.length, 2, 're-armed a fresh fs.watch after the rename orphaned the old inode');
+  assert.ok(F.opens[0].closed, 'the stale (orphaned-inode) handle was closed');
+
+  // the crux: a LATER save must STILL fire. Against the pre-fix code the orphaned handle is dead and this never happens.
+  F.opens[1].cb('change', 'atomic.txt');
+  F.runTimers();
+  assert.equal(fired.length, 2, 'the watch survived the atomic-save and fired again on the next change');
+});
+
+test('a mid-swap absent target falls back to polling, then upgrades back to fs.watch when it reappears', () => {
+  const F = makeFakeIO();
+  const fired = [];
+  freshStore();
+  // fs.watch throws on the FIRST open (target briefly gone mid rename-swap); subsequent opens succeed
+  let throwOnce = true;
+  const io = Object.assign({}, F.io, { watch(p, opts, cb) { if (throwOnce) { throwOnce = false; throw new Error('ENOENT'); } return F.io.watch(p, opts, cb); } });
+  scheduler.startWatchers((w) => fired.push(w.id), { watchIO: io });
+  const w = scheduler.addWatch({ on: 'file', target: '/tmp/gone.txt', prompt: 'p', repeat: true, debounceMs: 300 });
+  assert.ok(w);
+  assert.equal(F.opens.length, 0, 'fs.watch failed to open, so no live handle yet');
+  assert.equal(F.polls.length, 1, 'fell back to a polling fs.watchFile');
+
+  // the target reappears: the poller sees a valid inode, fires the change, and upgrades back to fs.watch
+  F.polls[0].cb({ mtimeMs: 2, ino: 42 }, { mtimeMs: 1, ino: 0 });
+  F.runTimers();
+  assert.equal(fired.length, 1, 'the reappearance fired the watch');
+  assert.equal(F.opens.length, 1, 'upgraded back to an event-driven fs.watch once the target returned');
+  assert.equal(F.polls[0].active, false, 'the polling fallback was torn down after the upgrade');
+});
+
+test('file watches respect the concurrent-handle cap and a re-arm reuses its slot (no cap breach)', () => {
+  const F = makeFakeIO();
+  freshStore();
+  scheduler.startWatchers(() => {}, { watchIO: F.io });
+  for (let i = 0; i < 130; i++) scheduler.addWatch({ on: 'file', target: '/tmp/cap-' + i + '.txt', prompt: 'p', repeat: true });
+  assert.equal(F.opens.length, 128, 'no more than MAX_FILE_WATCHERS (128) concurrent fs.watch handles are armed');
+  // a re-arm of an already-armed watch reuses its slot: it opens exactly one fresh handle and closes the stale one
+  F.opens[0].cb('rename', 'cap-0.txt');
+  F.runTimers();
+  assert.equal(F.opens.length, 129, 're-arm opened exactly one fresh handle');
+  assert.ok(F.opens[0].closed, 'the stale handle was closed, so the LIVE handle count is unchanged (cap holds)');
+});
+
 // ── CRUD round-trip over the store ──────────────────────────────────────────
 test('addWatch / listWatch / getWatch / cancelWatch round-trip', () => {
   reset();
