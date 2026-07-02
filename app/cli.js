@@ -1057,6 +1057,29 @@ function readStdinAdapter(maxBytes) {
     for (const j of cj) console.log(`${j.id}  ${gold((j.at || '').replace('T', ' ').slice(0, 16))}  ${(j.prompt || '').slice(0, 60)}${j.repeat ? dim('  (' + JSON.stringify(j.repeat) + ')') : ''}`);
     return;
   }
+  if (cmd === 'watch') {
+    // LOCAL EVENT TRIGGERS: wake the brain (read-only, no egress) when a file changes, a directory subtree sees
+    // activity, or a watched process exits. Owner-only, over the 0600 socket. Usage:
+    //   urfael watch add <file|glob|pid> <target> --prompt "…" [--repeat] [--debounce ms] [--deliver notify|silent|push]
+    //   urfael watch list                 urfael watch rm <id>
+    const sub = rest[0];
+    if (sub === 'add' && rest[1] && rest[2]) {
+      const on = rest[1];
+      const spec = { on, target: on === 'pid' ? Number(rest[2]) : rest[2] };
+      if (flag(rest, '--prompt')) spec.prompt = flag(rest, '--prompt');
+      if (flag(rest, '--deliver')) spec.deliver = flag(rest, '--deliver');
+      if (flag(rest, '--debounce') != null) spec.debounceMs = Number(flag(rest, '--debounce'));
+      if (rest.includes('--repeat')) spec.repeat = true;
+      const r = await req('POST', '/watches', spec);
+      console.log(r && r.error ? bad('✗ ' + r.error) : gold('✓ watch ' + r.id) + dim('  on=' + r.on + ' · ' + (r.repeat ? 'repeat' : 'one-shot') + ' · ' + r.deliver));
+      return;
+    }
+    if ((sub === 'rm' || sub === 'remove' || sub === 'cancel') && rest[1]) { const r = await req('POST', '/watches/' + rest[1] + '/cancel'); console.log(r && r.ok ? gold('✓ removed ' + rest[1]) : '✗ no such watch'); return; }
+    const ws = await req('GET', '/watches');
+    if (!ws || !ws.length) { console.log(dim('no watches yet. create one:  ') + gold('urfael watch add file <path> --prompt "…"')); return; }
+    for (const w of ws) console.log(`${gold(w.id)}  ${dim((w.on + (w.repeat ? '/repeat' : '')).padEnd(12))} ${String(w.target).slice(0, 48)}  ${dim((w.prompt || '').slice(0, 40))}`);
+    return;
+  }
   if (cmd === 'blueprint' || cmd === 'blueprints') {
     // Automation Blueprints: a curated catalog that fills out to a read/fetch-only AGENT cron. The pure core lives in
     // ./blueprints.js (action-fixed to cron.agent — no script/toolset/model field is representable); creation reuses

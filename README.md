@@ -19,9 +19,9 @@ It listens and speaks locally, sandboxes every autonomous action fail-closed, al
 
 <br/>
 
-<img src="docs/media/demo.gif" width="820" alt="Urfael resisting the attack classes that compromised other agents: npm run security boots the real daemon and prints 10/10 attack classes, 96/96 checks passed" />
+<img src="docs/media/demo.gif" width="820" alt="Urfael resisting the attack classes that compromised other agents: npm run security boots the real daemon and prints 10/10 attack classes, 99/99 checks passed" />
 
-<sub><code>npm run security</code> boots the real daemon and runs the actual attack classes that owned other agents in the wild. It lands on 10/10 classes, 96/96 checks. The proof is a command you run, not a claim you read.</sub>
+<sub><code>npm run security</code> boots the real daemon and runs the actual attack classes that owned other agents in the wild. It lands on 10/10 classes, 99/99 checks. The proof is a command you run, not a claim you read.</sub>
 
 <br/><br/>
 
@@ -108,7 +108,7 @@ The brain is a local daemon reachable only through a `0600` unix socket, and **i
 - **Fail-closed everything.** An unknown channel resolves to the most-restricted profile, not the least. A malformed request is rejected, not guessed.
 - **Sandboxed autonomy.** The `/goal` loop runs on the host, in a throwaway `--network none` Docker container (only the `claude` auth files are staged in, never your `bridge.env`/API keys), or on a remote box over SSH.
 
-**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (a one-click token-leak RCE in a widely used agent, exposed gateways in the tens of thousands, a poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **10/10 attack classes resisted, 96/96 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md); multi-user is in [Team mode](docs/TEAM-MODE.md).
+**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (a one-click token-leak RCE in a widely used agent, exposed gateways in the tens of thousands, a poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **10/10 attack classes resisted, 99/99 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md); multi-user is in [Team mode](docs/TEAM-MODE.md).
 
 > [!WARNING]
 > Full capability (`URFAEL_YOLO=1`) gives the agent an unrestricted shell that also reads untrusted email and web. Run that mode **only** in a VM, container, or throwaway account.
