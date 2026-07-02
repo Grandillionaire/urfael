@@ -21,6 +21,7 @@ const SOCK = path.join(JDIR, 'daemon.sock');
 const ONBOARDED = path.join(JDIR, 'onboarded'); // marker: first-run GUI onboarding done (shown once)
 const DAEMON = path.join(__dirname, 'daemon.js');
 const setup = require('./setup'); // reuse the wizard's provider.env read/write (no side effects on require)
+const lib = require('./lib');     // reuse the pure reapOrphanPids helper (no side effects on require)
 
 let win = null;
 let consoleWin = null;
@@ -469,17 +470,31 @@ ipcMain.handle('urfael:stt', async (_e, buf) => voice.transcribe(Buffer.from(buf
 
 let whisperProc = null, whisperStopped = false, whisperRestarts = 0;
 function whisperBin() { for (const p of ['/opt/homebrew/bin/whisper-server', '/usr/local/bin/whisper-server', '/usr/bin/whisper-server']) { try { fs.accessSync(p); return p; } catch {} } return 'whisper-server'; } // Linux: whisper.cpp typically installs to /usr/bin or /usr/local/bin
+// Whisper-server orphan reaper — mirror of the brain's brain.pids discipline (daemon.js recordBrainPid /
+// cleanupOrphanBrains). The 168MB model server is a detached long-lived child; on any Electron crash / force-
+// quit / SIGKILL it would otherwise be orphaned forever, and only the OLDEST orphan owns STT port 8462, so a
+// fresh spawn silently fails to bind. So: record every spawned pid, and reap any still-alive recorded pid
+// (guard against pid-reuse the same way daemon.js does — reap only at boot / before a fresh spawn) then truncate.
+const WHISPER_PIDFILE = path.join(JDIR, 'whisper.pids');
+const whisperAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } }; // signal 0 tests existence without touching the process
+function recordWhisperPid(pid) { try { fs.mkdirSync(JDIR, { recursive: true }); fs.appendFileSync(WHISPER_PIDFILE, pid + '\n'); } catch {} }
+function cleanupOrphanWhispers() {
+  try { for (const pid of lib.reapOrphanPids(fs.readFileSync(WHISPER_PIDFILE, 'utf8'), whisperAlive)) { try { process.kill(pid, 'SIGKILL'); } catch {} } } catch {}
+  try { fs.writeFileSync(WHISPER_PIDFILE, ''); } catch {}
+}
 function startWhisper() {
   const cfg = readTtsEnv();
   if (cfg.sttProvider !== 'whispercpp') return;                                  // only the local-STT path needs the server
   const model = path.join(os.homedir(), '.claude', 'urfael', 'models', `ggml-${cfg.whisperModel}.bin`);
   if (!fs.existsSync(model)) { forward('urfael:wake', { error: 'Local STT model missing — run install.sh (downloads whisper)' }); return; }
   whisperStopped = false;
+  cleanupOrphanWhispers();                                                       // reap a leaked whisper-server BEFORE we bind 8462, so the fresh spawn never loses the port to a zombie
   try {
     const spawnedAt = Date.now();
     const child = spawn(whisperBin(), ['--model', model, '--host', '127.0.0.1', '--port', String(cfg.sttPort), '--language', 'en', '--no-timestamps'],
       { stdio: 'ignore' });
     whisperProc = child;
+    recordWhisperPid(child.pid);                                                 // ledger the pid so a future run can reap us if we are orphaned
     child.on('exit', () => {                                                     // supervised: auto-respawn with backoff so a crash never leaves Urfael deaf
       if (whisperProc !== child) return;                                         // a settings respawn already replaced us; ignore this stale exit (no double-spawn)
       whisperProc = null;
@@ -516,6 +531,7 @@ app.whenReady().then(() => {
     startGaze();
   }
   ensureDaemon();
+  cleanupOrphanWhispers();   // reap a whisper-server orphaned by a prior crash/force-quit even if STT is now disabled (mirrors daemon's cleanupOrphanBrains at boot)
   startWhisper();   // warm local STT (Console push-to-talk + orb voice)
 });
 

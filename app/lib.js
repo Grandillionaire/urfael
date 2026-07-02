@@ -415,6 +415,30 @@ function normalizeJobAction(spec, depth = 0) {
   return out;
 }
 
+// Single-flight cron GATE with a BOUNDED pending FIFO. Replaces the old drop-on-busy: a due fire that arrives while a
+// prior run is in flight (a one-shot cron, a one-shot watch fire, an already-202-acked webhook 'ask') is QUEUED
+// instead of dropped, then drained exactly ONE at a time on completion — so overlapping schedules still never stack
+// brain runs, but nothing is silently lost. Pure + synchronous so the whole busy/enqueue/drain policy is unit-testable
+// without spawning a brain. The daemon owns ONE gate for all cron/watch/webhook fires.
+//   admit(item): 'run'     -> caller owns the flight; run item NOW
+//                'queued'  -> a prior run is in flight; deferred, will be drained on release()
+//                'dropped' -> the queue is at cap; caller logs a LOUD, bounded drop (never silent)
+//   release(): clears the flight and returns the next queued item to re-dispatch (via admit again), or null.
+function makeCronGate(cap) {
+  cap = Math.max(1, cap | 0);
+  let running = false;
+  const q = [];
+  return {
+    busy: () => running,
+    depth: () => q.length,
+    admit(item) {
+      if (running) { if (q.length >= cap) return 'dropped'; q.push(item); return 'queued'; }
+      running = true; return 'run';
+    },
+    release() { running = false; return q.length ? q.shift() : null; },
+  };
+}
+
 // ---- CRON-SYNTAX SCHEDULING ----------------------------------------------------------------------------
 // Full 5-field cron expressions ("min hour dom mon dow") for reminders AND agent jobs — strictly richer than
 // dailyAt/everyMins. Supports *, N, a-b ranges, a,b,c lists, and */N or a-b/N steps. Pure + fail-closed: any
@@ -602,6 +626,28 @@ function watchFireArgs(w, meta) {
   const job = { id: 'watch:' + String(w.id || 'x'), prompt, deliver: w.deliver };
   if (w.then) job.then = w.then;
   return { job, opts: { intro, ev: 'watch_fire', allowedTools: 'Read,Grep,Glob' } };
+}
+
+// ---- ORPHAN-PROCESS REAPER (pure) --------------------------------------------------------------------
+// A long-lived helper process (the brain session, the local whisper-server) appends its pid to a newline
+// pid-file so a LATER run can SIGKILL an orphan the previous run leaked on crash / force-quit / SIGKILL.
+// This is the PURE half of that discipline (shared idiom with daemon.js cleanupOrphanBrains): parse the
+// pid-file text to plausible, de-duplicated pids, then — given a liveness probe — keep only the ones STILL
+// RUNNING, i.e. the orphans worth a signal. No fs and no signals here; the caller does the reading, the
+// killing, and the truncating. Pid-reuse stays bounded exactly the way the daemon bounds it: a recorded pid
+// is only ever reaped at startup / just before a fresh server is spawned (never mid-run), so the window in
+// which the OS could have handed the number to an unrelated process is a few milliseconds wide.
+function reapOrphanPids(text, isAlive) {
+  const seen = new Set(); const out = [];
+  for (const line of String(text == null ? '' : text).split('\n')) {
+    const pid = parseInt(line, 10);
+    if (!Number.isInteger(pid) || pid <= 0 || pid > 0x7fffffff) continue;  // a real, plausible pid only (mirrors normalizeWatch's pid guard)
+    if (seen.has(pid)) continue;                                           // de-dupe repeat spawns recorded in one session
+    seen.add(pid);
+    if (typeof isAlive === 'function') { let alive; try { alive = !!isAlive(pid); } catch { alive = false; } if (!alive) continue; } // fail-closed: an unprobeable pid is not ours to kill
+    out.push(pid);
+  }
+  return out;
 }
 
 // ---- WEBHOOK EVENT TRIGGERS ---------------------------------------------------------------------------
@@ -1022,4 +1068,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, CHAIN_MAX, makeCronGate, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };

@@ -39,6 +39,17 @@ let aliveFn = isAlive;                 // PID liveness; injectable for tests (de
 const wruntime = new Map();            // id -> { close?, debounced? } — RUNTIME only, NEVER persisted
 const wpidAlive = new Map();           // id -> last-known liveness for pid watches — RUNTIME only, NEVER persisted
 
+// FS-watch + timer primitives, injectable so the atomic-save RE-ARM path (armWatch, below) is unit-testable with a
+// fake clock/handle. Defaults to the real node:fs + global timers; startWatchers({ watchIO }) overrides them for tests.
+const REAL_IO = {
+  watch: (p, opts, cb) => fs.watch(p, opts, cb),
+  watchFile: (p, opts, cb) => fs.watchFile(p, opts, cb),
+  unwatchFile: (p) => fs.unwatchFile(p),
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (id) => clearTimeout(id),
+};
+let _io = REAL_IO;
+
 function load() { try { const j = JSON.parse(fs.readFileSync(FILE, 'utf8')); items = Array.isArray(j) ? j : []; } catch { items = []; } }
 function save() { try { fs.mkdirSync(path.dirname(FILE), { recursive: true }); fs.writeFileSync(FILE, JSON.stringify(items, null, 2)); } catch {} }
 function loadCron() { try { const j = JSON.parse(fs.readFileSync(CRON_FILE, 'utf8')); crons = Array.isArray(j) ? j : []; } catch { crons = []; } }
@@ -129,21 +140,62 @@ function armWatch(w) {
     return;
   }
   if (fileWatcherCount() >= MAX_FILE_WATCHERS) return;   // FD guard: leave in the store, unarmed
-  const state = { lastPath: w.target, close: null };
-  const debounced = makeDebouncer(w.debounceMs, () => onWatchFire(w, { path: state.lastPath }));
+  const recursive = w.on === 'glob';
+  const state = { lastPath: w.target, close: null, handle: null, rearmT: null, closed: false };
+  const debounced = makeDebouncer(w.debounceMs, () => onWatchFire(w, { path: state.lastPath }), _io.setTimeout, _io.clearTimeout);
   state.debounced = debounced;
-  const onEvent = (ev, fname) => { if (fname) { try { state.lastPath = path.join(w.target, String(fname)); } catch {} } debounced(); };
-  let handle = null;
-  try {
-    handle = fs.watch(w.target, w.on === 'glob' ? { recursive: true } : {}, onEvent);
-    if (handle && typeof handle.on === 'function') handle.on('error', () => {}); // a deleted/rotated target must not crash the daemon
-  } catch {
+
+  const closeHandle = () => { try { state.handle && state.handle.close(); } catch {} state.handle = null; };
+
+  // (re-)open an fs.watch on the target. A target fs.watch can't open (absent mid-swap, or no recursive support on
+  // older Linux) falls back to a polling fs.watchFile that UPGRADES back to fs.watch once the target reappears.
+  function openWatch() {
+    if (state.closed) return;
     try {
-      fs.watchFile(w.target, { interval: Math.max(w.debounceMs, 1000) }, (cur, prev) => { if (cur.mtimeMs !== prev.mtimeMs || String(cur.ino) !== String(prev.ino)) { state.lastPath = w.target; debounced(); } });
-      handle = { close: () => { try { fs.unwatchFile(w.target); } catch {} } };
-    } catch { return; }   // couldn't arm at all — leave it in the store, unarmed (fail-closed, no crash)
+      const h = _io.watch(w.target, recursive ? { recursive: true } : {}, onEvent);
+      if (h && typeof h.on === 'function') h.on('error', () => {}); // a deleted/rotated target must not crash the daemon
+      state.handle = h;
+    } catch { openPoll(); }
   }
-  state.close = () => { try { handle && handle.close(); } catch {} try { debounced.cancel(); } catch {} };
+  function openPoll() {
+    if (state.closed) return;
+    try {
+      _io.watchFile(w.target, { interval: Math.max(w.debounceMs, 1000) }, (cur, prev) => {
+        if (cur.mtimeMs !== prev.mtimeMs || String(cur.ino) !== String(prev.ino)) { state.lastPath = w.target; debounced(); }
+        if (!recursive && cur.ino && String(cur.ino) !== '0') { try { _io.unwatchFile(w.target); } catch {} openWatch(); } // target back → upgrade to fs.watch
+      });
+      state.handle = { close: () => { try { _io.unwatchFile(w.target); } catch {} } };
+    } catch {}
+  }
+
+  // Editors save atomically: write a temp file, then rename it OVER the target. That fires a 'rename' and leaves this
+  // fs.watch bound to the now-unlinked OLD inode — it fires ONCE, then goes silently dead. For a single-file watch,
+  // close the orphaned handle and RE-ARM after the debounce window so "watch this file" survives ordinary saves. A
+  // glob watches the directory subtree (its inode survives the swap) and never needs a re-arm.
+  function scheduleRearm() {
+    if (state.closed || state.rearmT != null) return;   // collapse a burst of rename events onto ONE re-arm
+    state.rearmT = _io.setTimeout(() => {
+      state.rearmT = null;
+      if (state.closed) return;
+      closeHandle();
+      openWatch();
+    }, w.debounceMs);
+  }
+
+  function onEvent(ev, fname) {
+    if (fname) { try { state.lastPath = path.join(w.target, String(fname)); } catch {} }
+    debounced();
+    if (ev === 'rename' && w.on === 'file') scheduleRearm();
+  }
+
+  openWatch();
+  if (!state.handle) return;   // couldn't arm at all — leave it in the store, unarmed (fail-closed, no crash)
+  state.close = () => {
+    state.closed = true;
+    if (state.rearmT != null) { try { _io.clearTimeout(state.rearmT); } catch {} state.rearmT = null; }
+    closeHandle();
+    try { debounced.cancel(); } catch {}
+  };
   wruntime.set(w.id, state);
 }
 
@@ -191,6 +243,7 @@ function start(deliverFn, intervalMs = 20000) {
 function startWatchers(fireFn, opts) {
   deliverWatch = fireFn || (() => {});
   aliveFn = (opts && typeof opts.isAlive === 'function') ? opts.isAlive : isAlive;
+  _io = (opts && opts.watchIO) ? opts.watchIO : REAL_IO;   // injectable fs-watch/timer seam (tests); real node:fs otherwise
   for (const id of [...wruntime.keys()]) disarmWatch(id);
   loadWatches();
   watchersStarted = true;

@@ -26,7 +26,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs, makeCronGate } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -1168,7 +1168,20 @@ function deliverReminder(r) {
 // bypass, --strict-mcp-config, an explicit tool allowlist, cwd VAULT, the prompt wrapped so anything the job
 // reads is UNTRUSTED). Capture its single result, then notifyOwner() unless deliver==='silent'. SINGLE-FLIGHT
 // so overlapping schedules can't stack brain runs. The brain creates these jobs itself via POST /cron.
-let cronRunning = false; // single-flight guard across ALL cron jobs (overlapping schedules don't fork-bomb)
+// Single-flight across ALL cron/watch/webhook fires (overlapping schedules don't fork-bomb), now with a BOUNDED
+// pending FIFO behind it: a due fire that arrives while a prior run is in flight is QUEUED (with its already-
+// resolved {job, opts}) instead of DROPPED, then drained EXACTLY ONE at a time on completion — so a one-shot cron,
+// a one-shot watch fire, or an already-202-acked webhook 'ask' is never silently lost. Only an overflow past the
+// cap drops, and it drops LOUDLY. The busy/enqueue/drain policy is the pure, unit-tested lib.makeCronGate.
+const CRON_PENDING_MAX = 32;
+const cronGate = makeCronGate(CRON_PENDING_MAX);
+// Completion: release the flight and, if a fire was deferred while busy, drain EXACTLY ONE and re-dispatch it
+// through the normal deliverCron gate (the flight is free again, so it acquires cleanly). setImmediate keeps the
+// drain off the completing job's stack and lets a fresher tick race in harmlessly (it just re-queues).
+function releaseCron() {
+  const next = cronGate.release();
+  if (next) setImmediate(() => deliverCron(next.job, next.opts));
+}
 // Read/fetch-only by default: a cron job reads UNTRUSTED external data (web/email/calendar), so an injected
 // page must not be able to make it write files. Long write-tasks belong in a /job, not the cron sandbox.
 const CRON_ALLOWED_TOOLS = 'Read,Grep,Glob,WebFetch,WebSearch';
@@ -1196,9 +1209,10 @@ function postReply(url, auth, text) {
     req.end(body);
   } catch {}
 }
-// Shared post-completion: release the single-flight, deliver the result, then fire the chained `then` (if any).
+// Shared post-completion: release the single-flight (draining one deferred fire, if any), deliver the result, then
+// fire the chained `then` (if any). releaseCron runs FIRST so the chained step sees a free flight, exactly as before.
 function afterCron(job, txt, fireEv) {
-  cronRunning = false;
+  releaseCron();
   logEvent({ ev: fireEv, id: job.id, kind: job.kind || 'agent', deliver: job.deliver, relay: !!job.replyUrl, out: (txt || '').length });
   if (job.replyUrl) postReply(job.replyUrl, job.replyAuth, txt);                                   // relay → the channel (owner-set URL)
   else if (job.deliver !== 'silent' && txt) notifyOwner(txt.slice(0, 350), { speak: job.deliver !== 'push' }); // else → the owner
@@ -1206,7 +1220,7 @@ function afterCron(job, txt, fireEv) {
 }
 // Chaining: a job's normalized `then` fires ONCE on completion, with the parent's output threaded in (as
 // UNTRUSTED data for an agent step, or $URFAEL_PREV for a script step). Depth-bounded so a chain can't run away;
-// a chained script step still needs the owner's script opt-in. Sequential (cronRunning was just released).
+// a chained script step still needs the owner's script opt-in. Sequential (the single-flight was just released).
 // Does any step in a (raw or normalized) job's then-chain run a shell? Used to gate the whole chain on the
 // owner's script opt-in — so a single `then:{kind:'script'}` deep in a chain can't sneak a shell past the gate.
 function specHasScript(s, depth = 0) {
@@ -1228,10 +1242,12 @@ function fireChain(job, prevResult) {
 // untrusted envelope; allowedTools = a tighter allowlist; ev = the log event. Defaults reproduce the original.
 function deliverCron(job, opts) {
   // off-switch disarms ALL script execution, not just creation/chaining: a persisted (boot-re-armed) script cron AND
-  // POST /cron/:id/run for one both flow through here. Gate BEFORE the single-flight so a blocked script never touches cronRunning.
+  // POST /cron/:id/run for one both flow through here. Gate BEFORE the single-flight so a blocked script never touches it.
   if (job && job.kind === 'script' && !SCRIPT_CRON_ON) { logEvent({ ev: 'cron_blocked', id: job.id, why: 'script_off' }); return; }
-  if (cronRunning) { logEvent({ ev: 'cron_skip', id: job.id, why: 'busy' }); return; } // a prior run is still going
-  cronRunning = true;
+  // single-flight + bounded FIFO: run now, DEFER (a prior run is still going — queued, NOT lost), or drop at cap (loud).
+  const admit = cronGate.admit({ job, opts });
+  if (admit === 'dropped') { logEvent({ ev: 'cron_drop', id: job && job.id, why: 'queue_full', cap: CRON_PENDING_MAX }); return; } // bounded, never silent
+  if (admit === 'queued') { logEvent({ ev: 'cron_queue', id: job && job.id, depth: cronGate.depth() }); return; } // drained on the current run's completion
   if (job.kind === 'script') return runScriptCron(job);
   // per-run random delimiter so anything the job fetches/reads can't forge or close the untrusted envelope.
   const nonce = crypto.randomBytes(9).toString('hex');
@@ -1257,18 +1273,19 @@ function deliverCron(job, opts) {
   let proc;
   try {
     proc = spawn(CLAUDE_BIN, args, { cwd: VAULT, env, stdio: ['ignore', 'pipe', 'ignore'], detached: true });
-  } catch (e) { logEvent({ ev: 'cron_error', id: job.id, err: String((e && e.message) || e) }); cronRunning = false; return; }
+  } catch (e) { logEvent({ ev: 'cron_error', id: job.id, err: String((e && e.message) || e) }); done = true; releaseCron(); return; }
   proc.stdout.on('data', (d) => { out += d.toString(); if (out.length > 5000000) out = out.slice(-5000000); });
-  // 5min watchdog. It must RESET the single-flight flag itself, not just kill — if the child never emits 'exit'
+  // 5min watchdog. It must RELEASE the single-flight itself, not just kill — if the child never emits 'exit'
   // (zombie / detached weirdness), relying on the exit handler alone would wedge cron forever (no job ever runs again).
-  const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} if (!done) { done = true; cronRunning = false; logEvent({ ev: 'cron_timeout', id: job.id }); } }, 300000);
+  const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} if (!done) { done = true; logEvent({ ev: 'cron_timeout', id: job.id }); releaseCron(); } }, 300000);
   proc.on('exit', () => {
     clearTimeout(timer);
     let txt = '';
     try { const j = JSON.parse(out); txt = typeof j.result === 'string' ? j.result : ''; } catch {}
     finish(txt);
   });
-  proc.on('error', (e) => { clearTimeout(timer); logEvent({ ev: 'cron_error', id: job.id, err: String((e && e.message) || e) }); cronRunning = false; });
+  // guard with `done` so an 'error' that follows (or precedes) 'exit' can't release the flight TWICE and over-drain the queue.
+  proc.on('error', (e) => { clearTimeout(timer); if (done) return; done = true; logEvent({ ev: 'cron_error', id: job.id, err: String((e && e.message) || e) }); releaseCron(); });
   proc.unref();
 }
 
@@ -1294,7 +1311,7 @@ function runShell(script, extraEnv, opts) {
     if (opts.detached) proc.unref();
   });
 }
-// No-LLM scheduled step: run the owner-authored shell command (cronRunning already held). Delivers + chains via
+// No-LLM scheduled step: run the owner-authored shell command (the single-flight already held). Delivers + chains via
 // afterCron. Gated by SCRIPT_CRON_ON at the /cron boundary, so this only runs commands the owner explicitly enabled.
 function runScriptCron(job) {
   runShell(job.script, { URFAEL_PREV: String(job.prevResult || '').slice(0, 8000) }, { detached: true })
