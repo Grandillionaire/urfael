@@ -2,6 +2,7 @@
 // Pure, unit-testable logic shared by main.js and the test suite.
 // (Extracted so the race-prone bits — routing + sentence segmentation — are actually covered.)
 const crypto = require('crypto');
+const path = require('path');
 
 // Model tiers, as Claude Code aliases ('sonnet'/'opus') so they always resolve to the latest
 // model your plan supports — no pinned IDs to rot, no source edits when Anthropic ships a new one.
@@ -549,6 +550,60 @@ function normalizeCron(spec, now = Date.now()) {
   return { at, repeat, ...action };                                  // { at, repeat, kind, deliver, prompt|script, then? }
 }
 
+// ---- LOCAL EVENT TRIGGERS ("watches") -----------------------------------------------------------------
+// A watch wakes the BRAIN when a LOCAL event happens: a file changes (on:'file'), a directory subtree sees
+// activity (on:'glob'), or a watched process id exits (on:'pid'). Unlike cron (time math) and reminders, a watch
+// is EVENT/POLL-armed, so it reuses the store + tick + deliver plumbing, never nextOccurrence. It NEVER spawns a
+// command: process-exit is a liveness POLL of an EXISTING pid, not a child process. The WHAT reuses
+// normalizeJobAction, but ONLY the agent (prompt) form — a watch can never itself run a shell. A chained `then`
+// step is still representable and is gated by the owner's script opt-in at fire time (like cron). Fail-closed +
+// bounds-clamped: a hostile/buggy caller can't watch a NUL-byte path, an oversized target, a non-integer/negative
+// pid, or spin a sub-200ms debounce loop. Returns null on anything unusable (the endpoint 400s).
+const WATCH_ON = ['file', 'glob', 'pid'];
+function normalizeWatch(spec) {
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return null;
+  const on = WATCH_ON.includes(spec.on) ? spec.on : null;
+  if (!on) return null;                                              // unknown event kind → refuse (there is no on:'command')
+  const action = normalizeJobAction(spec);
+  if (!action || action.kind === 'script') return null;             // a watch wakes the brain to LOOK; it never spawns a shell itself
+  let target;
+  if (on === 'pid') {
+    const n = Number(spec.target);
+    if (!Number.isInteger(n) || n <= 0 || n > 0x7fffffff) return null; // a real, plausible pid only
+    target = n;
+  } else {
+    const raw = typeof spec.target === 'string' ? spec.target : '';
+    if (!raw || raw.length > 4096 || raw.indexOf('\0') >= 0) return null; // no empty/oversized path, no NUL truncation
+    target = path.resolve(raw);
+  }
+  let debounceMs = Number(spec.debounceMs);
+  if (!Number.isFinite(debounceMs)) debounceMs = 1000;
+  debounceMs = Math.min(Math.max(Math.round(debounceMs), 200), 60000); // clamp 200ms..60s: no tight spin loop
+  const repeat = spec.repeat === true;                                // default one-shot (fire once, then disarm)
+  const out = { kind: 'watch', on, target, debounceMs, repeat, deliver: action.deliver, prompt: action.prompt };
+  if (action.then) out.then = action.then;                            // a chained follow-up (a script step stays opt-in gated at fire)
+  return out;
+}
+
+// Build the (job, opts) a fired watch hands to deliverCron. This is the NO-EGRESS boundary for local event
+// triggers: opts pins allowedTools to Read/Grep/Glob — NEVER the default cron toolset (which carries WebFetch/
+// WebSearch) — so a local file change or process exit can wake the brain to LOOK, never to reach the network or a
+// shell. The changed path / exited pid rides in as content and is wrapped by deliverCron's UNTRUSTED nonce
+// envelope (a filename is attacker-influenceable). Pure + fail-closed; the single source of truth for the fire.
+function watchFireArgs(w, meta) {
+  w = w || {}; meta = meta || {};
+  const what = w.on === 'pid'
+    ? ('watched process ' + (meta.exitPid != null ? meta.exitPid : w.target) + ' exited')
+    : ('watched path changed: ' + String(meta.path != null ? meta.path : w.target).slice(0, 1024));
+  const intro = '[Local event trigger fired — the user is NOT speaking and will not see this turn. A watch you ' +
+    'set up detected a local event. Do NOT reply conversationally; do the task and end with a short plain-text ' +
+    'result (no markdown, no [SPOKEN] tags).]';
+  const prompt = (typeof w.prompt === 'string' && w.prompt.trim() ? w.prompt.trim() + '\n\n' : '') + 'Event: ' + what;
+  const job = { id: 'watch:' + String(w.id || 'x'), prompt, deliver: w.deliver };
+  if (w.then) job.then = w.then;
+  return { job, opts: { intro, ev: 'watch_fire', allowedTools: 'Read,Grep,Glob' } };
+}
+
 // ---- WEBHOOK EVENT TRIGGERS ---------------------------------------------------------------------------
 // An external system POSTs to a loopback-only receiver (app/hooks.js) → the daemon runs a hook's action.
 // Two actions: 'notify' (push the payload to the owner, no LLM) and 'ask' (run the brain in a READ-ONLY,
@@ -967,4 +1022,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };

@@ -26,7 +26,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -1408,6 +1408,18 @@ function fireHook(hook, payload) {
   deliverCron(job, { intro, ev: 'hook_fire', allowedTools: 'Read,Grep,Glob' });
 }
 
+// ---- local event triggers ("watches"): a file change / glob / process-exit wakes the brain ----------
+// scheduler.js arms the watchers (fs.watch + debounce for file/glob, a pid liveness poll on the 20s tick) and
+// calls this on a fire. It reuses deliverCron's SAME detached, untrusted-framed sandbox as a webhook 'ask', and
+// pins it NO-EGRESS (Read/Grep/Glob only, via lib.watchFireArgs) so a local file change or process exit can wake
+// the brain to LOOK, never to reach the network or a shell. The changed path / exited pid is attacker-
+// influenceable, so it rides inside the nonce envelope. Watch creation is owner-socket-only (no in-turn agent
+// tool), mirroring how the agent cron tool refuses to arm a shell schedule.
+function deliverWatch(w, meta) {
+  const { job, opts } = watchFireArgs(w, meta);
+  deliverCron(job, opts);   // opts.allowedTools = 'Read,Grep,Glob' — the no-egress fortress path, identical to fireHook
+}
+
 // ---- heartbeat: periodic proactive check (opt-in via URFAEL_HEARTBEAT_MINS) ----------------------
 // Every N minutes, ask the warm session to run the owner-authored HEARTBEAT.md checklist in the vault.
 // Contract (OpenClaw-compatible): reply exactly HEARTBEAT_OK -> silence; anything else -> the owner is
@@ -2173,7 +2185,11 @@ const server = http.createServer(async (req, res) => {
     req.on('close', () => { closed = true; try { unsub(); } catch {} });
   } else if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, warm: [...sessions.keys()] }));
+    // `bound` is the daemon's AUTHORITATIVE self-report of what it listens on: server.address() returns the unix
+    // socket PATH (a string) when bound to a pipe, or an { port } object when bound to TCP. This is the ground
+    // truth the fortress self-audit reads to prove principle #1 (no inbound port), cross-platform and in-process.
+    res.end(JSON.stringify({ ok: true, warm: [...sessions.keys()], pid: process.pid,
+      bound: ((a) => typeof a === 'string' ? { unix: a } : (a ? { tcpPort: a.port } : null))(server.address()) }));
   } else if (req.url === '/vitals') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(vitals()));
@@ -2424,6 +2440,29 @@ const server = http.createServer(async (req, res) => {
     logEvent({ ev: 'cron_run_now', id: m[1] });
     deliverCron(job); // single-flight inside deliverCron; returns immediately (detached)
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true }));
+  } else if (req.method === 'POST' && req.url === '/watches') {
+    // arm a LOCAL EVENT TRIGGER: {on:'file'|'glob'|'pid', target, prompt, deliver?, debounceMs?, repeat?, then?}.
+    // A watch wakes the brain NO-EGRESS when a file changes / a directory subtree sees activity / a watched pid
+    // exits. Owner-socket-only (the SAME 0600 trust boundary as /cron) — there is deliberately NO in-turn agent
+    // tool, so a poisoned local turn can't arm a watcher. normalizeWatch refuses a shell action outright; a chained
+    // script `then` still needs the owner's script opt-in (gated here too, defense-in-depth). Note: NOT /watch —
+    // that exact path is the SSE activity stream; this is the plural CRUD surface.
+    const body = await readBody(req);
+    let spec = {}; try { spec = JSON.parse(body); } catch {}
+    if (specHasScript(spec) && !SCRIPT_CRON_ON) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'a chained script step requires URFAEL_SCRIPT_CRON=1' })); return; }
+    const w = scheduler.addWatch(spec);
+    if (!w) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'need {on:file|glob|pid, target, prompt, deliver?, debounceMs?(200..60000), repeat?, then?} (a shell/command watch is not allowed)' })); return; }
+    logEvent({ ev: 'watch_create', id: w.id, on: w.on, repeat: !!w.repeat, deliver: w.deliver, chained: !!w.then });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ id: w.id, on: w.on, target: w.target, repeat: !!w.repeat, deliver: w.deliver, chained: !!w.then }));
+  } else if (req.url === '/watches') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(scheduler.listWatch().map((w) => ({ id: w.id, on: w.on, target: w.target, prompt: w.prompt, repeat: !!w.repeat, deliver: w.deliver, chained: !!w.then, createdAt: w.createdAt }))));
+  } else if (req.method === 'POST' && req.url.startsWith('/watches/')) {
+    const m = req.url.match(/^\/watches\/([A-Za-z0-9-]{4,64})\/cancel$/); // id validated; never interpolated into a shell
+    if (!m) { res.writeHead(404); res.end(); return; }
+    const ok = scheduler.cancelWatch(m[1]); logEvent({ ev: 'watch_cancel', id: m[1], ok });
+    res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok }));
   } else if (req.method === 'POST' && req.url === '/notify') {
     // owner-socket-only one-way push to the owner — used by EVENT TRIGGERS (e.g. an inbound email matching a rule).
     // The text may summarize UNTRUSTED content; notifyOwner sanitizes it (strips \ " and a leading '-'). Never the brain.
@@ -2528,6 +2567,7 @@ function listen() {
     brain.warmUp();
     scheduler.start(deliverReminder);
     scheduler.startCron(deliverCron); // re-arm persisted cron jobs; ticked in the same scheduler interval
+    scheduler.startWatchers(deliverWatch); // re-arm persisted local event triggers (file/glob fs.watch + pid poll)
     if (HB_MINS) { lastBeat = Date.now(); const t = setInterval(heartbeat, 60000); if (t.unref) t.unref(); } // first beat ~HB_MINS after boot
     if (CURATOR_DAYS) { const t = setInterval(curate, 30 * 60000); if (t.unref) t.unref(); } // every 30min the curator re-checks its N-day cadence + busy state
     // recall index: build/catch-up off the hot path (a first build over a huge archive shouldn't block serving),

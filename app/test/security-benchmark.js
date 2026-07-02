@@ -75,6 +75,10 @@ async function main() {
   check('daemon opens NO TCP port (nothing the LAN/internet can reach)', tcpListeners === '', 'lsof: 0 TCP listeners');
   const sockMode = (() => { try { return (fs.statSync(SOCK).mode & 0o777).toString(8); } catch { return '?'; } })();
   check('the socket is owner-only (0600)', sockMode === '600', 'mode ' + sockMode);
+  // REGRESSION: the attestation's no-inbound-port posture must be COMPUTED by the fortress verifier, never a
+  // hardcoded literal — an assert-without-verify is exactly the overclaim `urfael attest` is built to avoid.
+  const cliSrcNet = fs.readFileSync(path.join(APP, 'cli.js'), 'utf8');
+  check('the attest no-inbound-port posture is VERIFIED, not hardcoded true', !/noInboundPort:\s*true\b/.test(cliSrcNet) && /auditFortress\(/.test(cliSrcNet), 'cli.js computes it via fortress.auditFortress; no `noInboundPort: true` literal remains');
 
   // ── 2. AUTH-TOKEN LEAK / ONE-CLICK RCE ────────────────────────────────────
   attackClass('Auth-token leak → one-click RCE',
@@ -351,6 +355,31 @@ async function main() {
   check('a webhook "ask" action runs NO-EGRESS (Read/Grep/Glob — no WebFetch/Write/Bash)', /allowedTools: 'Read,Grep,Glob'/.test(daemonSrc) && /function fireHook/.test(daemonSrc), 'an attacker-controlled payload has no network/shell/write to abuse');
   check('the hook secret is stored HASHED, never in plaintext', /secretHash: hashHookSecret\(secret\)/.test(daemonSrc), 'sha256 in the registry; plaintext shown once at creation');
   check('an attacker-steered result can\'t arg-inject the notifier (leading "-" neutralized)', /clean\[0\] === '-'/.test(daemonSrc), 'a brain result starting with "-" is defanged before `say`/notify-send');
+  // LOCAL EVENT TRIGGERS (watches): a file-change / glob / process-exit can WAKE the brain, but only to LOOK. The
+  // fire reuses the no-egress fortress path (Read/Grep/Glob), a watch can never be armed to spawn a shell or reach
+  // the network, and creation is owner-socket-only (no in-turn agent tool) — a local event is not a shell or exfil.
+  const wfire = lib.watchFireArgs({ id: 'w1', on: 'file', target: '/tmp/x', prompt: 'inspect it', deliver: 'notify' }, { path: '/tmp/x/changed' });
+  check('a fired local watch wakes the brain NO-EGRESS (Read/Grep/Glob — never the cron WebFetch/WebSearch toolset)',
+    wfire.opts.allowedTools === 'Read,Grep,Glob' && !/WebFetch|WebSearch|Bash|Write|Edit/.test(wfire.opts.allowedTools)
+    && /function deliverWatch/.test(daemonSrc) && /const \{ job, opts \} = watchFireArgs/.test(daemonSrc)
+    && /scheduler\.startWatchers\(deliverWatch\)/.test(daemonSrc),
+    'a local file change or process exit can look, never fetch/exfil/shell');
+  check('a local file/exit trigger can NEVER be armed as a shell or egress turn (no on:command, no script action)',
+    lib.normalizeWatch({ on: 'command', target: 'x', prompt: 'p' }) === null
+    && lib.normalizeWatch({ on: 'file', target: '/x', kind: 'script', script: 'rm -rf ~' }) === null
+    && lib.normalizeWatch({ on: 'file', target: '/x', prompt: 'p' }).kind === 'watch',
+    'the only representable watch action is a no-egress brain look; a shell watcher is unrepresentable');
+  // live: watch CRUD is owner-socket-only (the same 0600 boundary as /cron); a command/script watch is refused end-to-end.
+  const wProbe = await sock('POST', '/watches', { on: 'file', target: path.join(os.homedir(), VDIR, 'watch-probe'), prompt: 'look' });
+  let wProbeId = ''; try { wProbeId = JSON.parse(wProbe.raw).id; } catch {}
+  const wListed = await sock('GET', '/watches');
+  const wBadCmd = await sock('POST', '/watches', { on: 'command', target: 'x', prompt: 'p' });
+  const wBadScript = await sock('POST', '/watches', { on: 'file', target: '/x', kind: 'script', script: 'id' });
+  const wCancelled = wProbeId ? await sock('POST', '/watches/' + wProbeId + '/cancel', {}) : { status: 0 };
+  check('local watch CRUD is owner-socket-only and fail-closed (a command/script watch is refused end-to-end)',
+    wProbe.status === 200 && !!wProbeId && new RegExp(wProbeId).test(wListed.raw)
+    && wBadCmd.status === 400 && (wBadScript.status === 400 || wBadScript.status === 403) && wCancelled.status === 200,
+    'create/list/cancel over the 0600 socket; on:command 400 (unrepresentable) and a script action refused by the shell-gate');
   // RELAY (the universal two-way channel): the reply destination is OWNER-SET at creation, never derived from the
   // inbound payload — so a prompt-injected message can't redirect Urfael's answer to an attacker. The outbound
   // auth token is never echoed back in the hook list.
