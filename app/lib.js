@@ -604,6 +604,28 @@ function watchFireArgs(w, meta) {
   return { job, opts: { intro, ev: 'watch_fire', allowedTools: 'Read,Grep,Glob' } };
 }
 
+// ---- ORPHAN-PROCESS REAPER (pure) --------------------------------------------------------------------
+// A long-lived helper process (the brain session, the local whisper-server) appends its pid to a newline
+// pid-file so a LATER run can SIGKILL an orphan the previous run leaked on crash / force-quit / SIGKILL.
+// This is the PURE half of that discipline (shared idiom with daemon.js cleanupOrphanBrains): parse the
+// pid-file text to plausible, de-duplicated pids, then — given a liveness probe — keep only the ones STILL
+// RUNNING, i.e. the orphans worth a signal. No fs and no signals here; the caller does the reading, the
+// killing, and the truncating. Pid-reuse stays bounded exactly the way the daemon bounds it: a recorded pid
+// is only ever reaped at startup / just before a fresh server is spawned (never mid-run), so the window in
+// which the OS could have handed the number to an unrelated process is a few milliseconds wide.
+function reapOrphanPids(text, isAlive) {
+  const seen = new Set(); const out = [];
+  for (const line of String(text == null ? '' : text).split('\n')) {
+    const pid = parseInt(line, 10);
+    if (!Number.isInteger(pid) || pid <= 0 || pid > 0x7fffffff) continue;  // a real, plausible pid only (mirrors normalizeWatch's pid guard)
+    if (seen.has(pid)) continue;                                           // de-dupe repeat spawns recorded in one session
+    seen.add(pid);
+    if (typeof isAlive === 'function') { let alive; try { alive = !!isAlive(pid); } catch { alive = false; } if (!alive) continue; } // fail-closed: an unprobeable pid is not ours to kill
+    out.push(pid);
+  }
+  return out;
+}
+
 // ---- WEBHOOK EVENT TRIGGERS ---------------------------------------------------------------------------
 // An external system POSTs to a loopback-only receiver (app/hooks.js) → the daemon runs a hook's action.
 // Two actions: 'notify' (push the payload to the owner, no LLM) and 'ask' (run the brain in a READ-ONLY,
@@ -1022,4 +1044,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, CHAIN_MAX, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
