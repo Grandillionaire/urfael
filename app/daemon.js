@@ -40,7 +40,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv: libScopedEnv, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs, makeCronGate } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv: libScopedEnv, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs, makeCronGate, makePidLedger } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -185,11 +185,20 @@ function verifyLatestSeal() {
   } catch {}
   return { ok: !!sigOk, reason: sigOk ? 'valid' : 'bad_signature', seq: last.seq, t: last.t, fp: last.fp, headStillInChain };
 }
-function recordBrainPid(pid) { try { fs.appendFileSync(BRAIN_PIDFILE, pid + '\n'); } catch {} }
-function cleanupOrphanBrains() {
-  try { for (const pid of fs.readFileSync(BRAIN_PIDFILE, 'utf8').split('\n').map((s) => parseInt(s, 10)).filter(Boolean)) { try { process.kill(pid, 'SIGKILL'); } catch {} } } catch {}
-  try { fs.writeFileSync(BRAIN_PIDFILE, ''); } catch {}
-}
+// Brain-session orphan reaper. A crash/force-quit/SIGKILL of the daemon leaks the detached `claude` child; a
+// later boot SIGKILLs it so the ledger never accumulates zombies. Records `pid:marker` (the pid's start-time)
+// and reaps only a pid that is STILL our process — alive AND its start-time marker still matches — so a pid the
+// OS recycled for an unrelated process is never killed. Same lib.makePidLedger main.js uses for whisper.pids.
+const brainLedger = makePidLedger({
+  read: (f) => fs.readFileSync(f, 'utf8'),
+  write: (f, s) => fs.writeFileSync(f, s),
+  append: (f, s) => fs.appendFileSync(f, s),
+  mkdir: () => fs.mkdirSync(JDIR, { recursive: true }),
+  kill: (pid) => process.kill(pid, 'SIGKILL'),
+  run: (cmd, args) => require('child_process').execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).toString(),
+}, BRAIN_PIDFILE);
+function recordBrainPid(pid) { brainLedger.record(pid); }
+function cleanupOrphanBrains() { brainLedger.reap(); }
 
 // concurrency + safety caps (defense against floods / fork-bombs over the owner-only socket)
 const inflightScoped = new Set(); // live remote one-shot procs

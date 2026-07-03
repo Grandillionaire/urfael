@@ -681,25 +681,74 @@ function watchFireArgs(w, meta) {
 }
 
 // ---- ORPHAN-PROCESS REAPER (pure) --------------------------------------------------------------------
-// A long-lived helper process (the brain session, the local whisper-server) appends its pid to a newline
-// pid-file so a LATER run can SIGKILL an orphan the previous run leaked on crash / force-quit / SIGKILL.
+// A long-lived helper process (the brain session, the local whisper-server) appends a `pid:marker` line to a
+// pid-file so a LATER run can SIGKILL an orphan the previous run leaked on crash / force-quit / SIGKILL. The
+// marker is the pid's OS start-time (see pidStartMarker), which the kernel CHANGES when it recycles the number
+// for a new process — so the reaper can tell "still our leaked server" from "a pid the OS handed to something
+// unrelated" and never kill a bystander on a PID-reuse collision.
 // This is the PURE half of that discipline (shared idiom with daemon.js cleanupOrphanBrains): parse the
-// pid-file text to plausible, de-duplicated pids, then — given a liveness probe — keep only the ones STILL
-// RUNNING, i.e. the orphans worth a signal. No fs and no signals here; the caller does the reading, the
-// killing, and the truncating. Pid-reuse stays bounded exactly the way the daemon bounds it: a recorded pid
-// is only ever reaped at startup / just before a fresh server is spawned (never mid-run), so the window in
-// which the OS could have handed the number to an unrelated process is a few milliseconds wide.
+// pid-file text to plausible, de-duplicated (pid, marker) pairs, then — given a probe — keep only the ones the
+// probe still vouches for. No fs and no signals here; the caller does the reading, the killing, and the
+// truncating. The probe is called (pid, marker): the marker is the empty string for a legacy pid-only line.
 function reapOrphanPids(text, isAlive) {
   const seen = new Set(); const out = [];
   for (const line of String(text == null ? '' : text).split('\n')) {
-    const pid = parseInt(line, 10);
+    const ci = line.indexOf(':');                                          // `pid:marker` — pid is everything before the FIRST colon (the marker, e.g. a `ps lstart`, may itself contain colons)
+    const pid = parseInt(ci >= 0 ? line.slice(0, ci) : line, 10);
     if (!Number.isInteger(pid) || pid <= 0 || pid > 0x7fffffff) continue;  // a real, plausible pid only (mirrors normalizeWatch's pid guard)
     if (seen.has(pid)) continue;                                           // de-dupe repeat spawns recorded in one session
     seen.add(pid);
-    if (typeof isAlive === 'function') { let alive; try { alive = !!isAlive(pid); } catch { alive = false; } if (!alive) continue; } // fail-closed: an unprobeable pid is not ours to kill
+    const marker = ci >= 0 ? line.slice(ci + 1).trim() : '';              // the recorded identity token ('' for a legacy pid-only line)
+    if (typeof isAlive === 'function') { let ok; try { ok = !!isAlive(pid, marker); } catch { ok = false; } if (!ok) continue; } // fail-closed: an unprobeable pid is not ours to kill
     out.push(pid);
   }
   return out;
+}
+
+// The current OS identity marker for a live pid — its start time as reported by `ps -o lstart=`. The kernel
+// assigns a fresh start time to every process, so (pid, start-time) is a stable identity that a recycled pid
+// can NOT forge: if the number is later reused, the new process reports a different start time. `run` is the
+// side-effecting probe (execFileSync-shaped: (cmd, args) -> stdout), injected so this stays unit-testable
+// without spawning a real `ps`. Returns '' for a dead/unreadable/implausible pid — callers treat '' as
+// "unverifiable" and, being fail-closed, never reap it.
+function pidStartMarker(pid, run) {
+  if (typeof run !== 'function') return '';
+  if (!Number.isInteger(pid) || pid <= 0 || pid > 0x7fffffff) return '';
+  let out; try { out = run('ps', ['-o', 'lstart=', '-p', String(pid)]); } catch { return ''; } // non-zero exit (no such pid) throws → ''
+  return String(out == null ? '' : out).replace(/\s+/g, ' ').trim();
+}
+
+// Build the reaper's per-pid predicate from a marker source (pid -> current marker). A recorded (pid, marker)
+// is STILL OURS to kill only when the pid is alive AND its CURRENT start-time marker EQUALS the one recorded at
+// spawn. A missing/empty recorded marker, an unreadable current marker (dead pid), or any mismatch (the pid was
+// recycled) all fail closed → not reaped. This is the single decision that keeps the reaper from SIGKILLing an
+// unrelated process that inherited a leaked pid.
+function stillOursProbe(currentMarker) {
+  return (pid, recorded) => {
+    if (recorded == null || recorded === '') return false;                // no marker recorded → cannot verify → do NOT kill
+    let now; try { now = currentMarker(pid); } catch { return false; }
+    return typeof now === 'string' && now !== '' && now === recorded;     // alive (ps returned something) AND still the same process instance
+  };
+}
+
+// The ONE shared pid-ledger both long-lived-helper reapers use (daemon.js brain.pids, main.js whisper.pids), so
+// the record + marker-verified reap logic lives in exactly one place. record(pid) appends `pid:marker`; reap()
+// SIGKILLs every recorded pid that is STILL OURS (alive + marker matches) then truncates the file. Every side
+// effect is injected via `io` (read/write/append/mkdir/kill/run) so the whole ledger is testable with in-memory
+// files and a fake `ps`, and so main.js (Electron) and daemon.js (Node) wire their own fs/kill without diverging.
+function makePidLedger(io, file) {
+  const marker = (pid) => pidStartMarker(pid, io.run);
+  return {
+    record(pid) {
+      if (!Number.isInteger(pid) || pid <= 0 || pid > 0x7fffffff) return;
+      try { if (typeof io.mkdir === 'function') io.mkdir(); } catch {}
+      try { io.append(file, pid + ':' + marker(pid) + '\n'); } catch {}   // capture identity NOW, while the child is provably alive
+    },
+    reap() {
+      try { for (const pid of reapOrphanPids(io.read(file), stillOursProbe(marker))) { try { io.kill(pid); } catch {} } } catch {}
+      try { io.write(file, ''); } catch {}                                // truncate: a reaped orphan must never be double-killed next run
+    },
+  };
 }
 
 // ---- WEBHOOK EVENT TRIGGERS ---------------------------------------------------------------------------
@@ -1120,4 +1169,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, CHAIN_MAX, makeCronGate, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };

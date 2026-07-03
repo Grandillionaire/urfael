@@ -471,17 +471,22 @@ ipcMain.handle('urfael:stt', async (_e, buf) => voice.transcribe(Buffer.from(buf
 let whisperProc = null, whisperStopped = false, whisperRestarts = 0;
 function whisperBin() { for (const p of ['/opt/homebrew/bin/whisper-server', '/usr/local/bin/whisper-server', '/usr/bin/whisper-server']) { try { fs.accessSync(p); return p; } catch {} } return 'whisper-server'; } // Linux: whisper.cpp typically installs to /usr/bin or /usr/local/bin
 // Whisper-server orphan reaper — mirror of the brain's brain.pids discipline (daemon.js recordBrainPid /
-// cleanupOrphanBrains). The 168MB model server is a detached long-lived child; on any Electron crash / force-
-// quit / SIGKILL it would otherwise be orphaned forever, and only the OLDEST orphan owns STT port 8462, so a
-// fresh spawn silently fails to bind. So: record every spawned pid, and reap any still-alive recorded pid
-// (guard against pid-reuse the same way daemon.js does — reap only at boot / before a fresh spawn) then truncate.
+// cleanupOrphanBrains, now the SAME lib.makePidLedger). The 168MB model server is a detached long-lived child;
+// on any Electron crash / force-quit / SIGKILL it would otherwise be orphaned forever, and only the OLDEST
+// orphan owns STT port 8462, so a fresh spawn silently fails to bind. So: record every spawned pid WITH its
+// start-time marker, and reap any recorded pid that is STILL our process (alive AND marker matches) then
+// truncate — a pid the OS recycled for something unrelated no longer matches its marker and is left untouched.
 const WHISPER_PIDFILE = path.join(JDIR, 'whisper.pids');
-const whisperAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } }; // signal 0 tests existence without touching the process
-function recordWhisperPid(pid) { try { fs.mkdirSync(JDIR, { recursive: true }); fs.appendFileSync(WHISPER_PIDFILE, pid + '\n'); } catch {} }
-function cleanupOrphanWhispers() {
-  try { for (const pid of lib.reapOrphanPids(fs.readFileSync(WHISPER_PIDFILE, 'utf8'), whisperAlive)) { try { process.kill(pid, 'SIGKILL'); } catch {} } } catch {}
-  try { fs.writeFileSync(WHISPER_PIDFILE, ''); } catch {}
-}
+const whisperLedger = lib.makePidLedger({
+  read: (f) => fs.readFileSync(f, 'utf8'),
+  write: (f, s) => fs.writeFileSync(f, s),
+  append: (f, s) => fs.appendFileSync(f, s),
+  mkdir: () => fs.mkdirSync(JDIR, { recursive: true }),
+  kill: (pid) => process.kill(pid, 'SIGKILL'),
+  run: (cmd, args) => require('child_process').execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).toString(),
+}, WHISPER_PIDFILE);
+function recordWhisperPid(pid) { whisperLedger.record(pid); }
+function cleanupOrphanWhispers() { whisperLedger.reap(); }
 function startWhisper() {
   const cfg = readTtsEnv();
   if (cfg.sttProvider !== 'whispercpp') return;                                  // only the local-STT path needs the server
