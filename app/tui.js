@@ -21,6 +21,21 @@ const dc = require('./daemon-client');   // shared unix-socket client (request +
 
 const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
 
+// ── io seam: the terminal, the wall clock, the animation timer, the daemon transport + history sink, all behind
+// ONE injectable object. run() uses REAL_IO (the default), so live behaviour is byte-for-byte unchanged; a test
+// swaps in a fake (a stdout that captures writes, a fake clock, a fake timer, a fake /ask stream) via
+// _internals.harness. This is what makes the COMPOSED event loop — key dispatch + the animation tick + a streamed
+// turn — drivable head-less, so a caretFor-style ReferenceError in the tick can no longer ship green.
+const REAL_IO = {
+  out: process.stdout,
+  now: () => Date.now(),
+  timers: { set: (fn, ms) => setInterval(fn, ms), clear: (t) => { if (t) clearInterval(t); } },
+  request: (method, p, body, opts) => dc.request(method, p, body, opts),
+  streamAsk: (text, handlers, opts) => dc.streamAsk(text, handlers, opts),
+  persistHistory: (text) => hist.persist(text),
+};
+let io = REAL_IO;
+
 const RST = '\x1b[0m';
 const ALT_ON = '\x1b[?1049h', ALT_OFF = '\x1b[?1049l';
 const CUR_HIDE = '\x1b[?25l', CUR_SHOW = '\x1b[?25h';
@@ -65,7 +80,7 @@ function clipboard() {
 
 function req(method, p, body) {
   // parse the JSON reply, else fall back to the raw string; a socket error/timeout REJECTS (Error('timeout')).
-  return dc.request(method, p, body, { socketPath: SOCK, timeoutMs: 8000 }).then((b) => { try { return JSON.parse(b); } catch { return b; } });
+  return io.request(method, p, body, { socketPath: SOCK, timeoutMs: 8000 }).then((b) => { try { return JSON.parse(b); } catch { return b; } });
 }
 
 // ---- transcript model: a flat list of {who, text}; 'sys' rows carry footers/notices ----
@@ -97,7 +112,7 @@ let toolIdx = -1;          // index of the collapsed tool row for this turn
 function add(who, text) { lines.push({ who, text: sanitize(text) }); }
 
 // ---- the render: pure compose() of the model → flicker-free diff flush() ----
-function geom() { return { cols: Math.max(20, process.stdout.columns || 80), rows: Math.max(8, process.stdout.rows || 24) }; }
+function geom() { return { cols: Math.max(20, io.out.columns || 80), rows: Math.max(8, io.out.rows || 24) }; }
 function promptMark() { const T = cfg.theme; return inflight ? T.dim + '… ' + T.RST : T.accent + '> ' + T.RST; }
 function statusLine() {
   const T = cfg.theme;
@@ -141,8 +156,8 @@ function render() {
     if (picker) menu = buildPicker(picker, T);
     else { const sl = slash.resolve(input, slashSel); if (sl.active) menu = buildMenu(sl, T); }
   }
-  const frame = rend.compose({ theme: T, cfg, vitals, lines: all, worker: workerLine(g, Date.now()), statusText: statusLine(), inputLines: ib.lines, scroll, menu }, g);
-  rend.flush(frame, ib.caretCol, g, process.stdout);
+  const frame = rend.compose({ theme: T, cfg, vitals, lines: all, worker: workerLine(g, io.now()), statusText: statusLine(), inputLines: ib.lines, scroll, menu }, g);
+  rend.flush(frame, ib.caretCol, g, io.out);
 }
 
 // ---- the /command typeahead: a palette that floats above the prompt (derived from slash.COMMANDS) ----
@@ -174,7 +189,7 @@ function buildPicker(p, T) {
   if (!view.items.length) return [head, T.dim + '  no match  ·  Esc to cancel' + T.RST];
   const labelOf = (it) => (it.glyph ? it.glyph + '  ' : '') + (it.label || it.value);
   const W = Math.max(...view.items.map((it) => visw(labelOf(it))));
-  const now = Date.now();
+  const now = io.now();
   const rows = view.items.map((it, i) => {
     const on = i === view.sel, label = labelOf(it);
     const cur = it.current ? ' (current)' : '';
@@ -338,7 +353,7 @@ function openAnimPicker() {
   const blurb = { oracle: 'a turning rune and word (default)', rune: 'cycling runes', ember: 'a glowing ember', braille: 'a braille spinner', scry: 'a scrying sweep', shimmer: 'a soft shimmer' };
   const all = theme.ANIM_NAMES.map((n) => ({ value: n, label: n[0].toUpperCase() + n.slice(1), desc: blurb[n] || '', current: n === cfg.anim }));
   const original = cfg.anim;
-  previewT0 = Date.now();
+  previewT0 = io.now();
   picker = {
     title: 'Worker animation', hint: '↑↓ choose · Enter keep · Esc cancel · ←live preview', all, query: '',
     sel: Math.max(0, all.findIndex((it) => it.current)), live: true,
@@ -410,9 +425,9 @@ function tickWorker() {
   // wrapped: a bad frame is simply skipped and the next tick tries again.
   try {
     if (!inflight || !cfg) return;
-    const g = geom(), w = workerLine(g, Date.now());
+    const g = geom(), w = workerLine(g, io.now());
     if (w == null) return;
-    rend.renderWorkerOnly(rend.clipPad(w, g.cols, cfg.theme.RST), rend.layout(g, cfg).workerRow, caretFor(g), process.stdout);
+    rend.renderWorkerOnly(rend.clipPad(w, g.cols, cfg.theme.RST), rend.layout(g, cfg).workerRow, caretFor(g), io.out);
   } catch (e) { debugLog('tickWorker', e); }
 }
 // debugLog: append a bounded diagnostic line to ~/.claude/urfael/tui-debug.log (only ONCE per distinct message, so a
@@ -429,25 +444,25 @@ function debugLog(where, e) {
 // ---- streaming a turn: POST /ask NDJSON, render delta/tool/done live ----
 function sendTurn(text) {
   if (inflight) return;
-  history = hist.append(history, text); hist.persist(text); histIdx = -1;
+  history = hist.append(history, text); io.persistHistory(text); histIdx = -1;
   add('you', text);
   scroll = 0; inflight = true;
-  turnT0 = Date.now(); lastTool = ''; usageTokens = null; answerIdx = -1; toolIdx = -1;
-  animTimer = anim.startWorker(cfg, tickWorker);
+  turnT0 = io.now(); lastTool = ''; usageTokens = null; answerIdx = -1; toolIdx = -1;
+  animTimer = anim.startWorker(cfg, tickWorker, io.timers);
   render();
 
   let sawDelta = false;
   const ensureAnswer = () => { if (answerIdx < 0) { add('urfael', ''); answerIdx = lines.length - 1; } };
   const finish = (suffix) => {
     if (!inflight) return;
-    inflight = false; streamReq = null; animTimer = anim.stopWorker(animTimer);
+    inflight = false; streamReq = null; animTimer = anim.stopWorker(animTimer, io.timers);
     if (answerIdx < 0) add('urfael', (suffix && suffix.trim()) || '(no reply)');
     else { if (suffix) lines[answerIdx].text = sanitize(lines[answerIdx].text + suffix); if (!lines[answerIdx].text) lines[answerIdx].text = '(no reply)'; }
     render();
   };
 
   // ./daemon-client frames + routes the /ask NDJSON stream; the per-event + per-phase bodies below are the TUI's own.
-  streamReq = dc.streamAsk(text, {
+  streamReq = io.streamAsk(text, {
     onTool: (e) => {
       if (e.tool === lastTool) return;
       lastTool = e.tool;
@@ -461,7 +476,7 @@ function sendTurn(text) {
       if (!sawDelta && finalText) lines[answerIdx].text = sanitize(finalText);
       if (!lines[answerIdx].text) lines[answerIdx].text = e.aborted ? '(stopped)' : '(no reply)';
       usageTokens = (e.usage && (e.usage.output_tokens || 0)) || null;       // authoritative; no '~'
-      inflight = false; streamReq = null; animTimer = anim.stopWorker(animTimer);
+      inflight = false; streamReq = null; animTimer = anim.stopWorker(animTimer, io.timers);
       const secs = e.ms ? (e.ms / 1000).toFixed(1) + 's' : '';
       const tok = usageTokens != null ? anim.fmtTok(usageTokens) + ' tok' : '';
       const stamp = cfg.timestamps ? ' · ' + new Date().toTimeString().slice(0, 5) : '';
@@ -503,7 +518,7 @@ function refreshVitals() { req('GET', '/vitals').then((v) => { if (v && typeof v
 let cleaned = false;
 function cleanup() {
   if (cleaned) return; cleaned = true;
-  animTimer = anim.stopWorker(animTimer);                 // stop the worker BEFORE we tear down the screen
+  animTimer = anim.stopWorker(animTimer, io.timers);      // stop the worker BEFORE we tear down the screen
   try { if (process.stdin.isTTY) process.stdin.setRawMode(false); } catch {}
   try { process.stdin.pause(); } catch {}
   try { process.stdout.write(RST + CUR_SHOW + MOUSE_OFF + PASTE_OFF + ALT_OFF); } catch {}
@@ -572,8 +587,8 @@ function onKey(str, key) {
 
   if (key.name === 'up' && (key.shift || key.meta)) { scroll += 1; render(); return; }
   if (key.name === 'down' && (key.shift || key.meta)) { scroll = Math.max(0, scroll - 1); render(); return; }
-  if (key.name === 'pageup') { scroll += Math.max(1, (process.stdout.rows || 24) - 3); render(); return; }
-  if (key.name === 'pagedown') { scroll = Math.max(0, scroll - Math.max(1, (process.stdout.rows || 24) - 3)); render(); return; }
+  if (key.name === 'pageup') { scroll += Math.max(1, (io.out.rows || 24) - 3); render(); return; }
+  if (key.name === 'pagedown') { scroll = Math.max(0, scroll - Math.max(1, (io.out.rows || 24) - 3)); render(); return; }
   if (key.name === 'home') { scroll = 1e9; render(); return; }
   if (key.name === 'end') { scroll = 0; render(); return; }
 
@@ -584,6 +599,7 @@ function onKey(str, key) {
 }
 
 function run() {
+  io = REAL_IO;                                            // the thin real wrapper: drive the composed loop against the actual TTY/clock/timers/daemon
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     process.stderr.write('urfael tui needs an interactive terminal (TTY). Use `urfael "..."` for one-shot questions.\n');
     process.exit(1);
@@ -619,6 +635,70 @@ function run() {
   { const t = setInterval(refreshVitals, 3000); if (t.unref) t.unref(); }
 }
 
-module.exports = { run, _internals: { buildPicker, buildMenu, sanitize, dropLastGrapheme } };
+// _resetState(o): return the module-level cockpit state to a clean, just-opened baseline (what run() does after
+// the TTY guard, minus the real stdin/stdout/signal wiring). Used ONLY by harness() below so a head-less test can
+// drive the SAME onKey/tickWorker/sendTurn the real cockpit uses, against injected io. Never called in production.
+function _resetState(o) {
+  o = o || {};
+  lines.length = 0; scroll = 0; input = ''; slashSel = 0;
+  picker = null; if (pickerTimer) { try { clearInterval(pickerTimer); } catch {} pickerTimer = null; }
+  history = o.history || []; histIdx = -1; histDraft = '';
+  pasting = false; inflight = false; inMouse = false;
+  vitals = { model: '', turnsToday: 0, warm: [] };
+  streamReq = null; animTimer = null;
+  cfg = o.cfg || null; baseEnv = o.baseEnv || {};
+  previewT0 = 0; turnT0 = 0; lastTool = ''; usageTokens = null; answerIdx = -1; toolIdx = -1;
+  cleaned = false;
+}
+
+// harness(opts): open the composed cockpit against a FAKE io — a stdout that captures every write, a fake clock,
+// a fake animation timer that records the tick fn, a fake /ask stream whose handlers the caller fires, and a
+// history sink that never touches disk. Returns a driver so a test can play a full turn (open → keystrokes →
+// animation ticks → streamed deltas → done) through the REAL onKey/tickWorker/sendTurn and assert on the render.
+// This is the seam that catches a caretFor-style undefined reference in the tick: if it throws, the worker row is
+// never painted, so the captured writes never grow. Not shipped behaviour — a test-only entry on _internals.
+function harness(opts) {
+  opts = opts || {};
+  const writes = [];
+  const fakeOut = { columns: opts.cols || 80, rows: opts.rows || 24, write(s) { writes.push(String(s)); return true; }, on() { return this; } };
+  let clock = opts.now != null ? opts.now : 100000;
+  let tick = null;                                         // the fn anim.startWorker hands the fake timer (== tickWorker)
+  const timerHandle = { unref() {} };
+  const streams = [], requests = [];
+  const fakeIo = {
+    out: fakeOut,
+    now: () => clock,
+    timers: { set(fn) { tick = fn; return timerHandle; }, clear() { tick = null; } },
+    // reject by default so refreshVitals' async .then(render) never fires (it has a .catch) — otherwise a microtask
+    // resolving AFTER restore() would render through the REAL io and leak escape codes to the live terminal.
+    request(method, p, body) { requests.push({ method, p, body }); return ('reply' in opts) ? Promise.resolve(opts.reply) : Promise.reject(new Error('harness: daemon offline')); },
+    streamAsk(text, handlers, o) { const rec = { text, handlers, opts: o, destroyed: false, destroy() { this.destroyed = true; } }; streams.push(rec); return rec; },
+    persistHistory() {},                                  // never write the owner's real history file during a test
+  };
+  const prev = io;
+  io = fakeIo;
+  rend.resetFrame();
+  _resetState({ cfg: opts.cfg, baseEnv: opts.baseEnv, history: opts.history });
+  const H = {
+    io: fakeIo, writes, streams, requests,
+    dump: () => writes.join(''),
+    now: () => clock,
+    advance(ms) { clock += (ms || 0); return H; },
+    open() { add('sys', 'Urfael · headless harness'); render(); return H; },
+    key(str, key) { onKey(str, key); return H; },
+    type(text) { for (const ch of String(text)) onKey(ch, { name: ch, sequence: ch }); return H; },
+    enter() { onKey('\r', { name: 'return' }); return H; },
+    tick(n) { for (let i = 0; i < (n == null ? 1 : n); i++) if (tick) tick(); return H; },
+    hasTick: () => !!tick,
+    render() { render(); return H; },
+    stream: () => streams[streams.length - 1],
+    fire(kind, ev) { const s = streams[streams.length - 1], cb = s && s.handlers && s.handlers[kind]; if (cb) cb(ev || {}); return H; },
+    state: () => ({ inflight, input, scroll, answerIdx, toolIdx, lines: lines.map((l) => ({ who: l.who, text: l.text })) }),
+    restore() { io = prev; return H; },
+  };
+  return H;
+}
+
+module.exports = { run, _internals: { buildPicker, buildMenu, sanitize, dropLastGrapheme, harness } };
 
 if (require.main === module) run();

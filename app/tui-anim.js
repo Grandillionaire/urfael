@@ -102,12 +102,15 @@ function composeWorker(cfg, theme, st, cols, now) {
 
 // the tick: a single unref'd interval that asks the caller to repaint ONLY the worker row. In
 // reduce-motion mode it's a slow 1s clock just to advance the elapsed seconds (no fps spin).
-function startWorker(cfg, repaintWorker) {
-  const t = setInterval(repaintWorker, cfg.reduceMotion ? 1000 : cfg.frameMs);
-  if (t.unref) t.unref();
+// `timers` is an optional { set, clear } seam (defaults to the real setInterval/clearInterval) so the tick
+// loop can be driven head-less in a test; passing nothing is byte-identical to the previous behaviour.
+function startWorker(cfg, repaintWorker, timers) {
+  const set = (timers && timers.set) || setInterval;
+  const t = set(repaintWorker, cfg.reduceMotion ? 1000 : cfg.frameMs);
+  if (t && t.unref) t.unref();
   return t;
 }
-function stopWorker(timer) { if (timer) clearInterval(timer); return null; }
+function stopWorker(timer, timers) { const clear = (timers && timers.clear) || clearInterval; if (timer) clear(timer); return null; }
 
 // previewGlyph(name, theme, t0, now): a LIVE-animating sample of one animation style, for the picker preview so the
 // owner sees exactly what each one looks like while choosing (not just a static blurb). Pure; wall-clock index, so
