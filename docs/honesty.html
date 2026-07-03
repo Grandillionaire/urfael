@@ -55,15 +55,15 @@
 
   <h2 class="solid">Solid, and verifiable yourself</h2>
   <ul class="solid-list">
-    <li><b>The security posture is a command, not a claim.</b> <code>npm run security</code> boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, landing on <b>10 of 10</b> attack classes across <b>99 of 99</b> checks. <code>npm run e2e</code> verifies every feature end-to-end against a live daemon, with <code>npm run fuzz</code> and <code>npm run redteam</code> on top.</li>
-    <li><b>774 unit tests</b>, several of them adversarial security regressions frozen from real findings, so a fixed hole cannot quietly reopen.</li>
+    <li><b>The security posture is a command, not a claim.</b> <code>npm run security</code> boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, landing on <b>10 of 10</b> attack classes across <b>101 of 101</b> checks. <code>npm run e2e</code> verifies every feature end-to-end against a live daemon, with <code>npm run fuzz</code> and <code>npm run redteam</code> on top.</li>
+    <li><b>801 unit tests</b>, several of them adversarial security regressions frozen from real findings, so a fixed hole cannot quietly reopen.</li>
     <li><b>The architecture is the moat.</b> No inbound network port (a <code>0600</code> unix socket only), fail-closed allowlists on every channel, read-only sandboxed remote turns, and a hard credential-deny boundary that holds even in Full mode.</li>
     <li><b>It can prove what it did.</b> A hash-chained Ledger of Record makes tampering detectable, and an ed25519 Sovereign Seal signs the chain head. Run <code>urfael attest</code> for one report a reviewer can keep.</li>
   </ul>
 
   <h2 class="light">Lightly tested, on purpose</h2>
   <ul class="light-list">
-    <li><b>The Matrix, Signal and WhatsApp bridges</b>, the <b>eight native webhook channels</b> (Mattermost, Google Chat, SMS, DingTalk, Home Assistant, BlueBubbles, Feishu, WeCom), <b>Discord voice channels</b>, and the <b>Android/Termux</b> host are code-complete and reviewed, their parsing, verification, and allowlist logic unit-tested and frozen as benchmark checks, but not yet certified against live accounts or a real device. Treat them that way.</li>
+    <li><b>The Matrix, Signal and WhatsApp bridges</b>, the <b>QQ, SimpleX and PSTN phone bridges</b>, the <b>eight native webhook channels</b> (Mattermost, Google Chat, SMS, DingTalk, Home Assistant, BlueBubbles, Feishu, WeCom), <b>Discord voice channels</b>, and the <b>Android/Termux</b> host are code-complete and reviewed, their parsing, verification, and allowlist logic unit-tested and frozen as benchmark checks, but not yet certified against live accounts or a real device. Treat them that way. The certified core, exercised against real accounts, is Telegram, Discord, Slack, iMessage and Email.</li>
     <li><b>A2UI canvas</b> ships as a protocol and a validator (unit-tested, benchmark-frozen as XSS-proof); live rendering of A2UI blocks in the dashboard and Console is the next increment, not yet built.</li>
     <li><b>Linux runs the full stack</b> but is newer than macOS and has less mileage; <b>real-world scale is small</b>, because this is a personal tool and we say so; the desktop GUI is unsigned until the signing certificates are in place.</li>
   </ul>

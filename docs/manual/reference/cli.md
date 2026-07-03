@@ -236,8 +236,8 @@ _reminders, background jobs, and cron_
 set a reminder, once or repeating.
 
 ```bash
-urfael remind "<text>" (--in <mins> | --at <iso>)
-  [--repeat daily|weekly|<mins> | --days <list> | --cron <expr>]
+urfael remind "<text>" (--in <mins> | --at <iso>) [--repeat daily|weekly|<mins>]
+  --repeat needs the --in/--at anchor; --days <list> | --cron <expr> self-anchor
 ```
 
 Examples:
@@ -289,7 +289,7 @@ run the brain (or a --script shell cmd) on a schedule.
 
 ```bash
 urfael cron add "<prompt>" (--cron <expr> | --days <list> --at HH:MM |
-  --daily-at HH:MM | --in N | --repeat daily) [--then "<prompt>"]
+  --daily-at HH:MM | --in N) [--repeat daily|weekly|<mins>] [--then "<prompt>"]
   [--script "<cmd>"] [--deliver notify|silent|push]
 urfael cron list | cancel <id> | run <id>
 ```
@@ -303,6 +303,86 @@ urfael cron list
 ```
 
 See also: `remind` · `jobs` · `script`
+
+### `urfael watch`
+
+wake the brain on a local file change or process exit.
+
+```bash
+urfael watch add <file|glob|pid> <target> --prompt "<what to do>"
+  [--repeat] [--debounce <ms>] [--deliver notify|silent|push]
+urfael watch list | rm <id>
+```
+
+Examples:
+
+```bash
+urfael watch add file ./build.log --prompt "summarize any new errors"
+urfael watch add pid 12345 --prompt "the build exited, check the result"
+urfael watch list
+```
+
+See also: `cron` · `jobs` · `hook`
+
+### `urfael blueprint`
+
+set up a curated automation from a catalog (agent cron).
+
+```bash
+urfael blueprint [<id>] [slot=value ...]
+  bare lists the catalog; <id> shows its form; slot=value creates the agent cron
+```
+
+Aliases: `blueprints`
+
+Examples:
+
+```bash
+urfael blueprint
+urfael blueprint morning-brief
+urfael blueprint morning-brief time=07:30
+```
+
+See also: `cron` · `remind`
+
+### `urfael schedule`
+
+add/move/cancel a reminder or event in plain English.
+
+```bash
+urfael schedule "<add/move/cancel a reminder or event, in plain English>"
+  confirm with: urfael schedule yes   (drop it: urfael schedule no)
+```
+
+Examples:
+
+```bash
+urfael schedule "remind me to call the dentist tomorrow at 3pm"
+urfael schedule "move my standup to 10am"
+urfael schedule yes
+```
+
+See also: `calendar` · `remind` · `reminders`
+
+### `urfael calendar`
+
+show upcoming calendar events (read-only).
+
+```bash
+urfael calendar [--n <count>] [--ics]
+```
+
+Aliases: `cal`
+
+Examples:
+
+```bash
+urfael calendar
+urfael calendar --n 10
+urfael calendar --ics
+```
+
+See also: `schedule` · `reminders`
 
 ## Team
 
@@ -630,6 +710,24 @@ See also: `cron`
 
 _setup, health, and the daemon_
 
+### `urfael quickstart`
+
+connect, then your whole moat with one line to try each.
+
+```bash
+urfael quickstart
+```
+
+Aliases: `quick`
+
+Examples:
+
+```bash
+urfael quickstart
+```
+
+See also: `setup` · `status` · `doctor`
+
 ### `urfael setup`
 
 onboarding wizard, pick subscription / API key / local model.
@@ -663,6 +761,24 @@ urfael status
 ```
 
 See also: `doctor` · `tui` · `model`
+
+### `urfael usage`
+
+tokens + est cost, rolled up --by principal or channel.
+
+```bash
+urfael usage [--by principal|channel] [--verify] [--json]
+```
+
+Examples:
+
+```bash
+urfael usage
+urfael usage --by principal
+urfael usage --by channel --verify
+```
+
+See also: `status` · `audit`
 
 ### `urfael model`
 
@@ -707,13 +823,14 @@ See also: `model` · `status`
 health read; every red line carries its own one-command fix.
 
 ```bash
-urfael doctor
+urfael doctor [--json]
 ```
 
 Examples:
 
 ```bash
 urfael doctor
+urfael doctor --json
 ```
 
 See also: `status` · `setup`
@@ -771,7 +888,7 @@ See also: `update` · `doctor`
 pull the latest and reinstall (your own git checkout).
 
 ```bash
-urfael update
+urfael update [--check]
 ```
 
 Aliases: `upgrade`
@@ -780,6 +897,7 @@ Examples:
 
 ```bash
 urfael update
+urfael update --check
 ```
 
 See also: `version` · `doctor`

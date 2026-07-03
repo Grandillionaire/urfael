@@ -75,6 +75,13 @@ async function main() {
   check('daemon opens NO TCP port (nothing the LAN/internet can reach)', tcpListeners === '', 'lsof: 0 TCP listeners');
   const sockMode = (() => { try { return (fs.statSync(SOCK).mode & 0o777).toString(8); } catch { return '?'; } })();
   check('the socket is owner-only (0600)', sockMode === '600', 'mode ' + sockMode);
+  // DEFENSE IN DEPTH: the socket is not the only thing that leaks. Without a hardening umask the daemon's state
+  // dir + logs are created world/group-readable on a multi-user box. The daemon clamps process.umask(0o077) at the
+  // top of boot and chmods JDIR to 0700 IN-PROCESS (not just via the launchd plist), so the surrounding state is
+  // owner-only too — proven live: the just-booted daemon has tightened its own ~/.claude/urfael.
+  const daemonSrcNet = fs.readFileSync(path.join(APP, 'daemon.js'), 'utf8');
+  const jdirMode = (() => { try { return (fs.statSync(JDIR).mode & 0o777).toString(8); } catch { return '?'; } })();
+  check('the daemon hardens its umask (0077) so JDIR + logs are owner-only, not just the socket', /process\.umask\(0o077\)/.test(daemonSrcNet) && jdirMode === '700', 'in-process umask 0077; ~/.claude/urfael is 0700 (mode ' + jdirMode + ')');
   // REGRESSION: the attestation's no-inbound-port posture must be COMPUTED by the fortress verifier, never a
   // hardcoded literal — an assert-without-verify is exactly the overclaim `urfael attest` is built to avoid.
   const cliSrcNet = fs.readFileSync(path.join(APP, 'cli.js'), 'utf8');
@@ -295,6 +302,24 @@ async function main() {
       return noEgressChild && ownerInherits && narrowsOnly && wired;
     })(),
     'no shell/write on a scheduled untrusted-data turn; a delegated background subagent inherits the originating profile via delegateScope (untrusted → no egress; local inherits, never a shell) and POST /job is narrow-only (narrowScope), so a child never re-enters with unscoped egress');
+  // GAP (adversarial audit 2026-07): the background /job was the LAST spawn path still handing the child the daemon's
+  // FULL process env; it now crosses the SAME scopedEnv() allowlist as cron/hook/watch/remote, so bridge.env + unrelated
+  // provider keys never reach an UNREVIEWED background child. The goal-loop's own isolation selectors stay forwarded.
+  const runnerSrc = fs.readFileSync(path.join(APP, 'runner.js'), 'utf8');
+  check('a background /job child gets the SCOPED env like every other spawn (an ambient bridge/provider secret is STRIPPED, never inherited)',
+    (() => {
+      const AMBIENT = 'URFAEL_BENCH_FAKE_BRIDGE_SECRET';
+      const saved = process.env[AMBIENT]; process.env[AMBIENT] = 'telegram-owner-token';   // a bridge-shaped secret sitting in the daemon env
+      try {
+        const e = runner.jobEnv();
+        const stripped = !(AMBIENT in e);                                            // the ambient secret is gone
+        const stillRuns = e.PATH === process.env.PATH && e.URFAEL_OVERLAY === '1';    // PATH kept + overlay stamped → the job still runs
+        const wired = /env: jobEnv\(\)/.test(runnerSrc) && !/\{ \.\.\.process\.env, URFAEL_OVERLAY: '1' \}/.test(runnerSrc);  // run() routes through the boundary; the raw full-env spawn is gone
+        const singleSourced = /scopedEnv \} = require\('\.\/lib'\)/.test(runnerSrc);  // the ONE shared allowlist, never a private copy that could drift
+        return stripped && stillRuns && wired && singleSourced;
+      } finally { if (saved === undefined) delete process.env[AMBIENT]; else process.env[AMBIENT] = saved; }
+    })(),
+    'runner.run() spawns with jobEnv() = the single-sourced scopedEnv allowlist; a bridge/provider secret ambient in the daemon env can never cross into a background job');
   // REGRESSION GUARD (QA-found 2026-06): the memory repo is a SIBLING of the vault, so it's outside the brain's
   // project root — without --add-dir the brain can't read OR write its own memory ("behind a permission wall").
   check('the brain can reach its own memory (--add-dir MEMORY_DIR on the warm session + write passes)', /const MEMDIR_ADD = \['--add-dir', MEMORY_DIR\]/.test(daemonSrc) && (daemonSrc.match(/\.\.\.MEMDIR_ADD/g) || []).length >= 5, 'self-learning loop reads + persists memory; can\'t silently regress');

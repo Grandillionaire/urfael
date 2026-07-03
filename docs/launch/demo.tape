@@ -22,7 +22,7 @@ Type "clear" Enter
 Sleep 600ms
 Show
 
-# The money shot: run the benchmark, let the ✓ RESISTED lines scroll, land on 10/10 · 99/99.
+# The money shot: run the benchmark, let the ✓ RESISTED lines scroll, land on 10/10 attack classes, 101/101 checks.
 Type "npm run security" Sleep 500ms Enter
 Sleep 5s
 
