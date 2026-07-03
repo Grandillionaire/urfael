@@ -10,6 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn, execFileSync } = require('child_process');
+const dc = require('./daemon-client');                                  // shared unix-socket client (request + /ask NDJSON stream)
 
 const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
 const MEMORY_DIR = path.join(os.homedir(), process.env.URFAEL_MEMORY_DIR || 'Urfael-memory');
@@ -64,14 +65,8 @@ function frame(title, lines, forceInner) {
 }
 
 function req(method, p, body) {
-  return new Promise((resolve, reject) => {
-    const r = http.request({ socketPath: SOCK, method, path: p, headers: { 'Content-Type': 'application/json' }, timeout: 300000 }, (res) => {
-      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(b); } });
-    });
-    r.on('error', reject); r.on('timeout', () => { r.destroy(); reject(new Error('timeout')); });
-    if (body) r.write(JSON.stringify(body));
-    r.end();
-  });
+  // parse the JSON reply, else fall back to the raw string; a socket error/timeout REJECTS (Error('timeout')).
+  return dc.request(method, p, body, { socketPath: SOCK, timeoutMs: 300000 }).then((b) => { try { return JSON.parse(b); } catch { return b; } });
 }
 
 async function ensureDaemon() {
@@ -93,7 +88,7 @@ function ask(text, pathOverride, useFinalText) {
     const TH = COLOR ? { accent: '\x1b[38;5;214m', gold: '\x1b[33m', dim: '\x1b[2m', RST: '\x1b[0m' } : { accent: '', gold: '', dim: '', RST: '' };
     const acfg = { anim: 'oracle', frameMs: 83, reduceMotion: false };
     const t0 = Date.now();
-    let buf = '', started = false, lastTool = '', acc = '', timer = null, rendered = false;
+    let started = false, lastTool = '', acc = '', timer = null, rendered = false;
     const cols = () => Math.max(20, process.stdout.columns || process.stderr.columns || 80);
     const drawStatus = () => { if (ttyErr) process.stderr.write('\r' + anim.composeWorker(acfg, TH, { t0, lastTool, answerChars: acc.length, usageTokens: null }, cols(), Date.now()) + '\x1b[K'); };
     const clearStatus = () => { if (timer) { clearInterval(timer); timer = null; } if (ttyErr) process.stderr.write('\r\x1b[K'); };
@@ -107,27 +102,24 @@ function ask(text, pathOverride, useFinalText) {
       if (answer) process.stdout.write(require('./md').toAnsi(answer, { color: COLOR, base: COLOR ? '\x1b[33m' : '' }) + (COLOR ? '\x1b[0m' : '') + '\n');
       process.stdout.write(dim(`— ${e.aborted ? 'stopped' : (e.model || '')}${e.ms ? ' · ' + (e.ms / 1000).toFixed(1) + 's' : ''}`) + '\n');
     };
-    const r = http.request({ socketPath: SOCK, method: 'POST', path: pathOverride || '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 300000 }, (res) => {
-      res.on('data', (d) => {
-        buf += d.toString(); let i;
-        while ((i = buf.indexOf('\n')) >= 0) {
-          const ln = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-          if (!ln) continue;
-          let e; try { e = JSON.parse(ln); } catch { continue; }
-          if (e.kind === 'thinking' && e.tool) lastTool = e.tool;
-          else if (e.kind === 'thinking' && e.delta) { started = true; acc += e.delta; }
-          // normally the de-dashed streamed deltas are the answer; useFinalText (the schedule channel) prefers the
-          // done event's text instead, because the daemon strips its <<urfael:…>> directives + appends the confirm
-          // marker only on that final text — streaming it raw would leak the tokens and hide "Say yes to apply."
-          else if (e.kind === 'done') { if (e.text && (useFinalText || !started)) acc = e.text; clearStatus(); render(e); done(); }
-        }
-      });
-      // a stream that ends WITHOUT a done event = the brain dropped it mid-turn; fail loudly + non-zero rather than vanish
-      res.on('end', () => { clearStatus(); if (!rendered) { console.error(bad('✗') + ' the turn ended without a reply (the brain dropped the stream).' + dim('  run  ') + gold('urfael doctor')); process.exitCode = 1; } done(); });
-    });
-    r.on('error', () => { clearStatus(); console.error(bad('✗') + ' the brain is unreachable, sir.' + dim('  run  ') + gold('urfael doctor') + dim('  to diagnose it')); done(); });
-    r.on('timeout', () => { clearStatus(); r.destroy(); if (!rendered) { console.error(bad('✗') + ' the turn timed out without a reply.' + dim('  run  ') + gold('urfael doctor')); process.exitCode = 1; } done(); }); // a wedged daemon mid-stream shouldn't hang the CLI forever
-    r.end(JSON.stringify({ text }));
+    // ./daemon-client frames + routes the /ask NDJSON stream; the per-event + per-phase bodies below are the CLI's own.
+    // normally the de-dashed streamed deltas are the answer; useFinalText (the schedule channel) prefers the done
+    // event's text instead, because the daemon strips its <<urfael:…>> directives + appends the confirm marker only on
+    // that final text — streaming it raw would leak the tokens and hide "Say yes to apply."
+    dc.streamAsk(text, {
+      onTool: (e) => { lastTool = e.tool; },
+      onDelta: (e) => { if (e.delta) { started = true; acc += e.delta; } },
+      onDone: (e) => { if (e.text && (useFinalText || !started)) acc = e.text; clearStatus(); render(e); done(); },
+      onError: (err) => {
+        clearStatus();
+        // 'error' = socket unreachable (always loud); 'timeout'/'end' = the brain dropped the stream mid-turn: fail
+        // loudly + non-zero rather than vanish. A wedged daemon mid-stream must not hang the CLI forever.
+        if (err.phase === 'error') console.error(bad('✗') + ' the brain is unreachable, sir.' + dim('  run  ') + gold('urfael doctor') + dim('  to diagnose it'));
+        else if (err.phase === 'timeout') { if (!rendered) { console.error(bad('✗') + ' the turn timed out without a reply.' + dim('  run  ') + gold('urfael doctor')); process.exitCode = 1; } }
+        else if (!rendered) { console.error(bad('✗') + ' the turn ended without a reply (the brain dropped the stream).' + dim('  run  ') + gold('urfael doctor')); process.exitCode = 1; }
+        done();
+      },
+    }, { socketPath: SOCK, path: pathOverride || '/ask', timeoutMs: 300000 });
   });
 }
 

@@ -17,6 +17,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const dc = require('./daemon-client');                    // shared unix-socket client (request + /ask NDJSON stream)
 
 const HOST = '127.0.0.1';                                  // loopback ONLY — never 0.0.0.0, never a LAN/public iface
 const PORT = Math.min(Math.max(parseInt(process.env.URFAEL_API_PORT, 10) || 7720, 1), 65535);
@@ -125,16 +126,15 @@ function toUsage(u) {
 }
 function daemonAskFinal(text) {
   return new Promise((resolve) => {
-    const r = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 300000 }, (res) => {
-      let buf = '', final = '', model = '', usage = null;
-      res.on('data', (d) => { buf += d.toString(); let i;
-        while ((i = buf.indexOf('\n')) >= 0) { const ln = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-          if (!ln) continue; try { const e = JSON.parse(ln); if (e.kind === 'done') { final = e.text || ''; model = e.model || ''; usage = e.usage || null; } } catch {} } });
-      res.on('end', () => resolve({ text: final || '(no reply)', model, usage }));
-    });
-    r.on('error', () => resolve({ text: '(brain unreachable — is the Urfael daemon running?)', model: '', usage: null }));
-    r.on('timeout', () => { r.destroy(); resolve({ text: '(timed out)', model: '', usage: null }); });
-    r.end(JSON.stringify({ text }));
+    let final = '', model = '', usage = null;
+    dc.streamAsk(text, {
+      onDone: (e) => { final = e.text || ''; model = e.model || ''; usage = e.usage || null; },     // last done wins
+      onError: (err) => {
+        if (err.phase === 'error') resolve({ text: '(brain unreachable — is the Urfael daemon running?)', model: '', usage: null });
+        else if (err.phase === 'timeout') resolve({ text: '(timed out)', model: '', usage: null });
+        else resolve({ text: final || '(no reply)', model, usage });                                 // 'end': natural stream close
+      },
+    }, { socketPath: SOCK, timeoutMs: 300000 });
   });
 }
 // Given the RAW accumulated answer, return the prefix that is SAFE to strip-and-emit now: never reveal a
@@ -157,28 +157,25 @@ function safeRawPrefix(acc) {
 // fragment (with [SPOKEN] asides removed incrementally), onDone({model}) when the turn ends.
 function daemonAskStream(text, onDelta, onDone) {
   let acc = '', emitted = 0, model = '', usage = null;
-  const r = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 300000 }, (res) => {
-    let buf = '';
-    res.on('data', (d) => { buf += d.toString(); let i;
-      while ((i = buf.indexOf('\n')) >= 0) { const ln = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-        if (!ln) continue; let e; try { e = JSON.parse(ln); } catch { continue; }
-        if (e.kind === 'thinking' && typeof e.delta === 'string') {
-          acc += e.delta;
-          const safe = stripSpoken(safeRawPrefix(acc)); // emit only the strip of the safe-to-reveal prefix
-          if (safe.length > emitted) { const chunk = safe.slice(emitted); emitted = safe.length; if (chunk) onDelta(chunk); }
-        } else if (e.kind === 'done') {
-          model = e.model || model;
-          usage = e.usage || usage;
-          // the daemon's done.text is the authoritative full written answer; flush whatever was held back.
-          const full = stripSpoken(typeof e.text === 'string' && e.text ? e.text : acc);
-          if (full.length > emitted) { const chunk = full.slice(emitted); emitted = full.length; if (chunk) onDelta(chunk); }
-        }
-      } });
-    res.on('end', () => onDone({ model, usage }));
-  });
-  r.on('error', () => { onDelta('(brain unreachable — is the Urfael daemon running?)'); onDone({ model: '', usage: null }); });
-  r.on('timeout', () => { r.destroy(); onDelta('(timed out)'); onDone({ model: '', usage: null }); });
-  r.end(JSON.stringify({ text }));
+  dc.streamAsk(text, {
+    onDelta: (e) => {
+      acc += e.delta;
+      const safe = stripSpoken(safeRawPrefix(acc)); // emit only the strip of the safe-to-reveal prefix
+      if (safe.length > emitted) { const chunk = safe.slice(emitted); emitted = safe.length; if (chunk) onDelta(chunk); }
+    },
+    onDone: (e) => {
+      model = e.model || model;
+      usage = e.usage || usage;
+      // the daemon's done.text is the authoritative full written answer; flush whatever was held back.
+      const full = stripSpoken(typeof e.text === 'string' && e.text ? e.text : acc);
+      if (full.length > emitted) { const chunk = full.slice(emitted); emitted = full.length; if (chunk) onDelta(chunk); }
+    },
+    onError: (err) => {
+      if (err.phase === 'error') { onDelta('(brain unreachable — is the Urfael daemon running?)'); onDone({ model: '', usage: null }); }
+      else if (err.phase === 'timeout') { onDelta('(timed out)'); onDone({ model: '', usage: null }); }
+      else onDone({ model, usage });                                                                 // 'end': natural stream close
+    },
+  }, { socketPath: SOCK, timeoutMs: 300000 });
 }
 
 function readBody(req) {

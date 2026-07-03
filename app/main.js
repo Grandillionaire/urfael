@@ -22,6 +22,7 @@ const ONBOARDED = path.join(JDIR, 'onboarded'); // marker: first-run GUI onboard
 const DAEMON = path.join(__dirname, 'daemon.js');
 const setup = require('./setup'); // reuse the wizard's provider.env read/write (no side effects on require)
 const lib = require('./lib');     // reuse the pure reapOrphanPids helper (no side effects on require)
+const dc = require('./daemon-client'); // shared unix-socket client (request + /ask NDJSON stream)
 
 let win = null;
 let consoleWin = null;
@@ -61,44 +62,30 @@ function askDaemon(text) {
     const finish = (v) => { if (settled) return; settled = true; askInFlight = Math.max(0, askInFlight - 1); dockBadge(); resolve(v); }; // idempotent: error+end can both fire
     if (!(await ensureDaemon())) { finish({ ok: false, text: '(brain offline)', model: '' }); return; }
     let done = false;
-    const req = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' } }, (res) => {
-      let buf = '';
-      res.on('data', (d) => {
-        buf += d.toString();
-        let i;
-        while ((i = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-          if (!line) continue;
-          let e; try { e = JSON.parse(line); } catch { continue; }
-          if (e.kind === 'thinking') { const { kind, ...p } = e; forward('urfael:thinking', p); }
-          else if (e.kind === 'say') { const { kind, ...p } = e; forward('urfael:say', p); }
-          else if (e.kind === 'done') { done = true; forward('urfael:done', { model: e.model, ms: e.ms, text: e.text, aborted: e.aborted }); finish({ ok: true, text: e.text, model: e.model }); }
-        }
-      });
-      res.on('end', () => { if (!done) finish({ ok: true, text: '', model: '' }); });
-    });
-    req.on('error', () => { if (!done) finish({ ok: false, text: '(brain unreachable)', model: '' }); });
-    try { req.write(JSON.stringify({ text })); req.end(); } catch { finish({ ok: false, text: '(brain unreachable)', model: '' }); } // a sync throw must still settle (and clear the badge)
+    // ./daemon-client frames + routes the /ask NDJSON stream. The overlay HUD needs EVERY raw thinking event
+    // (reset/tool/delta), so we take them via onThinking and forward the payload verbatim, exactly as before.
+    // No timeout is set (the overlay's turns can run long); a sync throw must still settle (and clear the badge).
+    try {
+      dc.streamAsk(text, {
+        onThinking: (e) => { const { kind, ...p } = e; forward('urfael:thinking', p); },
+        onSay: (e) => { const { kind, ...p } = e; forward('urfael:say', p); },
+        onDone: (e) => { done = true; forward('urfael:done', { model: e.model, ms: e.ms, text: e.text, aborted: e.aborted }); finish({ ok: true, text: e.text, model: e.model }); },
+        onError: (err) => {
+          if (err.phase === 'end') { if (!done) finish({ ok: true, text: '', model: '' }); }
+          else if (!done) finish({ ok: false, text: '(brain unreachable)', model: '' });   // 'error'
+        },
+      }, { socketPath: SOCK });
+    } catch { finish({ ok: false, text: '(brain unreachable)', model: '' }); }
   });
 }
 function daemonPost(p) { try { const req = http.request({ socketPath: SOCK, method: 'POST', path: p }, (res) => res.resume()); req.on('error', () => {}); req.end(); } catch {} }
 function daemonGet(p) {
-  return new Promise((resolve) => {
-    const req = http.request({ socketPath: SOCK, method: 'GET', path: p, timeout: 1500 }, (res) => {
-      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } });
-    });
-    req.on('error', () => resolve(null)); req.on('timeout', () => { req.destroy(); resolve(null); }); req.end();
-  });
+  // parse the JSON reply, else null; a socket error/timeout resolves null (fail-soft for the always-on poller).
+  return dc.request('GET', p, undefined, { socketPath: SOCK, timeoutMs: 1500 }).then((b) => { try { return JSON.parse(b); } catch { return null; } }, () => null);
 }
 
 function daemonPostJson(p, body) {
-  return new Promise((resolve) => {
-    const req = http.request({ socketPath: SOCK, method: 'POST', path: p, headers: { 'Content-Type': 'application/json' }, timeout: 5000 }, (res) => {
-      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } });
-    });
-    req.on('error', () => resolve(null)); req.on('timeout', () => { req.destroy(); resolve(null); });
-    req.end(JSON.stringify(body || {}));
-  });
+  return dc.request('POST', p, body || {}, { socketPath: SOCK, timeoutMs: 5000 }).then((b) => { try { return JSON.parse(b); } catch { return null; } }, () => null);
 }
 
 ipcMain.handle('urfael:ask', (_e, text) => askDaemon(text));
@@ -159,15 +146,17 @@ ipcMain.handle('urfael:chat-close', (_e, id) => SAFE_ID.test(String(id)) ? daemo
 ipcMain.handle('urfael:chat-ask', (_e, id, text) => {
   if (!SAFE_ID.test(String(id))) return { text: '(bad chat id)' };
   return new Promise((resolve) => {
-    const req = http.request({ socketPath: SOCK, method: 'POST', path: '/chat/' + id + '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 200000 }, (res) => {
-      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => {
-        let out = ''; for (const ln of b.split('\n')) { const t = ln.trim(); if (!t) continue; try { const e = JSON.parse(t); if (e.kind === 'done') out = e.text || ''; } catch {} }
-        resolve({ text: out });
-      });
-    });
-    req.on('error', () => resolve({ text: '(brain unreachable)' }));
-    req.on('timeout', () => { req.destroy(); resolve({ text: '(timed out)' }); });
-    try { req.end(JSON.stringify({ text: String(text || '').slice(0, 8000) })); } catch { resolve({ text: '(error)' }); }
+    let out = '';   // the chat's warm session streams NDJSON like /ask; we only surface its final done text
+    try {
+      dc.streamAsk('', {
+        onDone: (e) => { out = e.text || ''; },
+        onError: (err) => {
+          if (err.phase === 'error') resolve({ text: '(brain unreachable)' });
+          else if (err.phase === 'timeout') resolve({ text: '(timed out)' });
+          else resolve({ text: out });   // 'end'
+        },
+      }, { socketPath: SOCK, path: '/chat/' + id + '/ask', body: { text: String(text || '').slice(0, 8000) }, timeoutMs: 200000 });
+    } catch { resolve({ text: '(error)' }); }
   });
 });
 ipcMain.on('urfael:conversation-end', () => daemonPost('/conversation-end'));
