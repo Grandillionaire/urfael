@@ -29,11 +29,11 @@ const bad = (s) => COLOR ? `\x1b[31m${s}\x1b[0m` : `${s}`;
 // strip ANSI to measure true printed width, so box borders line up regardless of colour codes
 const visLen = (s) => s.replace(/\x1b\[[0-9;]*m/g, '').replace(/[̀-ͯ]/g, '').length;
 // The command surface is described once in ./registry.js. did-you-mean's keyword set is DERIVED
-// from it — every canonical name + every real alias + `unremind` (its own branch, no registry
-// entry) — so the hand-list can't fall out of sync with the dispatch branches below.
+// from it — every canonical name + every real alias — so the hand-list can't fall out of sync
+// with the dispatch branches below.
 const reg = require('./registry');
 reg.editDistance = require('./lib').editDistance;                       // lets `help <bad>` suggest a near command
-const COMMANDS = [...reg.COMMANDS.map((c) => c.name), ...Object.keys(reg.ALIASES), 'unremind'];
+const COMMANDS = [...reg.COMMANDS.map((c) => c.name), ...Object.keys(reg.ALIASES)];
 const helpUI = { banner, frame, gold, dim, visLen };                   // the helpers registry's renderers draw with
 // The terminal logo — gold ANSI-shadow URFAEL + the Uruz rune (ᚢ) + tagline. Colour only on a TTY (plain when piped).
 function banner() {
@@ -1042,8 +1042,8 @@ function readStdinAdapter(maxBytes) {
       console.log(r && r.error ? '✗ ' + r.error : `✓ ${r.kind || 'agent'} cron ${r.id} — first run ${r.at}${r.chained ? dim(' (chained)') : ''}`);
       return;
     }
-    if (sub === 'cancel' && rest[1]) { console.log(JSON.stringify(await req('POST', `/cron/${rest[1]}/cancel`))); return; }
-    if (sub === 'run' && rest[1]) { console.log(JSON.stringify(await req('POST', `/cron/${rest[1]}/run`))); return; }
+    if (sub === 'cancel' && rest[1]) { const r = await req('POST', `/cron/${rest[1]}/cancel`); console.log(r && r.ok ? gold('✓ cancelled cron ' + rest[1]) : '✗ no such cron ' + rest[1]); return; }
+    if (sub === 'run' && rest[1]) { const r = await req('POST', `/cron/${rest[1]}/run`); console.log(r && r.ok ? gold('✓ running cron ' + rest[1] + ' now') + dim('  · the result is delivered when it finishes') : '✗ no such cron ' + rest[1]); return; }
     const cj = await req('GET', '/cron');
     if (!cj || !cj.length) { console.log('no scheduled jobs'); return; }
     for (const j of cj) console.log(`${j.id}  ${gold((j.at || '').replace('T', ' ').slice(0, 16))}  ${(j.prompt || '').slice(0, 60)}${j.repeat ? dim('  (' + JSON.stringify(j.repeat) + ')') : ''}`);
@@ -1383,7 +1383,7 @@ function readStdinAdapter(maxBytes) {
   }
   if (cmd === 'jobs') { for (const j of await req('GET', '/jobs')) console.log(`${j.id}  ${j.kind}  ${gold(j.state)}  ${dim('scope=' + (j.scope || '?'))}  ${dim(j.createdAt || '')}`); return; }
   if (cmd === 'job') { if (!rest[0]) { console.log('usage: urfael job <id>'); return; } const j = await req('GET', '/job/' + rest[0]); console.log(dim('scope: ') + gold((j.spec && j.spec.scope) || '(unset)')); console.log(JSON.stringify({ ...j, log: undefined }, null, 2)); if (j.log) console.log(dim('--- log tail ---\n') + j.log); return; }
-  if (cmd === 'cancel') { if (!rest[0]) { console.log('usage: urfael cancel <id>'); return; } console.log(JSON.stringify(await req('POST', `/job/${rest[0]}/cancel`))); return; }
+  if (cmd === 'cancel') { if (!rest[0]) { console.log('usage: urfael cancel <id>'); return; } const r = await req('POST', `/job/${rest[0]}/cancel`); console.log(r && r.ok ? gold('✓ cancelled job ' + rest[0]) : '✗ no active job ' + rest[0]); return; }
   if (cmd === 'schedule') {
     // the dedicated Reminders & Calendar channel: add / move / cancel a reminder or calendar event in plain English.
     // It streams /schedule exactly like ask() streams /ask. The daemon (LOCAL-only; it 403s any channel key) stages
@@ -1438,7 +1438,7 @@ function readStdinAdapter(maxBytes) {
     console.log(r.error ? '✗ ' + r.error : `✓ reminder ${r.id} fires at ${r.at}`);
     return;
   }
-  if (cmd === 'unremind') { if (!rest[0]) { console.log('usage: urfael unremind <id>'); return; } console.log(JSON.stringify(await req('POST', `/reminder/${rest[0]}/cancel`))); return; }
+  if (cmd === 'unremind') { if (!rest[0]) { console.log('usage: urfael unremind <id>'); return; } const r = await req('POST', `/reminder/${rest[0]}/cancel`); console.log(r && r.ok ? gold('✓ cancelled reminder ' + rest[0]) : '✗ no such reminder ' + rest[0]); return; }
 
   // default: everything is a question for the brain — UNLESS a lone word is an obvious command typo, in which
   // case suggest the fix instead of silently spending a turn on it. You can always force it as a real question.

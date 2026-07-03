@@ -22,9 +22,8 @@ test('every registry command has a live dispatch branch in cli.js', () => {
 test('every dispatched command exists in the registry (no orphan handlers)', () => {
   const dispatched = [...src.matchAll(/cmd === '([a-z-]+)'/g)].map((m) => m[1]);
   const known = new Set([
-    ...reg.COMMANDS.map((c) => c.name),
+    ...reg.COMMANDS.map((c) => c.name),  // includes `unremind` (a hidden schedule verb, surfaced in help)
     ...Object.keys(reg.ALIASES),      // asof, init, onboard — real handler aliases
-    'unremind',                        // own branch, intentionally not a registry entry
     'help', '--help', '-h',            // help variants
     '--version', '-v',                 // version flag variants (the `version` command is in the registry)
   ]);
@@ -32,7 +31,7 @@ test('every dispatched command exists in the registry (no orphan handlers)', () 
 });
 
 test('did-you-mean keyword set is fully derived from the registry (no hand-list to drift)', () => {
-  // cli.js builds COMMANDS from reg.COMMANDS + reg.ALIASES + 'unremind'. Assert the derivation is present
+  // cli.js builds COMMANDS from reg.COMMANDS + reg.ALIASES. Assert the derivation is present
   // and that the old hand-maintained array literal is gone.
   assert.ok(/\.\.\.reg\.COMMANDS\.map\(\(c\) => c\.name\)/.test(src), 'COMMANDS must be derived from reg.COMMANDS');
   assert.ok(!/const COMMANDS = \['logo', 'help'/.test(src), 'the old hand-list must be deleted');
