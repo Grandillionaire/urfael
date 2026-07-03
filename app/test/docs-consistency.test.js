@@ -25,7 +25,7 @@ function manualMd() {
   try { walk(base); } catch {}
   return out;
 }
-const DOCS = ['README.md', 'PARITY.md', 'docs/index.html', 'docs/SECURITY-BENCHMARK.md', ...manualMd()];
+const DOCS = ['README.md', 'PARITY.md', 'CONTRIBUTING.md', 'docs/launch/demo.tape', 'docs/index.html', 'docs/SECURITY-BENCHMARK.md', ...manualMd()];
 
 test('the benchmark + class counts are derivable and sane', () => {
   assert.ok(CHECKS > 0 && CLASSES > 0, 'derived counts must be positive (checks=' + CHECKS + ', classes=' + CLASSES + ')');
