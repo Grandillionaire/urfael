@@ -76,8 +76,8 @@ function load() { items = loadStore(FILE, 'reminders'); }
 function save() { try { atomicWriteJSON(FILE, items); } catch {} }
 function loadCron() { crons = loadStore(CRON_FILE, 'cronjobs'); }
 function saveCron() { try { atomicWriteJSON(CRON_FILE, crons); } catch {} }
-function loadWatches() { try { const j = JSON.parse(fs.readFileSync(WATCHES_FILE, 'utf8')); watches = Array.isArray(j) ? j : []; } catch { watches = []; } }
-function saveWatches() { try { fs.mkdirSync(path.dirname(WATCHES_FILE), { recursive: true }); const tmp = WATCHES_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(watches, null, 2), { mode: 0o600 }); fs.renameSync(tmp, WATCHES_FILE); } catch {} }
+function loadWatches() { watches = loadStore(WATCHES_FILE, 'watches'); }               // quarantine a corrupt store, never silently wipe
+function saveWatches() { try { atomicWriteJSON(WATCHES_FILE, watches); } catch {} }     // crash-safe atomic write (unique tmp + fsync + rename)
 function newId() { return Date.now().toString(36) + '-' + crypto.randomBytes(3).toString('hex'); }
 
 function add(spec) {

@@ -86,6 +86,20 @@ test('reminders: a corrupt store is quarantined (not silently reset) and logged 
   assert.ok(logs.some((l) => /corrupt/i.test(l) && /quarantin/i.test(l)), 'the quarantine is logged LOUDLY, not swallowed');
 });
 
+// ── 3b. watches store: the same crash-safe quarantine policy (this store shipped with the old silent-reset bug) ──
+test('watches: a corrupt store is quarantined too, not silently reset', () => {
+  wipe();
+  const WATCHES_FILE = path.join(JDIR, 'watches.json');
+  const junk = '{ half-written watch store';
+  fs.writeFileSync(WATCHES_FILE, junk);
+  const logs = captureErr(() => scheduler.startWatchers(() => {}, {}));   // startWatchers() re-loads the watches store
+  assert.equal(fs.existsSync(WATCHES_FILE), false, 'the corrupt watches file was moved aside, not left in place');
+  const quarantine = path.join(JDIR, 'watches.json.corrupt-0');
+  assert.ok(fs.existsSync(quarantine), 'the corrupt watches bytes are quarantined for recovery');
+  assert.equal(fs.readFileSync(quarantine, 'utf8'), junk, 'the owner can recover the exact original bytes');
+  assert.ok(logs.some((l) => /corrupt/i.test(l) && /quarantin/i.test(l)), 'the quarantine is logged LOUDLY, not swallowed');
+});
+
 // ── 4. cron store: same quarantine policy, and a second corruption never clobbers the first ──
 test('cronjobs: a corrupt store is quarantined, and repeated corruption keeps every recovery copy', () => {
   wipe();
