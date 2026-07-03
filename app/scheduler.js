@@ -7,7 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { normalizeReminder, normalizeCron, normalizeWatch, nextOccurrence } = require('./lib');
+const { normalizeReminder, normalizeCron, normalizeWatch, nextOccurrence, atomicWriteJSON } = require('./lib');
 const { isAlive } = require('./jobstore');
 
 const DIR = path.join(os.homedir(), '.claude', 'urfael');
@@ -50,12 +50,34 @@ const REAL_IO = {
 };
 let _io = REAL_IO;
 
-function load() { try { const j = JSON.parse(fs.readFileSync(FILE, 'utf8')); items = Array.isArray(j) ? j : []; } catch { items = []; } }
-function save() { try { fs.mkdirSync(path.dirname(FILE), { recursive: true }); fs.writeFileSync(FILE, JSON.stringify(items, null, 2)); } catch {} }
-function loadCron() { try { const j = JSON.parse(fs.readFileSync(CRON_FILE, 'utf8')); crons = Array.isArray(j) ? j : []; } catch { crons = []; } }
-function saveCron() { try { fs.mkdirSync(path.dirname(CRON_FILE), { recursive: true }); fs.writeFileSync(CRON_FILE, JSON.stringify(crons, null, 2)); } catch {} }
-function loadWatches() { try { const j = JSON.parse(fs.readFileSync(WATCHES_FILE, 'utf8')); watches = Array.isArray(j) ? j : []; } catch { watches = []; } }
-function saveWatches() { try { fs.mkdirSync(path.dirname(WATCHES_FILE), { recursive: true }); const tmp = WATCHES_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(watches, null, 2), { mode: 0o600 }); fs.renameSync(tmp, WATCHES_FILE); } catch {} }
+// Read a durable store. A MISSING/unreadable file is a normal first boot → start fresh, silently. But a file that
+// EXISTS yet is corrupt (truncated by an old non-atomic crash, or not a JSON array) is NEVER silently reset to
+// empty — that would lose the owner's reminders/crons under the sovereignty promise. Quarantine it (rename to
+// <file>.corrupt-<n>) so the owner can recover it, log loudly, then start fresh.
+function loadStore(file, label) {
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return []; }   // ENOENT / unreadable → fresh, no file to lose
+  let parsed; try { parsed = JSON.parse(raw); } catch { parsed = undefined; }
+  if (Array.isArray(parsed)) return parsed;
+  quarantineCorrupt(file, label);
+  return [];
+}
+function quarantineCorrupt(file, label) {
+  try {
+    let n = 0, dest;
+    do { dest = file + '.corrupt-' + n; n++; } while (fs.existsSync(dest) && n < 10000); // never clobber an earlier quarantine
+    fs.renameSync(file, dest);
+    console.error('[urfael] ' + label + ' store at ' + file + ' was corrupt; quarantined to ' + dest + ' and started fresh (your data is recoverable there).');
+  } catch (e) {
+    console.error('[urfael] ' + label + ' store at ' + file + ' was corrupt and could not be quarantined: ' + ((e && e.message) || e));
+  }
+}
+function load() { items = loadStore(FILE, 'reminders'); }
+function save() { try { atomicWriteJSON(FILE, items); } catch {} }
+function loadCron() { crons = loadStore(CRON_FILE, 'cronjobs'); }
+function saveCron() { try { atomicWriteJSON(CRON_FILE, crons); } catch {} }
+function loadWatches() { watches = loadStore(WATCHES_FILE, 'watches'); }               // quarantine a corrupt store, never silently wipe
+function saveWatches() { try { atomicWriteJSON(WATCHES_FILE, watches); } catch {} }     // crash-safe atomic write (unique tmp + fsync + rename)
 function newId() { return Date.now().toString(36) + '-' + crypto.randomBytes(3).toString('hex'); }
 
 function add(spec) {
