@@ -40,7 +40,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs, makeCronGate } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv: libScopedEnv, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs, makeCronGate } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -204,21 +204,14 @@ const MAX_SPOKEN_CHARS = 700;     // hard cap on voiced text per turn — the sp
 const TURN_TIMEOUT_MS = Math.min(Math.max(parseInt(process.env.URFAEL_TURN_TIMEOUT_S, 10) || 120, 30), 900) * 1000; // per-turn watchdog (long work belongs in /job)
 let distilling = false;           // single-flight guard for the memory-distill pass
 
-// Build the MINIMAL env for a sandboxed one-shot child (remote turns, cron): PATH/HOME + our model knobs +
-// the backend-ROUTING vars, so "run Urfael on a local GPU / Bedrock / Vertex / a proxy" works on EVERY path,
-// not just the warm session. We forward the model-ACCESS credential (the child must reach the model to work,
-// exactly as the warm session does) but NOT the daemon's unrelated secrets (bridge.env etc.) — and the
-// untrusted profile has no egress tool, so a credential in the child's env can't be exfiltrated anyway.
-const PROVIDER_ENV = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL',
-  'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
-  'ANTHROPIC_SMALL_FAST_MODEL', 'ANTHROPIC_CUSTOM_HEADERS', 'ANTHROPIC_BEDROCK_BASE_URL', 'ANTHROPIC_VERTEX_BASE_URL',
-  'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_SKIP_BEDROCK_AUTH', 'CLAUDE_CODE_SKIP_VERTEX_AUTH',
-  'AWS_REGION', 'AWS_PROFILE', 'AWS_BEARER_TOKEN_BEDROCK', 'CLOUD_ML_REGION', 'ANTHROPIC_VERTEX_PROJECT_ID', 'GOOGLE_APPLICATION_CREDENTIALS'];
-function scopedEnv() {
-  const env = { PATH: process.env.PATH, HOME: process.env.HOME, URFAEL_OVERLAY: '1' };
-  for (const k of ['URFAEL_SONNET_MODEL', 'URFAEL_OPUS_MODEL', 'URFAEL_CLAUDE_BIN', 'URFAEL_VAULT_DIR', ...PROVIDER_ENV]) if (process.env[k]) env[k] = process.env[k];
-  return env;
-}
+// Build the MINIMAL env for a sandboxed one-shot child (remote turns, cron, hooks, watches, background /job):
+// PATH/HOME + our model knobs + the backend-ROUTING vars, so "run Urfael on a local GPU / Bedrock / Vertex / a
+// proxy" works on EVERY path, not just the warm session. We forward the model-ACCESS credential (the child must
+// reach the model to work, exactly as the warm session does) but NOT the daemon's unrelated secrets (bridge.env
+// etc.) — and the untrusted profile has no egress tool, so a credential in the child's env can't be exfiltrated
+// anyway. The allowlist itself is SINGLE-SOURCED in lib.scopedEnv so no spawn path (incl. runner.js's background
+// jobs) can quietly diverge and hand a child the full process env.
+function scopedEnv() { return libScopedEnv(process.env); }
 const LOCAL_MODE = !!process.env.ANTHROPIC_BASE_URL || process.env.CLAUDE_CODE_USE_BEDROCK === '1' || process.env.CLAUDE_CODE_USE_VERTEX === '1'; // not the default Anthropic cloud → cost meter is meaningless
 
 // Council is LOCAL + owner-initiated + READ-ONLY (Read/Grep/Glob, no shell, no network in fortress), so its agents

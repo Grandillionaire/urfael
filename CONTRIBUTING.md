@@ -15,7 +15,7 @@ and PRs are all welcome.
 git clone https://github.com/Grandillionaire/urfael.git && cd urfael
 cd app && npm install
 npm test             # 774 fast unit tests (pure modules: lib, council, personas, seal, audit-chain, registry, recall, …); no credentials, ~0.5s
-npm run security     # 10/10 attack classes · 100/100 checks — boots a REAL daemon + dashboard and attacks them
+npm run security     # 10/10 attack classes · 101/101 checks — boots a REAL daemon + dashboard and attacks them
 npm run e2e          # live end-to-end against a real daemon (uses your real claude login)
 ```
 Use `npm test` (the scoped `test/*.test.js` glob), not bare `node --test` — the latter also discovers the
@@ -34,7 +34,7 @@ overlay + the `daemon.js` brain + `voice.js`); vault-side logic (commands, hooks
 
 ## Pull requests
 1. Fork, branch, make your change.
-2. `npm test` (774) and `npm run security` (10/10 · 100/100) pass, and the app still launches.
+2. `npm test` (774) and `npm run security` (10/10 · 101/101) pass, and the app still launches.
 3. Describe the change and the "why." If it touches permissions or untrusted-data handling, call that out.
 
 ## Reporting bugs / security

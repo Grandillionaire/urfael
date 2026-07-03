@@ -4,7 +4,7 @@
 // an UNTRUSTED turn yields a NO-EGRESS child. These are PURE unit tests — no daemon, no socket, no spawn.
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { delegateScope, narrowScope, resolveProfile } = require('../lib');
+const { delegateScope, narrowScope, resolveProfile, scopedEnv } = require('../lib');
 const runner = require('../runner');
 
 const has = (a, t) => a.includes(t);
@@ -108,4 +108,50 @@ test('attribution: an ask prompt carries the principal/role/scope header + the u
   assert.ok(prompt.includes('maxim') && prompt.includes('owner') && prompt.includes('scope=untrusted'));
   assert.ok(/results are unreviewed/.test(prompt));
   assert.ok(prompt.includes('summarize'));
+});
+
+// ── ENV SCOPING: a sandboxed/delegated child gets an ALLOWLIST env, never the daemon's full process env. ──
+test('scopedEnv is an ALLOWLIST: ambient secrets stripped, PATH/HOME + model routing kept, extras forwarded', () => {
+  const src = { PATH: '/bin', HOME: '/home/u', ANTHROPIC_BASE_URL: 'http://gpu.local', URFAEL_OPUS_MODEL: 'opus',
+    TELEGRAM_BOT_TOKEN: 'secret-123', AWS_SECRET_ACCESS_KEY: 'nope', RANDOM_AMBIENT: 'x', URFAEL_SANDBOX: 'docker' };
+  const scoped = scopedEnv(src);                                    // no extras
+  assert.equal(scoped.PATH, '/bin');
+  assert.equal(scoped.HOME, '/home/u');
+  assert.equal(scoped.URFAEL_OVERLAY, '1');                         // every sandboxed child is stamped
+  assert.equal(scoped.ANTHROPIC_BASE_URL, 'http://gpu.local');     // model ROUTING forwarded (the child must reach the model)
+  assert.equal(scoped.URFAEL_OPUS_MODEL, 'opus');
+  assert.ok(!('TELEGRAM_BOT_TOKEN' in scoped), 'a bridge secret must be stripped');
+  assert.ok(!('AWS_SECRET_ACCESS_KEY' in scoped), 'an unrelated secret must be stripped');
+  assert.ok(!('RANDOM_AMBIENT' in scoped), 'an ambient var must be stripped');
+  assert.ok(!('URFAEL_SANDBOX' in scoped), 'a non-allowlisted knob is NOT forwarded without an explicit extra');
+  const withExtra = scopedEnv(src, ['URFAEL_SANDBOX']);            // extras forward a legitimately-needed knob
+  assert.equal(withExtra.URFAEL_SANDBOX, 'docker');
+  assert.ok(!('TELEGRAM_BOT_TOKEN' in withExtra), 'extras never widen the secret surface');
+});
+
+test('scopedEnv is pure + fresh: never mutates src, returns a new object, sets the minimal floor', () => {
+  const src = { PATH: '/p', HOME: '/h', SECRET_X: 's' };
+  const a = scopedEnv(src); const b = scopedEnv(src);
+  assert.notStrictEqual(a, b);                                      // a fresh object each call
+  assert.deepEqual(src, { PATH: '/p', HOME: '/h', SECRET_X: 's' }); // src is untouched
+  assert.ok(!('SECRET_X' in a));
+  assert.equal(a.URFAEL_OVERLAY, '1');
+});
+
+test('runner.jobEnv: a background /job child gets the SCOPED env (ambient secret ABSENT), goal-loop knob preserved', () => {
+  const secretKey = 'URFAEL_TEST_FAKE_BRIDGE_SECRET';              // a bridge-shaped secret sitting in the daemon env
+  const savedSecret = process.env[secretKey];
+  const savedSandbox = process.env.URFAEL_SANDBOX;
+  process.env[secretKey] = 'telegram-owner-token';
+  process.env.URFAEL_SANDBOX = 'docker';                           // an owner-set operational default the job legitimately reads
+  try {
+    const e = runner.jobEnv();
+    assert.ok(!(secretKey in e), 'the background child must NOT inherit an ambient daemon secret');
+    assert.equal(e.PATH, process.env.PATH, 'PATH is kept so the job still runs');
+    assert.equal(e.URFAEL_OVERLAY, '1');
+    assert.equal(e.URFAEL_SANDBOX, 'docker', 'the goal-loop isolation selector is preserved (behaviour identical for an owner-local job)');
+  } finally {
+    if (savedSecret === undefined) delete process.env[secretKey]; else process.env[secretKey] = savedSecret;
+    if (savedSandbox === undefined) delete process.env.URFAEL_SANDBOX; else process.env.URFAEL_SANDBOX = savedSandbox;
+  }
 });

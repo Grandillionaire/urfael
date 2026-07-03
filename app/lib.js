@@ -222,6 +222,27 @@ function narrowScope(requested, ceiling) {
   return within ? req.scope : cap.scope;
 }
 
+// The env ALLOWLIST for EVERY sandboxed / delegated child (remote turns, cron, hooks, watches, background /job):
+// PATH/HOME + our model knobs + the backend ROUTING/ACCESS vars (so "run on a local GPU / Bedrock / Vertex / a
+// proxy" works on every path), and NOTHING else. The daemon's unrelated secrets (bridge.env, other providers'
+// keys, anything ambient in its environment) are stripped BY CONSTRUCTION — this is an allowlist, fail-closed.
+// Single-sourced here so no spawn path can quietly diverge and hand a child the full process env. The untrusted
+// profile has no egress tool anyway, so a forwarded model credential can't be exfiltrated. Pure: reads `src`
+// only, never mutates it, returns a fresh object; `extra` forwards spawn-specific knobs a child legitimately
+// needs (e.g. goal-loop's isolation/backend selectors) without widening the secret surface.
+const SCOPED_ENV_PROVIDER = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_SMALL_FAST_MODEL', 'ANTHROPIC_CUSTOM_HEADERS', 'ANTHROPIC_BEDROCK_BASE_URL', 'ANTHROPIC_VERTEX_BASE_URL',
+  'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_SKIP_BEDROCK_AUTH', 'CLAUDE_CODE_SKIP_VERTEX_AUTH',
+  'AWS_REGION', 'AWS_PROFILE', 'AWS_BEARER_TOKEN_BEDROCK', 'CLOUD_ML_REGION', 'ANTHROPIC_VERTEX_PROJECT_ID', 'GOOGLE_APPLICATION_CREDENTIALS'];
+const SCOPED_ENV_KEYS = ['URFAEL_SONNET_MODEL', 'URFAEL_OPUS_MODEL', 'URFAEL_CLAUDE_BIN', 'URFAEL_VAULT_DIR', ...SCOPED_ENV_PROVIDER];
+function scopedEnv(src, extra) {
+  const s = src || process.env;
+  const env = { PATH: s.PATH, HOME: s.HOME, URFAEL_OVERLAY: '1' };
+  for (const k of [...SCOPED_ENV_KEYS, ...(Array.isArray(extra) ? extra : [])]) if (s[k]) env[k] = s[k];
+  return env;
+}
+
 // ---- TEAM / MULTI-OWNER MODE -------------------------------------------------------------------------
 // Multiple allowlisted principals per channel, each with a role. The CRITICAL invariant: a role can only
 // NARROW access for a remote turn, never widen it. A remote turn is NEVER 'local' (full power) no matter the
@@ -1068,4 +1089,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, CHAIN_MAX, makeCronGate, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, CHAIN_MAX, makeCronGate, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };

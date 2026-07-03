@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const store = require('./jobstore');
-const { delegateScope } = require('./lib');
+const { delegateScope, scopedEnv } = require('./lib');
 
 const VAULT = path.join(os.homedir(), process.env.URFAEL_VAULT_DIR || 'Urfael');
 const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude']
@@ -71,6 +71,15 @@ function argvFor(job) {
     '--allowedTools', allowed, '--strict-mcp-config']; // scope-derived allowlist, never a shell
 }
 
+// The background child crosses the SAME scopedEnv() boundary every other spawn uses (cron, hook, watch, remote,
+// askScoped): PATH/HOME + model knobs + the backend routing/access vars, and NOTHING else — so the daemon's
+// unrelated secrets (bridge.env, other providers' keys, anything ambient in its environment) never reach an
+// UNREVIEWED background job. This was the LONE spawn path still handing the child the full process env. The
+// goal-loop's operational selectors (isolation backend + yolo, the documented env-equivalents of its --sandbox
+// / --ssh-* / bypass flags) are forwarded so a normal owner-local job behaves identically; nothing else is.
+const JOB_ENV_KEYS = ['URFAEL_YOLO', 'URFAEL_SANDBOX', 'URFAEL_SANDBOX_IMAGE', 'URFAEL_SSH_HOST', 'URFAEL_SSH_DIR'];
+function jobEnv() { return scopedEnv(process.env, JOB_ENV_KEYS); }
+
 function run(job) {
   const id = job.id;
   let fd;
@@ -78,7 +87,7 @@ function run(job) {
   let proc;
   try {
     const [cmd, ...args] = argvFor(job);
-    proc = spawn(cmd, args, { cwd: VAULT, env: { ...process.env, URFAEL_OVERLAY: '1' },
+    proc = spawn(cmd, args, { cwd: VAULT, env: jobEnv(),
       stdio: ['ignore', fd, fd], detached: true });
   } catch (e) {
     store.update(id, { state: 'error', endedAt: new Date().toISOString(), result: String((e && e.message) || e) });
@@ -109,4 +118,4 @@ function cancel(id) {
   return true;
 }
 
-module.exports = { run, cancel, argvFor, attribution };
+module.exports = { run, cancel, argvFor, attribution, jobEnv };

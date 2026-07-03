@@ -302,6 +302,24 @@ async function main() {
       return noEgressChild && ownerInherits && narrowsOnly && wired;
     })(),
     'no shell/write on a scheduled untrusted-data turn; a delegated background subagent inherits the originating profile via delegateScope (untrusted → no egress; local inherits, never a shell) and POST /job is narrow-only (narrowScope), so a child never re-enters with unscoped egress');
+  // GAP (adversarial audit 2026-07): the background /job was the LAST spawn path still handing the child the daemon's
+  // FULL process env; it now crosses the SAME scopedEnv() allowlist as cron/hook/watch/remote, so bridge.env + unrelated
+  // provider keys never reach an UNREVIEWED background child. The goal-loop's own isolation selectors stay forwarded.
+  const runnerSrc = fs.readFileSync(path.join(APP, 'runner.js'), 'utf8');
+  check('a background /job child gets the SCOPED env like every other spawn (an ambient bridge/provider secret is STRIPPED, never inherited)',
+    (() => {
+      const AMBIENT = 'URFAEL_BENCH_FAKE_BRIDGE_SECRET';
+      const saved = process.env[AMBIENT]; process.env[AMBIENT] = 'telegram-owner-token';   // a bridge-shaped secret sitting in the daemon env
+      try {
+        const e = runner.jobEnv();
+        const stripped = !(AMBIENT in e);                                            // the ambient secret is gone
+        const stillRuns = e.PATH === process.env.PATH && e.URFAEL_OVERLAY === '1';    // PATH kept + overlay stamped → the job still runs
+        const wired = /env: jobEnv\(\)/.test(runnerSrc) && !/\{ \.\.\.process\.env, URFAEL_OVERLAY: '1' \}/.test(runnerSrc);  // run() routes through the boundary; the raw full-env spawn is gone
+        const singleSourced = /scopedEnv \} = require\('\.\/lib'\)/.test(runnerSrc);  // the ONE shared allowlist, never a private copy that could drift
+        return stripped && stillRuns && wired && singleSourced;
+      } finally { if (saved === undefined) delete process.env[AMBIENT]; else process.env[AMBIENT] = saved; }
+    })(),
+    'runner.run() spawns with jobEnv() = the single-sourced scopedEnv allowlist; a bridge/provider secret ambient in the daemon env can never cross into a background job');
   // REGRESSION GUARD (QA-found 2026-06): the memory repo is a SIBLING of the vault, so it's outside the brain's
   // project root — without --add-dir the brain can't read OR write its own memory ("behind a permission wall").
   check('the brain can reach its own memory (--add-dir MEMORY_DIR on the warm session + write passes)', /const MEMDIR_ADD = \['--add-dir', MEMORY_DIR\]/.test(daemonSrc) && (daemonSrc.match(/\.\.\.MEMDIR_ADD/g) || []).length >= 5, 'self-learning loop reads + persists memory; can\'t silently regress');
