@@ -254,7 +254,7 @@ See also: `reminders` · `cron`
 list scheduled reminders.
 
 ```bash
-urfael reminders
+urfael reminders | unremind <id>
 ```
 
 Examples:
@@ -263,7 +263,7 @@ Examples:
 urfael reminders
 ```
 
-See also: `remind`
+See also: `remind` · `unremind`
 
 ### `urfael jobs`
 
@@ -937,6 +937,7 @@ Folded under a parent command above, but valid on their own:
 
 | Command | What it does |
 |---|---|
+| `urfael unremind` | cancel a scheduled reminder by id |
 | `urfael job` | inspect one background job (full record + log tail) |
 | `urfael cancel` | cancel a background job by id |
 

@@ -39,6 +39,16 @@ jobs:
         with: { node-version: '20' }
       - run: npm ci || npm install
       - run: npm test
+      # Gate a release on the SAME credential-free harnesses as ci.yml (see ci.yml). A change that passes
+      # unit tests but breaks input-fuzz or the SSRF red-team must NOT be packageable into a tagged release.
+      # The live-daemon security benchmark (`npm run security`) is intentionally absent: it boots a real
+      # daemon on a `claude` login and spends real turns, so it stays on the manual release checklist.
+      - name: fuzz the input boundaries (small budget for CI)
+        run: npm run fuzz
+        env:
+          FUZZ_ITERS: '6000'
+      - name: SSRF red-team (differential, loopback)
+        run: npm run redteam
       - name: Build installer
         # --publish never: only BUILD here. With GH_TOKEN present, electron-builder would otherwise try to
         # auto-publish on a tag, which collides with the explicit release step below and fails the build.

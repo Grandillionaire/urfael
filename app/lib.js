@@ -13,7 +13,8 @@ const fs = require('fs');
 // every reminder and cron. Mirrors the pending.json writer (temp+rename, 0600), plus the fsync durability needs.
 function atomicWriteJSON(file, obj) {
   const body = JSON.stringify(obj, null, 2);                 // throws on a circular/bad value → nothing on disk is touched
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
   const tmp = file + '.tmp-' + process.pid + '-' + crypto.randomBytes(4).toString('hex'); // unique: two writers never share a tmp
   let fd;
   try {
@@ -22,12 +23,30 @@ function atomicWriteJSON(file, obj) {
     try { fs.fsyncSync(fd); } catch {}                       // best-effort durability (some fs/platforms reject fsync)
     fs.closeSync(fd); fd = undefined;
     fs.renameSync(tmp, file);                                // atomic on POSIX: the reader sees old-or-new, never a torn write
+    fsyncDir(dir);                                           // best-effort: make the rename entry itself durable across a hard power-loss
   } catch (e) {
     if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
     try { fs.rmSync(tmp, { force: true }); } catch {}        // never leave a half-written sidecar behind
     throw e;
   }
   return file;
+}
+
+// Best-effort parent-directory fsync. The atomic rename is already crash-atomic (a reader sees old-or-new, never a
+// torn file), but the DIRECTORY entry that now points at the new file only becomes durable across a hard power-loss
+// once the directory itself is fsync'd — without it the file's bytes can survive while the rename is lost. Some
+// platforms (Windows) reject opening or fsync'ing a directory (EISDIR/EINVAL/EPERM); that's fine, we swallow it. This
+// only strengthens durability; it never affects the atomicity guarantee.
+function fsyncDir(dir) {
+  let dfd;
+  try {
+    dfd = fs.openSync(dir, 'r');
+    fs.fsyncSync(dfd);
+  } catch {
+    // platforms that disallow directory fsync just skip it — atomicity is unchanged
+  } finally {
+    if (dfd !== undefined) { try { fs.closeSync(dfd); } catch {} }
+  }
 }
 
 // Model tiers, as Claude Code aliases ('sonnet'/'opus') so they always resolve to the latest
@@ -509,6 +528,7 @@ function normalizeJobAction(spec, depth = 0) {
 function makeCronGate(cap, persist) {
   cap = Math.max(1, cap | 0);
   let running = false;
+  let seq = 0;                          // monotonic per-ENQUEUE occurrence stamp (see below)
   const q = [];
   const save = typeof persist === 'function' ? persist : null;
   const flush = () => { if (save) { try { save(q.slice()); } catch {} } };   // snapshot the WHOLE queue; caller writes it atomically
@@ -516,22 +536,37 @@ function makeCronGate(cap, persist) {
     busy: () => running,
     depth: () => q.length,
     admit(item) {
-      if (running) { if (q.length >= cap) return 'dropped'; q.push(item); flush(); return 'queued'; }
+      if (running) {
+        if (q.length >= cap) return 'dropped';
+        // Stamp a per-enqueue occurrence id so two GENUINELY-DISTINCT fires of the SAME repeat job (identical
+        // job.id + opts.ev, queued back-to-back while busy) stay SEPARATE entries — and both survive a reload,
+        // because it becomes part of the persisted snapshot. A reloaded DUPLICATE of the same persisted entry
+        // carries the same stamp, so dedupePending still collapses it. Stamp in place (never wrap) so release()
+        // hands back the SAME object reference; keep an existing stamp so a re-enqueue can't renumber an occurrence.
+        if (item && typeof item === 'object' && item.seq == null) item.seq = ++seq;
+        q.push(item); flush(); return 'queued';
+      }
       running = true; return 'run';   // FAST PATH unchanged: no queue, no persist — an in-flight fire is not pending
     },
     release() { running = false; if (!q.length) return null; const item = q.shift(); flush(); return item; },
   };
 }
 // Normalize a persisted cron pending queue for boot re-dispatch: keep only well-formed { job, ... } entries, DEDUPE by a
-// stable identity (job.id + fire event) so a double-persist can never double-fire, and BOUND to the cap so a corrupt or
+// stable identity so a double-persist of the SAME entry can never double-fire, and BOUND to the cap so a corrupt or
 // oversized file can't flood the re-dispatch. Pure + fail-closed: a non-array, or any junk entry, is dropped, never thrown.
+// The identity is job.id + fire event + the per-enqueue OCCURRENCE stamp (item.seq, stamped by makeCronGate on enqueue).
+// The occurrence stamp is what keeps two genuinely-distinct fires of the same repeat job (same id+ev, queued back-to-back
+// while busy) as SEPARATE survivors; a reloaded duplicate of the SAME persisted entry carries the SAME stamp, so it still
+// collapses to one. Legacy entries with no seq fall back to (id, ev) — the original collapse-identical behavior — so an
+// old pending.json (or any non-gate producer) is unaffected.
 function dedupePending(items, cap) {
   cap = Math.max(1, cap | 0);
   const out = [], seen = new Set();
   if (!Array.isArray(items)) return out;
   for (const it of items) {
     if (!it || typeof it !== 'object' || !it.job || typeof it.job !== 'object') continue;
-    const key = String(it.job.id == null ? '' : it.job.id) + '|' + String((it.opts && it.opts.ev) || '');
+    const occ = it.seq == null ? '' : String(it.seq);
+    const key = String(it.job.id == null ? '' : it.job.id) + '|' + String((it.opts && it.opts.ev) || '') + '|' + occ;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(it);
@@ -760,11 +795,31 @@ function reapOrphanPids(text, isAlive) {
 // side-effecting probe (execFileSync-shaped: (cmd, args) -> stdout), injected so this stays unit-testable
 // without spawning a real `ps`. Returns '' for a dead/unreadable/implausible pid — callers treat '' as
 // "unverifiable" and, being fail-closed, never reap it.
+function plausiblePid(pid) { return Number.isInteger(pid) && pid > 0 && pid <= 0x7fffffff; }
+function normMarker(out) { return String(out == null ? '' : out).replace(/\s+/g, ' ').trim(); } // one normalizer so the sync + async probes can never diverge
 function pidStartMarker(pid, run) {
   if (typeof run !== 'function') return '';
-  if (!Number.isInteger(pid) || pid <= 0 || pid > 0x7fffffff) return '';
+  if (!plausiblePid(pid)) return '';
   let out; try { out = run('ps', ['-o', 'lstart=', '-p', String(pid)]); } catch { return ''; } // non-zero exit (no such pid) throws → ''
-  return String(out == null ? '' : out).replace(/\s+/g, ' ').trim();
+  return normMarker(out);
+}
+
+// Async twin of pidStartMarker for the SPAWN HOT PATH: same guard + normalization, but the ps probe is
+// execFile-shaped (non-blocking) so recording a freshly-spawned pid never waits on a synchronous `ps`. `runAsync`
+// is (cmd, args, cb) => void where cb is (err, stdout); `cb(marker)` is invoked exactly once with the normalized
+// marker, or '' on any error / dead-or-implausible pid / missing probe (callers treat '' as unverifiable → never
+// reaped). A start time is immutable for a process's life, so capturing it a few ms after spawn is identical to
+// capturing it inline — but off the turn's critical path.
+function pidStartMarkerAsync(pid, runAsync, cb) {
+  const done = (m) => { try { if (typeof cb === 'function') cb(m); } catch {} };
+  if (!plausiblePid(pid) || typeof runAsync !== 'function') return done('');
+  let fired = false;
+  try {
+    runAsync('ps', ['-o', 'lstart=', '-p', String(pid)], (err, out) => {
+      if (fired) return; fired = true;
+      done(err ? '' : normMarker(out));                                   // ps non-zero exit (no such pid) → err → ''
+    });
+  } catch { if (!fired) { fired = true; done(''); } }                     // a throwing runAsync fails closed to ''
 }
 
 // Build the reaper's per-pid predicate from a marker source (pid -> current marker). A recorded (pid, marker)
@@ -781,17 +836,23 @@ function stillOursProbe(currentMarker) {
 }
 
 // The ONE shared pid-ledger both long-lived-helper reapers use (daemon.js brain.pids, main.js whisper.pids), so
-// the record + marker-verified reap logic lives in exactly one place. record(pid) appends `pid:marker`; reap()
-// SIGKILLs every recorded pid that is STILL OURS (alive + marker matches) then truncates the file. Every side
-// effect is injected via `io` (read/write/append/mkdir/kill/run) so the whole ledger is testable with in-memory
-// files and a fake `ps`, and so main.js (Electron) and daemon.js (Node) wire their own fs/kill without diverging.
+// the record + marker-verified reap logic lives in exactly one place. record(pid) captures the pid's start-time
+// marker OFF the spawn hot path (async `ps` via io.runAsync) and appends `pid:marker` when it resolves — so a
+// brain/whisper spawn is NEVER blocked by a synchronous ps; reap() SIGKILLs every recorded pid that is STILL OURS
+// (alive + marker matches) then truncates the file. reap runs at BOOT (before binding / before the first turn),
+// off the hot path, so it keeps the synchronous probe. Every side effect is injected via `io`
+// (read/write/append/mkdir/kill/run/runAsync) so the whole ledger is testable with in-memory files and a fake
+// `ps`, and so main.js (Electron) and daemon.js (Node) wire their own fs/kill without diverging.
 function makePidLedger(io, file) {
-  const marker = (pid) => pidStartMarker(pid, io.run);
+  const marker = (pid) => pidStartMarker(pid, io.run);                    // sync probe — reap()'s boot-path verify only
   return {
     record(pid) {
-      if (!Number.isInteger(pid) || pid <= 0 || pid > 0x7fffffff) return;
+      if (!plausiblePid(pid)) return;
       try { if (typeof io.mkdir === 'function') io.mkdir(); } catch {}
-      try { io.append(file, pid + ':' + marker(pid) + '\n'); } catch {}   // capture identity NOW, while the child is provably alive
+      // capture the start-time marker asynchronously so the spawn returns immediately; append the full
+      // `pid:marker` line only once ps resolves. A crash in that (millisecond) window leaves no record → the
+      // orphan is not reaped, which is fail-SAFE (we never SIGKILL an unverified pid), never fail-dangerous.
+      pidStartMarkerAsync(pid, io.runAsync, (m) => { try { io.append(file, pid + ':' + m + '\n'); } catch {} });
     },
     reap() {
       try { for (const pid of reapOrphanPids(io.read(file), stillOursProbe(marker))) { try { io.kill(pid); } catch {} } } catch {}
@@ -1218,4 +1279,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { atomicWriteJSON, resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { atomicWriteJSON, resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, pidStartMarkerAsync, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };

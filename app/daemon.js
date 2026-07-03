@@ -195,7 +195,8 @@ const brainLedger = makePidLedger({
   append: (f, s) => fs.appendFileSync(f, s),
   mkdir: () => fs.mkdirSync(JDIR, { recursive: true }),
   kill: (pid) => process.kill(pid, 'SIGKILL'),
-  run: (cmd, args) => require('child_process').execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).toString(),
+  run: (cmd, args) => require('child_process').execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).toString(),               // reap()'s boot-path verify (sync is fine there)
+  runAsync: (cmd, args, cb) => { try { require('child_process').execFile(cmd, args, { timeout: 2000 }, cb); } catch (e) { cb(e); } },                    // record()'s hot-path probe — non-blocking, keeps the brain spawn off the ps latency
 }, BRAIN_PIDFILE);
 function recordBrainPid(pid) { brainLedger.record(pid); }
 function cleanupOrphanBrains() { brainLedger.reap(); }
