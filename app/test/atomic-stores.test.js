@@ -51,6 +51,37 @@ test('atomicWriteJSON: a normal write round-trips, is 0600, and leaves no .tmp s
   assert.deepEqual(siblings(f), ['rt.json'], 'no leftover .tmp-* sidecar after a successful write');
 });
 
+// ── 1b. atomicWriteJSON fsyncs the PARENT DIRECTORY after the rename (rename durability across a hard power-loss) ──
+// The atomic rename already guarantees a reader sees old-or-new (never torn). But the directory entry that now points
+// at the new file is only durable across a power-loss once the DIRECTORY itself is fsync'd. Spy on fs.fsyncSync and
+// prove one of the fsync'd fds was a directory — while the write still round-trips and leaves no sidecar behind.
+test('atomicWriteJSON: fsyncs the parent directory after the atomic rename (durability), still round-trips', () => {
+  wipe();
+  const f = path.join(JDIR, 'dur.json');
+  const obj = { k: 'v', n: 42, list: [9, 8, 7] };
+
+  const origFsync = fs.fsyncSync;
+  let dirFsyncs = 0, totalFsyncs = 0;
+  fs.fsyncSync = (fd) => {
+    totalFsyncs++;
+    try { if (fs.fstatSync(fd).isDirectory()) dirFsyncs++; } catch {}
+    return origFsync(fd);
+  };
+  let ret;
+  try {
+    ret = lib.atomicWriteJSON(f, obj);                         // must not throw even though we routed a dir fd through fsync
+  } finally {
+    fs.fsyncSync = origFsync;
+  }
+
+  assert.equal(ret, f, 'returns the target path on success');
+  assert.deepEqual(JSON.parse(fs.readFileSync(f, 'utf8')), obj, 'content still round-trips after the parent-dir fsync');
+  assert.equal(fs.statSync(f).mode & 0o777, 0o600, 'still written owner-only (0600)');
+  assert.ok(totalFsyncs >= 2, 'both the temp file fd AND the parent-dir fd were fsync\'d');
+  assert.ok(dirFsyncs >= 1, 'the parent DIRECTORY fd was fsync\'d after the rename (best-effort durability path ran)');
+  assert.deepEqual(siblings(f), ['dur.json'], 'no leftover .tmp-* sidecar after the durable write');
+});
+
 // ── 2. atomicWriteJSON never truncates the existing store on a failed write ──
 // The real regression: a non-atomic writeFileSync that dies mid-write leaves a truncated (or 0-byte) file, wiping
 // the owner's data. atomicWriteJSON serializes FIRST, so a bad value throws BEFORE any file op — the prior store

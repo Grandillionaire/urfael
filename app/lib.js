@@ -13,7 +13,8 @@ const fs = require('fs');
 // every reminder and cron. Mirrors the pending.json writer (temp+rename, 0600), plus the fsync durability needs.
 function atomicWriteJSON(file, obj) {
   const body = JSON.stringify(obj, null, 2);                 // throws on a circular/bad value → nothing on disk is touched
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
   const tmp = file + '.tmp-' + process.pid + '-' + crypto.randomBytes(4).toString('hex'); // unique: two writers never share a tmp
   let fd;
   try {
@@ -22,12 +23,30 @@ function atomicWriteJSON(file, obj) {
     try { fs.fsyncSync(fd); } catch {}                       // best-effort durability (some fs/platforms reject fsync)
     fs.closeSync(fd); fd = undefined;
     fs.renameSync(tmp, file);                                // atomic on POSIX: the reader sees old-or-new, never a torn write
+    fsyncDir(dir);                                           // best-effort: make the rename entry itself durable across a hard power-loss
   } catch (e) {
     if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
     try { fs.rmSync(tmp, { force: true }); } catch {}        // never leave a half-written sidecar behind
     throw e;
   }
   return file;
+}
+
+// Best-effort parent-directory fsync. The atomic rename is already crash-atomic (a reader sees old-or-new, never a
+// torn file), but the DIRECTORY entry that now points at the new file only becomes durable across a hard power-loss
+// once the directory itself is fsync'd — without it the file's bytes can survive while the rename is lost. Some
+// platforms (Windows) reject opening or fsync'ing a directory (EISDIR/EINVAL/EPERM); that's fine, we swallow it. This
+// only strengthens durability; it never affects the atomicity guarantee.
+function fsyncDir(dir) {
+  let dfd;
+  try {
+    dfd = fs.openSync(dir, 'r');
+    fs.fsyncSync(dfd);
+  } catch {
+    // platforms that disallow directory fsync just skip it — atomicity is unchanged
+  } finally {
+    if (dfd !== undefined) { try { fs.closeSync(dfd); } catch {} }
+  }
 }
 
 // Model tiers, as Claude Code aliases ('sonnet'/'opus') so they always resolve to the latest
