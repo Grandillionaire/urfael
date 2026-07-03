@@ -40,7 +40,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv: libScopedEnv, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs, makeCronGate, makePidLedger } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv: libScopedEnv, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs, makeCronGate, dedupePending, makePidLedger } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -1190,7 +1190,28 @@ function deliverReminder(r) {
 // a one-shot watch fire, or an already-202-acked webhook 'ask' is never silently lost. Only an overflow past the
 // cap drops, and it drops LOUDLY. The busy/enqueue/drain policy is the pure, unit-tested lib.makeCronGate.
 const CRON_PENDING_MAX = 32;
-const cronGate = makeCronGate(CRON_PENDING_MAX);
+// Persist the pending FIFO so a QUEUED fire — already REMOVED from its own one-shot store (a one-shot cron, a one-shot
+// watch fire, an already-202-acked webhook 'ask') — is not lost if the daemon dies before it drains. The gate hands us a
+// snapshot of the whole queue on every enqueue/drain; we mirror it to a bounded, 0600 pending.json (temp+rename atomic).
+// An empty queue removes the file. The not-busy fast path never calls this, so the common case still writes nothing.
+const CRON_PENDING_FILE = path.join(JDIR, 'pending.json');
+function savePendingCron(queue) {
+  try {
+    if (!queue.length) { fs.rmSync(CRON_PENDING_FILE, { force: true }); return; }
+    fs.mkdirSync(JDIR, { recursive: true });
+    const tmp = CRON_PENDING_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(queue.slice(0, CRON_PENDING_MAX), null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, CRON_PENDING_FILE);
+  } catch {}
+}
+// Boot: read the survivors, deduped + bounded (a corrupt/oversized file can't double-fire or flood). The caller CLEARS
+// the file before re-dispatch — the loaded copy is in memory, and the gate re-persists whatever stays queued as they go.
+function loadPendingCron() {
+  let raw = null;
+  try { raw = JSON.parse(fs.readFileSync(CRON_PENDING_FILE, 'utf8')); } catch { return []; }
+  return dedupePending(raw, CRON_PENDING_MAX);
+}
+const cronGate = makeCronGate(CRON_PENDING_MAX, savePendingCron);
 // Completion: release the flight and, if a fire was deferred while busy, drain EXACTLY ONE and re-dispatch it
 // through the normal deliverCron gate (the flight is free again, so it acquires cleanly). setImmediate keeps the
 // drain off the completing job's stack and lets a fresher tick race in harmlessly (it just re-queues).
@@ -2601,6 +2622,17 @@ function listen() {
     scheduler.start(deliverReminder);
     scheduler.startCron(deliverCron); // re-arm persisted cron jobs; ticked in the same scheduler interval
     scheduler.startWatchers(deliverWatch); // re-arm persisted local event triggers (file/glob fs.watch + pid poll)
+    // Re-dispatch any fires that were QUEUED behind an in-flight run when the daemon last died — they were already pulled
+    // from their one-shot stores, so pending.json is their ONLY survivor. Clear the file first (they're in memory now);
+    // re-dispatching through deliverCron re-persists whatever stays queued (the flight is free, so the first runs at once).
+    try {
+      const pend = loadPendingCron();
+      if (pend.length) {
+        savePendingCron([]);
+        for (const it of pend) { const p = it; setImmediate(() => deliverCron(p.job, p.opts)); }
+        logEvent({ ev: 'cron_pending_restore', n: pend.length });
+      }
+    } catch {}
     if (HB_MINS) { lastBeat = Date.now(); const t = setInterval(heartbeat, 60000); if (t.unref) t.unref(); } // first beat ~HB_MINS after boot
     if (CURATOR_DAYS) { const t = setInterval(curate, 30 * 60000); if (t.unref) t.unref(); } // every 30min the curator re-checks its N-day cadence + busy state
     // recall index: build/catch-up off the hot path (a first build over a huge archive shouldn't block serving),

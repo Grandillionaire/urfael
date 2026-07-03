@@ -476,19 +476,42 @@ function normalizeJobAction(spec, depth = 0) {
 //                'queued'  -> a prior run is in flight; deferred, will be drained on release()
 //                'dropped' -> the queue is at cap; caller logs a LOUD, bounded drop (never silent)
 //   release(): clears the flight and returns the next queued item to re-dispatch (via admit again), or null.
-function makeCronGate(cap) {
+// `persist` is an OPTIONAL snapshot sink: whenever the pending FIFO changes (a fire is QUEUED, or one is DRAINED), the
+// gate hands it a fresh copy of the whole queue so the daemon can mirror it to a bounded, 0600 pending.json — a queued
+// one-shot fire (already removed from its own store) then survives a mid-busy restart. The not-busy FAST PATH never
+// calls it: an in-flight fire is running, not "pending". Injected (not baked-in fs) so the policy stays unit-testable.
+function makeCronGate(cap, persist) {
   cap = Math.max(1, cap | 0);
   let running = false;
   const q = [];
+  const save = typeof persist === 'function' ? persist : null;
+  const flush = () => { if (save) { try { save(q.slice()); } catch {} } };   // snapshot the WHOLE queue; caller writes it atomically
   return {
     busy: () => running,
     depth: () => q.length,
     admit(item) {
-      if (running) { if (q.length >= cap) return 'dropped'; q.push(item); return 'queued'; }
-      running = true; return 'run';
+      if (running) { if (q.length >= cap) return 'dropped'; q.push(item); flush(); return 'queued'; }
+      running = true; return 'run';   // FAST PATH unchanged: no queue, no persist — an in-flight fire is not pending
     },
-    release() { running = false; return q.length ? q.shift() : null; },
+    release() { running = false; if (!q.length) return null; const item = q.shift(); flush(); return item; },
   };
+}
+// Normalize a persisted cron pending queue for boot re-dispatch: keep only well-formed { job, ... } entries, DEDUPE by a
+// stable identity (job.id + fire event) so a double-persist can never double-fire, and BOUND to the cap so a corrupt or
+// oversized file can't flood the re-dispatch. Pure + fail-closed: a non-array, or any junk entry, is dropped, never thrown.
+function dedupePending(items, cap) {
+  cap = Math.max(1, cap | 0);
+  const out = [], seen = new Set();
+  if (!Array.isArray(items)) return out;
+  for (const it of items) {
+    if (!it || typeof it !== 'object' || !it.job || typeof it.job !== 'object') continue;
+    const key = String(it.job.id == null ? '' : it.job.id) + '|' + String((it.opts && it.opts.ev) || '');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(it);
+    if (out.length >= cap) break;
+  }
+  return out;
 }
 
 // ---- CRON-SYNTAX SCHEDULING ----------------------------------------------------------------------------
@@ -1169,4 +1192,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
