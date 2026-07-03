@@ -3,6 +3,32 @@
 // (Extracted so the race-prone bits — routing + sentence segmentation — are actually covered.)
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
+
+// ---- CRASH-SAFE JSON STORE WRITE (shared) ------------------------------------------------------------
+// The one place any durable owner store (reminders, cron jobs, ...) is written to disk. Serialize FIRST so a
+// bad/circular value throws BEFORE any file op (it can never truncate the existing store), then write a sibling
+// tmp, fsync it to disk, and atomic-rename it OVER the target at mode 0600. The rename is the ONLY mutation a
+// reader ever observes, so a crash / ENOSPC mid-write leaves the PRIOR file intact instead of silently wiping
+// every reminder and cron. Mirrors the pending.json writer (temp+rename, 0600), plus the fsync durability needs.
+function atomicWriteJSON(file, obj) {
+  const body = JSON.stringify(obj, null, 2);                 // throws on a circular/bad value → nothing on disk is touched
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.tmp-' + process.pid + '-' + crypto.randomBytes(4).toString('hex'); // unique: two writers never share a tmp
+  let fd;
+  try {
+    fd = fs.openSync(tmp, 'w', 0o600);
+    fs.writeSync(fd, body);
+    try { fs.fsyncSync(fd); } catch {}                       // best-effort durability (some fs/platforms reject fsync)
+    fs.closeSync(fd); fd = undefined;
+    fs.renameSync(tmp, file);                                // atomic on POSIX: the reader sees old-or-new, never a torn write
+  } catch (e) {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
+    try { fs.rmSync(tmp, { force: true }); } catch {}        // never leave a half-written sidecar behind
+    throw e;
+  }
+  return file;
+}
 
 // Model tiers, as Claude Code aliases ('sonnet'/'opus') so they always resolve to the latest
 // model your plan supports — no pinned IDs to rot, no source edits when Anthropic ships a new one.
@@ -1192,4 +1218,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { atomicWriteJSON, resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
