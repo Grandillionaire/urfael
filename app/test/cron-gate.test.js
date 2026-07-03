@@ -178,6 +178,58 @@ test('makeCronGate persist: draining a fire removes it from pending.json, and th
   }
 });
 
+// ── DISTINCT REPEAT OCCURRENCES: two genuinely-different fires of the SAME repeat job (same id+ev) must BOTH survive ──
+// A repeat cron/hook can fire, get QUEUED while a prior run is in flight, then fire AGAIN before draining. Both entries
+// share job.id + opts.ev — but they are DISTINCT occurrences and both must run. The gate stamps a per-enqueue occurrence
+// id so the persisted snapshot distinguishes them, and dedupePending (used on boot reload) keeps both — while a reloaded
+// DUPLICATE of the SAME persisted entry (a double-persist of ONE occurrence) still collapses to one. The cap still holds.
+test('makeCronGate persist: two DISTINCT fires of the same repeat job (same id+ev) both survive a reload; a duplicate of the SAME entry still dedups; cap holds', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'urfael-cronpersist-'));
+  try {
+    const { persist, load, file } = filePersist(dir, 32);
+    const gate = makeCronGate(32, persist);
+    // A holds the flight; the SAME repeat cron (id 'rep', ev 'cron_fire') fires TWICE more while A is still running.
+    assert.equal(gate.admit({ job: { id: 'A' } }), 'run');
+    const f1 = { job: { id: 'rep' }, opts: { ev: 'cron_fire' } };
+    const f2 = { job: { id: 'rep' }, opts: { ev: 'cron_fire' } };   // a genuinely distinct SECOND occurrence
+    assert.equal(gate.admit(f1), 'queued');
+    assert.equal(gate.admit(f2), 'queued', 'a second distinct fire of the same repeat job is NOT collapsed on enqueue');
+    assert.equal(gate.depth(), 2, 'both distinct occurrences are held in the FIFO');
+    assert.notStrictEqual(f1.seq, f2.seq, 'each enqueue gets its own occurrence stamp');
+
+    // both distinct occurrences survive a RESTART reload — the per-enqueue occurrence stamp keeps them apart.
+    const restored = load();
+    assert.equal(restored.length, 2, 'both distinct fires of the same id+ev survive the reload (NOT collapsed to one)');
+    assert.deepEqual(restored.map((x) => x.job.id + '|' + x.opts.ev), ['rep|cron_fire', 'rep|cron_fire']);
+
+    // contrast: a reloaded DUPLICATE of the SAME persisted entry (identical occurrence stamp) still dedups to one.
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const doubled = dedupePending([onDisk[0], onDisk[0]], 32);
+    assert.equal(doubled.length, 1, 'a duplicate of the SAME persisted entry (identical stamp) collapses to one — no double-fire');
+
+    // and the cap still bounds a queue of DISTINCT occurrences of one repeat job.
+    const capped = dedupePending(
+      [0, 1, 2, 3, 4].map((s) => ({ job: { id: 'rep' }, opts: { ev: 'cron_fire' }, seq: s })),
+      3,
+    );
+    assert.deepEqual(capped.map((x) => x.seq), [0, 1, 2], 'distinct occurrences are bounded to the cap');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dedupePending: distinct occurrence stamps are kept, identical stamps collapse, and the cap holds', () => {
+  const items = [
+    { job: { id: 'rep' }, opts: { ev: 'cron_fire' }, seq: 1 },
+    { job: { id: 'rep' }, opts: { ev: 'cron_fire' }, seq: 2 },   // DISTINCT occurrence -> kept
+    { job: { id: 'rep' }, opts: { ev: 'cron_fire' }, seq: 2 },   // reloaded DUPLICATE of the same entry -> collapsed
+    { job: { id: 'rep' }, opts: { ev: 'cron_fire' }, seq: 3 },
+    { job: { id: 'rep' }, opts: { ev: 'cron_fire' }, seq: 4 },   // past cap 3 -> not reached
+  ];
+  const out = dedupePending(items, 3);
+  assert.deepEqual(out.map((x) => x.seq), [1, 2, 3], 'distinct occurrences kept, the duplicate collapsed, bounded to cap 3');
+});
+
 test('dedupePending: dedupes by (job.id, ev), bounds to cap, and drops junk (fail-closed)', () => {
   const items = [
     { job: { id: 'A' } },

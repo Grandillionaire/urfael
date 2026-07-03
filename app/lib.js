@@ -528,6 +528,7 @@ function normalizeJobAction(spec, depth = 0) {
 function makeCronGate(cap, persist) {
   cap = Math.max(1, cap | 0);
   let running = false;
+  let seq = 0;                          // monotonic per-ENQUEUE occurrence stamp (see below)
   const q = [];
   const save = typeof persist === 'function' ? persist : null;
   const flush = () => { if (save) { try { save(q.slice()); } catch {} } };   // snapshot the WHOLE queue; caller writes it atomically
@@ -535,22 +536,37 @@ function makeCronGate(cap, persist) {
     busy: () => running,
     depth: () => q.length,
     admit(item) {
-      if (running) { if (q.length >= cap) return 'dropped'; q.push(item); flush(); return 'queued'; }
+      if (running) {
+        if (q.length >= cap) return 'dropped';
+        // Stamp a per-enqueue occurrence id so two GENUINELY-DISTINCT fires of the SAME repeat job (identical
+        // job.id + opts.ev, queued back-to-back while busy) stay SEPARATE entries — and both survive a reload,
+        // because it becomes part of the persisted snapshot. A reloaded DUPLICATE of the same persisted entry
+        // carries the same stamp, so dedupePending still collapses it. Stamp in place (never wrap) so release()
+        // hands back the SAME object reference; keep an existing stamp so a re-enqueue can't renumber an occurrence.
+        if (item && typeof item === 'object' && item.seq == null) item.seq = ++seq;
+        q.push(item); flush(); return 'queued';
+      }
       running = true; return 'run';   // FAST PATH unchanged: no queue, no persist — an in-flight fire is not pending
     },
     release() { running = false; if (!q.length) return null; const item = q.shift(); flush(); return item; },
   };
 }
 // Normalize a persisted cron pending queue for boot re-dispatch: keep only well-formed { job, ... } entries, DEDUPE by a
-// stable identity (job.id + fire event) so a double-persist can never double-fire, and BOUND to the cap so a corrupt or
+// stable identity so a double-persist of the SAME entry can never double-fire, and BOUND to the cap so a corrupt or
 // oversized file can't flood the re-dispatch. Pure + fail-closed: a non-array, or any junk entry, is dropped, never thrown.
+// The identity is job.id + fire event + the per-enqueue OCCURRENCE stamp (item.seq, stamped by makeCronGate on enqueue).
+// The occurrence stamp is what keeps two genuinely-distinct fires of the same repeat job (same id+ev, queued back-to-back
+// while busy) as SEPARATE survivors; a reloaded duplicate of the SAME persisted entry carries the SAME stamp, so it still
+// collapses to one. Legacy entries with no seq fall back to (id, ev) — the original collapse-identical behavior — so an
+// old pending.json (or any non-gate producer) is unaffected.
 function dedupePending(items, cap) {
   cap = Math.max(1, cap | 0);
   const out = [], seen = new Set();
   if (!Array.isArray(items)) return out;
   for (const it of items) {
     if (!it || typeof it !== 'object' || !it.job || typeof it.job !== 'object') continue;
-    const key = String(it.job.id == null ? '' : it.job.id) + '|' + String((it.opts && it.opts.ev) || '');
+    const occ = it.seq == null ? '' : String(it.seq);
+    const key = String(it.job.id == null ? '' : it.job.id) + '|' + String((it.opts && it.opts.ev) || '') + '|' + occ;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(it);
