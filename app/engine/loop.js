@@ -44,22 +44,29 @@ function createEngine(cfg) {
     for (steps = 0; steps < maxSteps; steps++) {
       if (signal && signal.aborted) return result(false, 'aborted', 'aborted');
 
-      // compact before every model call so a long tool cycle can't overflow the window mid-run
+      // compact before every model call so a long tool cycle can't overflow the window mid-run. contextWindow is the
+      // model's TOTAL usable window (what the compactor triggers against) — distinct from maxTokens, the per-call
+      // OUTPUT budget below. Conflating them made the compactor treat a 4k output cap as a 4k window and thrash.
       if (compactor) {
         try {
-          const c = await compactor.maybeCompact(messages, { maxTokens: cfg.maxTokens || 32000, ...(opts.compact || {}) });
+          const c = await compactor.maybeCompact(messages, { maxTokens: cfg.contextWindow || 32000, ...(opts.compact || {}) });
           if (c.compacted) { messages.length = 0; messages.push(...c.messages); }
         } catch { /* compaction is best-effort; a bug there must never fail the turn */ }
       }
 
-      const res = await adapter.chat({
-        baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model,
-        messages, tools: toolset.defs,
-        maxTokens: cfg.maxTokens ? Math.min(cfg.maxTokens, DEFAULT_MAX_TOKENS * 4) : DEFAULT_MAX_TOKENS,
-        temperature: cfg.temperature,
-        onDelta: (t) => { finalText += t; if (typeof cfg.onDelta === 'function') { try { cfg.onDelta(t); } catch {} } },
-        signal,
-      });
+      // adapter.chat never rejects (its executor is try-wrapped), but guard the await anyway — a rejected turn must
+      // never escape run() into the daemon's shared chain.
+      let res;
+      try {
+        res = await adapter.chat({
+          baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model,
+          messages, tools: toolset.defs,
+          maxTokens: cfg.maxTokens || DEFAULT_MAX_TOKENS,   // per-call OUTPUT budget only
+          temperature: cfg.temperature,
+          onDelta: (t) => { finalText += t; if (typeof cfg.onDelta === 'function') { try { cfg.onDelta(t); } catch {} } },
+          signal,
+        });
+      } catch (e) { return result(false, String((e && e.message) || e), 'error'); }
 
       usage.inTok += res.usage ? res.usage.inTok | 0 : 0;
       usage.outTok += res.usage ? res.usage.outTok | 0 : 0;
@@ -87,11 +94,13 @@ function createEngine(cfg) {
       return result(true, null, res.stopReason || 'stop');
     }
 
-    // ran out of steps with tools still pending — bounded stop, not a hang
+    // ran out of steps with tools still pending — bounded stop, not a hang. Surface a visible note rather than an
+    // empty answer (finalText was reset after the last tool batch, so there is no model-authored text to return).
+    if (!finalText) finalText = '(stopped after ' + maxSteps + ' tool steps without a final answer)';
     return result(true, null, 'max_steps');
 
     function result(ok, error, stopReason) {
-      return { ok, text: finalText, messages, usage, steps: steps + (ok && !error ? 0 : 0), stopReason, error: error || undefined };
+      return { ok, text: finalText, messages, usage, steps, stopReason, error: error || undefined };
     }
   }
 

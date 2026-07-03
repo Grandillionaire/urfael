@@ -103,8 +103,19 @@ function createCompactor(cfg) {
       return done('summary_failed');
     }
 
-    const summaryMsg = { role: 'user', content: referenceHeader + '\n\n' + res.summary.trim() };
-    const next = [...head, summaryMsg, ...tail];
+    // The summary re-enters as a USER message. If the kept tail ALSO starts with a user message, two consecutive
+    // user messages would violate the Anthropic Messages API's strict alternation (400). alignTailStart only
+    // guarantees the tail doesn't start on an orphan tool_result, not that it starts on an assistant — so fold the
+    // fenced summary into the tail's first user message instead of inserting a separate one. (OpenAI tolerates
+    // adjacency, but fixing it here keeps BOTH adapters' histories valid.)
+    const fenced = referenceHeader + '\n\n' + res.summary.trim();
+    let next;
+    if (tail.length && tail[0] && tail[0].role === 'user') {
+      const merged = { ...tail[0], content: fenced + '\n\n' + String(tail[0].content == null ? '' : tail[0].content) };
+      next = [...head, merged, ...tail.slice(1)];
+    } else {
+      next = [...head, { role: 'user', content: fenced }, ...tail];
+    }
     const tokensAfter = total(next);
     const savedPct = tokensBefore > 0 ? Math.max(0, 1 - tokensAfter / tokensBefore) : 0;
 

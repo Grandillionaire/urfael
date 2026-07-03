@@ -35,7 +35,9 @@ const DEFAULT_TIMEOUT_MS = 300000;       // one whole turn, matching the daemon'
 
 function isLoopback(host) {
   const h = String(host || '').toLowerCase();
-  return h === 'localhost' || h === '::1' || h === '[::1]' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+  // 0.0.0.0 is included to AGREE with connectors.js/providers.js (the registry gate), which treats it as loopback;
+  // the OS routes a connect to 0.0.0.0 to localhost, so a provider row that registered with it must also resolve here.
+  return h === 'localhost' || h === '::1' || h === '[::1]' || h === '0.0.0.0' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
 }
 
 // endpointFor — validate the base URL and derive the chat-completions endpoint. Returns null on ANY rule
@@ -92,6 +94,11 @@ function chat(opts) {
     const fail = (error, stopReason) => finish({ ok: false, text, toolCalls: [], usage, stopReason: stopReason || 'error', error });
     const kill = () => { try { if (req) req.destroy(); } catch {} };
 
+    // NEVER-REJECT contract: the whole build+send is wrapped so a SYNCHRONOUS throw (e.g. http.request rejecting a
+    // header value that contains \r/\n — an un-trimmed API key with a trailing newline is the common trigger — or a
+    // message whose content stringifies with a throw) resolves {ok:false} instead of rejecting the promise. A rejected
+    // turn here would escape into the daemon's shared chain, the exact class of bug the chain .catch was added for.
+    try {
     const endpoint = endpointFor(o.baseUrl);
     if (!endpoint) return fail('invalid or disallowed base URL');
     if (!o.model) return fail('no model');
@@ -150,12 +157,12 @@ function chat(opts) {
       method: 'POST',
       headers,
     }, (res) => {
+      res.on('error', (e) => fail(String((e && e.message) || e)));   // attached FIRST so every branch (incl. redirect) is covered
       if (res.statusCode >= 300 && res.statusCode < 400) { res.resume(); kill(); return fail('redirect refused (' + res.statusCode + ')'); }
       if (res.statusCode !== 200) {
         let errBody = '';
         res.on('data', (d) => { errBody = (errBody + d).slice(0, 2048); });
         res.on('end', () => fail('HTTP ' + res.statusCode + (errBody ? ': ' + errBody.replace(/\s+/g, ' ').slice(0, 300) : '')));
-        res.on('error', (e) => fail(String((e && e.message) || e)));
         return;
       }
       res.on('data', (d) => {
@@ -169,7 +176,6 @@ function chat(opts) {
         const stopReason = toolCalls.length ? 'tool_calls' : (finishReason === 'length' ? 'length' : 'stop');
         finish({ ok: true, text, toolCalls, usage, stopReason });
       });
-      res.on('error', (e) => fail(String((e && e.message) || e)));
     });
 
     // the turn watchdog — finish() clears it on every resolution path, so it can never fire into a dead turn
@@ -181,6 +187,7 @@ function chat(opts) {
     }
     req.on('error', (e) => fail(String((e && e.message) || e)));
     req.end(body);
+    } catch (e) { fail(String((e && e.message) || e)); }   // synchronous build/send throw ⇒ resolve, never reject
   });
 }
 

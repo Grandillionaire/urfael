@@ -35,6 +35,10 @@ const MAX_LIST = 400;                     // directory-listing entry cap
 // are checked FIRST, before any allow-root, so they hold even if a root is misconfigured. Home-anchored.
 function defaultDenyGlobs() {
   const home = os.homedir();
+  // If HOME is unset/relative (getpwuid failure), home-anchored globs would `path.resolve` against process.cwd()
+  // and protect the WRONG location. Fail safe: emit no home globs and rely on the allowlist-root boundary, which
+  // is the primary containment anyway. (A caller can always pass an explicit denyGlobs.)
+  if (!home || !path.isAbsolute(home)) return [];
   const H = (p) => path.join(home, p);
   return [
     H('.claude'), H('.ssh'), H('.aws'), H('.gnupg'), H('.config/gcloud'),
@@ -57,15 +61,17 @@ function isUnder(child, parent) {
 
 // realDeepest(abs) — realpath the deepest EXISTING ancestor of abs, then re-append the non-existent tail. Lets us
 // resolve symlinks for a write target that doesn't exist yet, without following a final symlink we shouldn't.
+// FAILS CLOSED: returns null if the ancestor walk can't resolve within the (generous) budget, so a pathologically
+// deep target can't skip the symlink-resolution and pass the allowlist on its unresolved-but-textually-inside path.
+const REALDEEPEST_BUDGET = 4096;   // far beyond any real path depth; only a hostile >4k-component path exhausts it
 function realDeepest(abs) {
   let tail = [];
   let cur = abs;
-  // walk up until something exists (or we hit the root)
-  for (let i = 0; i < 64; i++) {
+  for (let i = 0; i < REALDEEPEST_BUDGET; i++) {
     try { const real = fs.realpathSync(cur); return tail.length ? path.join(real, ...tail) : real; }
-    catch { const base = path.basename(cur); const parent = path.dirname(cur); if (parent === cur) break; tail.unshift(base); cur = parent; }
+    catch { const base = path.basename(cur); const parent = path.dirname(cur); if (parent === cur) return null; tail.unshift(base); cur = parent; }
   }
-  return abs;   // nothing resolved (shouldn't happen — '/' always exists) — fall back to the normalized input
+  return null;   // budget exhausted (a >4096-deep non-existent path) OR the walk hit root without resolving — fail closed
 }
 
 function createToolset(cfg) {
@@ -74,7 +80,7 @@ function createToolset(cfg) {
   // must be real too, or a vault whose path merely contains a symlink (macOS /var→/private/var, a symlinked $HOME)
   // would deny every access — fail-closed, but uselessly. realDeepest also normalizes a trailing slash away.
   const roots = [cfg.vaultDir, cfg.memoryDir, cfg.workspaceDir]
-    .filter(Boolean).map((p) => realDeepest(path.resolve(p)));
+    .filter(Boolean).map((p) => realDeepest(path.resolve(p))).filter(Boolean);   // drop any root that won't resolve (fail-closed)
   const denyGlobs = Array.isArray(cfg.denyGlobs) ? cfg.denyGlobs.map((p) => path.resolve(p)) : defaultDenyGlobs();
   const maxBytes = cfg.maxBytes || DEFAULT_MAX_BYTES;
   const shellOn = !!(cfg.allowShell && typeof cfg.runShell === 'function');
@@ -90,6 +96,7 @@ function createToolset(cfg) {
     // expand a leading ~ so a deny-glob on $HOME actually matches an input the model typed with ~
     if (input === '~' || input.startsWith('~/')) abs = path.normalize(path.join(os.homedir(), input.slice(1)));
     const real = realDeepest(abs);
+    if (real === null) return { error: 'denied: unresolvable path (fail-closed)' };   // >budget-deep or unresolvable → never trust the literal
     // 1. DENY-FIRST: refuse credential/RC/persistence targets on BOTH the literal and the resolved path
     for (const d of denyGlobs) {
       if (isUnder(abs, d) || isUnder(real, d)) return { error: 'denied: protected path (credentials/system)' };
@@ -166,7 +173,9 @@ function createToolset(cfg) {
       if (!cmd.trim()) return 'refused: empty command';
       try {
         const r = await cfg.runShell(cmd, {}, { timeoutMs: 60000 });   // runShell already uses scopedEnv + a watchdog + is vault-cwd
-        return 'exit ' + r.exitCode + (r.out ? '\n' + r.out : '');
+        let out = String(r.out == null ? '' : r.out);
+        if (out.length > maxBytes) out = out.slice(0, maxBytes) + '\n… (output truncated at ' + maxBytes + ' bytes)';   // bound the tool_result like read_file
+        return 'exit ' + r.exitCode + (out ? '\n' + out : '');
       } catch (e) { return 'shell error: ' + String((e && e.message) || e); }
     },
   };

@@ -80,6 +80,10 @@ function chat(opts) {
     const fail = (error, sr) => finish({ ok: false, text, toolCalls: [], usage, stopReason: sr || 'error', error });
     const kill = () => { try { if (req) req.destroy(); } catch {} };
 
+    // NEVER-REJECT contract (see openai-adapter): wrap build+send so a synchronous throw — an un-trimmed API key
+    // with a newline making http.request reject the x-api-key header value, or a throwing content stringify —
+    // resolves {ok:false} instead of rejecting into the daemon's shared turn chain.
+    try {
     const endpoint = endpointFor(o.baseUrl);
     if (!endpoint) return fail('invalid or disallowed base URL');
     if (!o.model) return fail('no model');
@@ -148,12 +152,12 @@ function chat(opts) {
       method: 'POST',
       headers,
     }, (res) => {
+      res.on('error', (e) => fail(String((e && e.message) || e)));   // attached FIRST so every branch (incl. redirect) is covered
       if (res.statusCode >= 300 && res.statusCode < 400) { res.resume(); kill(); return fail('redirect refused (' + res.statusCode + ')'); }
       if (res.statusCode !== 200) {
         let errBody = '';
         res.on('data', (d) => { errBody = (errBody + d).slice(0, 2048); });
         res.on('end', () => fail('HTTP ' + res.statusCode + (errBody ? ': ' + errBody.replace(/\s+/g, ' ').slice(0, 300) : '')));
-        res.on('error', (e) => fail(String((e && e.message) || e)));
         return;
       }
       res.on('data', (d) => {
@@ -167,7 +171,6 @@ function chat(opts) {
         const sr = toolCalls.length ? 'tool_calls' : (stopReason === 'max_tokens' ? 'length' : 'stop');
         finish({ ok: true, text, toolCalls, usage, stopReason: sr });
       });
-      res.on('error', (e) => fail(String((e && e.message) || e)));
     });
 
     timer = setTimeout(() => { kill(); fail('turn timed out'); }, o.timeoutMs || DEFAULT_TIMEOUT_MS);
@@ -178,6 +181,7 @@ function chat(opts) {
     }
     req.on('error', (e) => fail(String((e && e.message) || e)));
     req.end(body);
+    } catch (e) { fail(String((e && e.message) || e)); }   // synchronous build/send throw ⇒ resolve, never reject
   });
 }
 

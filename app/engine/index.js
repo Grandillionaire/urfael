@@ -68,7 +68,9 @@ function buildEngine(spec) {
   spec = spec || {};
   const pick = pickAdapter(spec.entry);
   if (!pick) return null;
-  const apiKey = spec.secret || '';
+  // TRIM the secret: a key read from a file/env commonly carries a trailing newline, which would make http.request
+  // reject the header value synchronously. Trimming here (plus the adapters' try-wrap) closes that off at the source.
+  const apiKey = String(spec.secret == null ? '' : spec.secret).trim();
   // an API-key adapter with no key must NOT silently answer on some other credential — refuse to build, so the
   // daemon surfaces "set the key" exactly like the CLI engine's fail-closed provider path does.
   if (!apiKey) return { needsSecret: true, authEnv: spec.entry && spec.entry.authEnv };
@@ -82,7 +84,7 @@ function buildEngine(spec) {
   const engine = createEngine({
     adapter: pick.adapter, toolset, compactor,
     model: spec.model, apiKey, baseUrl: pick.baseUrl,
-    maxTokens: spec.maxTokens, maxSteps: spec.maxSteps,
+    maxTokens: spec.maxTokens, contextWindow: spec.contextWindow, maxSteps: spec.maxSteps,
     onDelta: spec.onDelta, onThinking: spec.onThinking, now: spec.now,
   });
   return { run: engine.run, toolset, _adapter: pick.adapter === anthropic ? 'anthropic' : 'openai' };
