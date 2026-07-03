@@ -636,6 +636,56 @@ async function main() {
     })(),
     'teams-transcript is an outbound Graph poll (no .listen()); teams-vtt parses WebVTT to data and never executes; buildNote quotes YAML-special fields, so a hostile meeting title/name can not break the frontmatter');
 
+  // ──────────────────────────────────────────────────────────────────────────
+  attackClass('Native engine — a second brain must not weaken the fail-closed default',
+    'Rival agents (per Hermes\' own SECURITY.md) run the default terminal backend directly on the host, unconfined; adding an API/local-model engine must INHERIT Urfael\'s fail-closed exec + SSRF moat, never bypass it.');
+  const eng = require('../engine');
+  const oaAdapter = require('../engine/openai-adapter');
+  const anAdapter = require('../engine/anthropic-adapter');
+  const { createToolset: mkToolset } = require('../engine/tools');
+  const { createCompactor: mkCompactor } = require('../engine/compactor');
+
+  // probe the fail-closed toolset with a throwaway vault, an OUT-of-vault secret, and an escaping symlink
+  const engVault = fs.mkdtempSync(path.join(os.tmpdir(), 'urf-sec-eng-'));
+  const engOut = fs.mkdtempSync(path.join(os.tmpdir(), 'urf-sec-out-'));
+  fs.writeFileSync(path.join(engOut, 'secret.txt'), 'TOPSECRET');
+  let symlinkOk = true; try { fs.symlinkSync(engOut, path.join(engVault, 'escape')); } catch { symlinkOk = false; }
+  const ts = mkToolset({ vaultDir: engVault });
+  const tsHome = mkToolset({ vaultDir: os.homedir() });
+  const rNoRoot = await mkToolset({}).dispatch('read_file', { path: '/etc/passwd' });
+  const rEscape = symlinkOk ? await ts.dispatch('read_file', { path: 'escape/secret.txt' }) : 'denied: outside';
+  const rTraverse = await ts.dispatch('read_file', { path: '../' + path.basename(engOut) + '/secret.txt' });
+  const rCred = await tsHome.dispatch('read_file', { path: '~/.ssh/id_rsa' });
+  const rShell = await ts.dispatch('exec_shell', { command: 'id' });
+
+  check('the native toolset is fail-closed: with no configured root, every file op is denied',
+    /no file root/.test(rNoRoot), 'a misconfigured engine reads nothing rather than defaulting to the whole filesystem');
+  check('no symlink/`..` escape from the vault — and the out-of-vault bytes never leak',
+    /denied: outside/.test(rEscape) && /denied: outside/.test(rTraverse) && !rEscape.includes('TOPSECRET') && !rTraverse.includes('TOPSECRET'),
+    'realpath-resolved containment: a symlink inside the vault pointing out, and a ../ traversal, are both refused before any read');
+  check('deny-first holds even if a root is mis-set to $HOME: ~/.ssh and credential stores are refused',
+    /denied: protected path/.test(rCred), 'the code mirror of the vault permissions.deny list is checked BEFORE the allowlist, so a bad root can\'t expose credentials');
+  check('exec_shell is OFF by default — not even advertised to the model, and calling it is denied',
+    !ts.defs.some((d) => d.name === 'exec_shell') && /shell is disabled/.test(rShell),
+    'the shell tool needs BOTH an explicit owner opt-in AND an injected vault-cwd runShell; absent either, the model cannot run a command (unlike a host-unconfined default backend)');
+  check('the engine adapters refuse a plaintext-http REMOTE and credentials-in-URL; loopback (local models) still allowed',
+    oaAdapter.endpointFor('http://api.example.com/v1') === null && oaAdapter.endpointFor('https://u:p@api.example.com/v1') === null
+      && anAdapter.endpointFor('http://proxy.example.com') === null && oaAdapter.endpointFor('http://127.0.0.1:11434/v1') !== null,
+    'HTTPS-or-loopback only (same rule as providers.js); redirects are refused in-stream (engine-*.test.js), so a poisoned local proxy can\'t bounce a prompt or key to a host of its choice');
+  check('secret scoping: the flat-rate subscription stays on the CLI engine (never key-routed); an API engine fails closed without its key',
+    eng.buildEngine({ entry: { kind: 'anthropic', baseUrl: '', authKind: 'none' }, model: 'sonnet', vaultDir: engVault }) === null
+      && eng.buildEngine({ entry: { kind: 'anthropic', authKind: 'key', authEnv: 'ANTHROPIC_API_KEY' }, secret: '', model: 'x', vaultDir: engVault }).needsSecret === true,
+    'buildEngine returns null for the subscription path (no key needed, no leak surface) and refuses to build a keyless API engine, so it never silently answers on another provider\'s credential');
+  const failCompactor = mkCompactor({ summarize: async () => { throw new Error('aux 503'); } });
+  const bigHist = [{ role: 'system', content: 'sys' }];
+  for (let i = 0; i < 30; i++) bigHist.push({ role: 'user', content: 'u'.repeat(3000) }, { role: 'assistant', content: 'a'.repeat(3000) });
+  const cRes = await failCompactor.maybeCompact(bigHist, { maxTokens: 8000, tailTokenBudget: 3000 });
+  check('a summarizer outage PRESERVES the live context window unchanged (fail-safe abort — no silent context loss)',
+    cRes.compacted === false && cRes.messages === bigHist,
+    'a transient aux-model failure returns the exact same message array; the user never loses history to a compaction that could not complete');
+  fs.rmSync(engVault, { recursive: true, force: true });
+  fs.rmSync(engOut, { recursive: true, force: true });
+
   // ── teardown + verdict ────────────────────────────────────────────────────
   try { dash && dash.kill(); } catch {}
   try { await new Promise((r) => { const q = http.request({ socketPath: SOCK, method: 'POST', path: '/shutdown', timeout: 1500 }, (res) => { res.resume(); r(); }); q.on('error', r); q.on('timeout', () => { q.destroy(); r(); }); q.end(); }); } catch {}

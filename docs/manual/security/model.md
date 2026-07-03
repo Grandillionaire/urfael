@@ -39,6 +39,6 @@ Multiple people can use one instance, each a sandboxed principal through the sam
 
 ## Proof, not adjectives
 
-`npm run security` boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in the wild: network exposure, prompt-injection key exfil, malicious skills, runaway autonomous turns, DoS, and more. The latest run resists 10 of 10 attack classes across 101 checks. Several controls are also frozen as adversarial regression tests under `app/test/*.test.js`, so a refactor cannot quietly reopen a closed hole.
+`npm run security` boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in the wild: network exposure, prompt-injection key exfil, malicious skills, runaway autonomous turns, DoS, and more. The latest run resists 11 of 11 attack classes across 101 checks. Several controls are also frozen as adversarial regression tests under `app/test/*.test.js`, so a refactor cannot quietly reopen a closed hole.
 
 This is a personal tool with a small user base, so it has had far less adversarial scrutiny than a large deployment. We say so plainly. The threat model also states the residual risks Urfael does not cover (a host already compromised, a sandbox you widen yourself, the model provider you point at). Read the full version in [Threat model and benchmark](security/threat-model.md), or the full file on GitHub at [docs/THREAT-MODEL.md](https://github.com/Grandillionaire/urfael/blob/main/docs/THREAT-MODEL.md).
