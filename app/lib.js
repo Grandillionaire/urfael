@@ -760,11 +760,31 @@ function reapOrphanPids(text, isAlive) {
 // side-effecting probe (execFileSync-shaped: (cmd, args) -> stdout), injected so this stays unit-testable
 // without spawning a real `ps`. Returns '' for a dead/unreadable/implausible pid — callers treat '' as
 // "unverifiable" and, being fail-closed, never reap it.
+function plausiblePid(pid) { return Number.isInteger(pid) && pid > 0 && pid <= 0x7fffffff; }
+function normMarker(out) { return String(out == null ? '' : out).replace(/\s+/g, ' ').trim(); } // one normalizer so the sync + async probes can never diverge
 function pidStartMarker(pid, run) {
   if (typeof run !== 'function') return '';
-  if (!Number.isInteger(pid) || pid <= 0 || pid > 0x7fffffff) return '';
+  if (!plausiblePid(pid)) return '';
   let out; try { out = run('ps', ['-o', 'lstart=', '-p', String(pid)]); } catch { return ''; } // non-zero exit (no such pid) throws → ''
-  return String(out == null ? '' : out).replace(/\s+/g, ' ').trim();
+  return normMarker(out);
+}
+
+// Async twin of pidStartMarker for the SPAWN HOT PATH: same guard + normalization, but the ps probe is
+// execFile-shaped (non-blocking) so recording a freshly-spawned pid never waits on a synchronous `ps`. `runAsync`
+// is (cmd, args, cb) => void where cb is (err, stdout); `cb(marker)` is invoked exactly once with the normalized
+// marker, or '' on any error / dead-or-implausible pid / missing probe (callers treat '' as unverifiable → never
+// reaped). A start time is immutable for a process's life, so capturing it a few ms after spawn is identical to
+// capturing it inline — but off the turn's critical path.
+function pidStartMarkerAsync(pid, runAsync, cb) {
+  const done = (m) => { try { if (typeof cb === 'function') cb(m); } catch {} };
+  if (!plausiblePid(pid) || typeof runAsync !== 'function') return done('');
+  let fired = false;
+  try {
+    runAsync('ps', ['-o', 'lstart=', '-p', String(pid)], (err, out) => {
+      if (fired) return; fired = true;
+      done(err ? '' : normMarker(out));                                   // ps non-zero exit (no such pid) → err → ''
+    });
+  } catch { if (!fired) { fired = true; done(''); } }                     // a throwing runAsync fails closed to ''
 }
 
 // Build the reaper's per-pid predicate from a marker source (pid -> current marker). A recorded (pid, marker)
@@ -781,17 +801,23 @@ function stillOursProbe(currentMarker) {
 }
 
 // The ONE shared pid-ledger both long-lived-helper reapers use (daemon.js brain.pids, main.js whisper.pids), so
-// the record + marker-verified reap logic lives in exactly one place. record(pid) appends `pid:marker`; reap()
-// SIGKILLs every recorded pid that is STILL OURS (alive + marker matches) then truncates the file. Every side
-// effect is injected via `io` (read/write/append/mkdir/kill/run) so the whole ledger is testable with in-memory
-// files and a fake `ps`, and so main.js (Electron) and daemon.js (Node) wire their own fs/kill without diverging.
+// the record + marker-verified reap logic lives in exactly one place. record(pid) captures the pid's start-time
+// marker OFF the spawn hot path (async `ps` via io.runAsync) and appends `pid:marker` when it resolves — so a
+// brain/whisper spawn is NEVER blocked by a synchronous ps; reap() SIGKILLs every recorded pid that is STILL OURS
+// (alive + marker matches) then truncates the file. reap runs at BOOT (before binding / before the first turn),
+// off the hot path, so it keeps the synchronous probe. Every side effect is injected via `io`
+// (read/write/append/mkdir/kill/run/runAsync) so the whole ledger is testable with in-memory files and a fake
+// `ps`, and so main.js (Electron) and daemon.js (Node) wire their own fs/kill without diverging.
 function makePidLedger(io, file) {
-  const marker = (pid) => pidStartMarker(pid, io.run);
+  const marker = (pid) => pidStartMarker(pid, io.run);                    // sync probe — reap()'s boot-path verify only
   return {
     record(pid) {
-      if (!Number.isInteger(pid) || pid <= 0 || pid > 0x7fffffff) return;
+      if (!plausiblePid(pid)) return;
       try { if (typeof io.mkdir === 'function') io.mkdir(); } catch {}
-      try { io.append(file, pid + ':' + marker(pid) + '\n'); } catch {}   // capture identity NOW, while the child is provably alive
+      // capture the start-time marker asynchronously so the spawn returns immediately; append the full
+      // `pid:marker` line only once ps resolves. A crash in that (millisecond) window leaves no record → the
+      // orphan is not reaped, which is fail-SAFE (we never SIGKILL an unverified pid), never fail-dangerous.
+      pidStartMarkerAsync(pid, io.runAsync, (m) => { try { io.append(file, pid + ':' + m + '\n'); } catch {} });
     },
     reap() {
       try { for (const pid of reapOrphanPids(io.read(file), stillOursProbe(marker))) { try { io.kill(pid); } catch {} } } catch {}
@@ -1218,4 +1244,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { atomicWriteJSON, resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { atomicWriteJSON, resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, pidStartMarkerAsync, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };

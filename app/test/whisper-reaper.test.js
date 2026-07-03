@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { reapOrphanPids, pidStartMarker, stillOursProbe, makePidLedger } = require('../lib');
+const { reapOrphanPids, pidStartMarker, pidStartMarkerAsync, stillOursProbe, makePidLedger } = require('../lib');
 
 // ── the PURE half of the whisper-server reaper (a mirror of the daemon's brain-reaper). main.js appends every
 //    spawned whisper pid to ~/.claude/urfael/whisper.pids and, BEFORE binding STT port 8462, SIGKILLs any
@@ -84,26 +84,53 @@ test('pidStartMarker: normalizes ps output, and fails to the empty string on any
   assert.equal(pidStartMarker(-1, () => 'x'), '');         // implausible pid → '' (never probed)
 });
 
-test('makePidLedger: a recorded pid whose marker no longer matches (PID reuse) is NOT killed; a still-matching pid IS reaped', () => {
+test('pidStartMarkerAsync: non-blocking twin — same normalization, fails closed to the empty string, calls back exactly once', () => {
+  const seen = [];
+  // an execFile-shaped async probe: (cmd, args, cb=(err, stdout)). The callback fires with the normalized marker.
+  pidStartMarkerAsync(4242, (cmd, args, cb) => cb(null, 'Fri Jul  3 10:00:01 2026\n'), (m) => seen.push(m));
+  assert.deepEqual(seen, ['Fri Jul 3 10:00:01 2026'], 'collapse whitespace + trim, exactly as the sync probe does');
+  const dead = []; pidStartMarkerAsync(4242, (cmd, args, cb) => cb(new Error('no such process')), (m) => dead.push(m));
+  assert.deepEqual(dead, [''], 'a ps error (dead pid) fails closed to the empty string');
+  const noProbe = []; pidStartMarkerAsync(4242, null, (m) => noProbe.push(m));
+  assert.deepEqual(noProbe, [''], 'no async probe → ""');
+  const bad = []; pidStartMarkerAsync(-1, (c, a, cb) => cb(null, 'x'), (m) => bad.push(m));
+  assert.deepEqual(bad, [''], 'implausible pid → "" (probe never called)');
+  const threw = []; pidStartMarkerAsync(4242, () => { throw new Error('spawn EAGAIN'); }, (m) => threw.push(m));
+  assert.deepEqual(threw, [''], 'a throwing runAsync fails closed to ""');
+});
+
+test('makePidLedger: record() captures the marker OFF the hot path (async ps), and a recycled pid is NOT killed while a still-matching pid IS reaped', () => {
   const files = new Map();
   const killed = [];
   const startTimes = new Map();                            // fake OS process table: pid -> start-time
+  const pending = [];                                      // queued async ps callbacks — proves record() did NOT block on a sync ps
+  let syncPsCalls = 0;                                     // must stay 0 across record(): the spawn hot path never runs ps synchronously
   const io = {
     read: (f) => { if (!files.has(f)) throw new Error('ENOENT'); return files.get(f); },
     write: (f, s) => files.set(f, s),
     append: (f, s) => files.set(f, (files.get(f) || '') + s),
     mkdir: () => {},
     kill: (pid) => killed.push(pid),
-    // execFileSync-shaped fake of `ps -o lstart= -p <pid>`: throws for a dead pid, mirroring ps's non-zero exit
-    run: (cmd, args) => { const pid = parseInt(args[args.length - 1], 10); if (!startTimes.has(pid)) throw new Error('no such process'); return startTimes.get(pid) + '\n'; },
+    // execFileSync-shaped fake of `ps -o lstart= -p <pid>`: SYNCHRONOUS — reap()'s boot-path verify uses this.
+    run: (cmd, args) => { syncPsCalls++; const pid = parseInt(args[args.length - 1], 10); if (!startTimes.has(pid)) throw new Error('no such process'); return startTimes.get(pid) + '\n'; },
+    // execFile-shaped ASYNC fake: record() uses this. The callback is QUEUED, not run inline, so record() returns
+    // before ps resolves — modelling the real non-blocking child_process.execFile off the spawn hot path.
+    runAsync: (cmd, args, cb) => { pending.push(() => { const pid = parseInt(args[args.length - 1], 10); if (!startTimes.has(pid)) return cb(new Error('no such process')); cb(null, startTimes.get(pid) + '\n'); }); },
   };
   const ledger = makePidLedger(io, '/x/brain.pids');
 
-  // run 1: two children spawn and are recorded WITH their start-time markers, then the app is force-quit.
+  // run 1: two children spawn and are recorded. The marker is captured ASYNC, so record() returns immediately.
   startTimes.set(4242, 'Fri Jul  3 10:00:01 2026');
   startTimes.set(8888, 'Fri Jul  3 10:00:02 2026');
   ledger.record(4242); ledger.record(8888);
+  // FAST PATH: record() blocked on NO synchronous ps and wrote NOTHING yet — two async ps probes are still queued.
+  assert.equal(syncPsCalls, 0, 'record() must NOT run a synchronous ps on the spawn hot path');
+  assert.equal(files.has('/x/brain.pids'), false, 'the pid:marker line is appended only once the async ps resolves');
+  assert.equal(pending.length, 2, 'each record() queued a non-blocking ps probe instead of blocking on a sync one');
+  // drain the async probes → NOW the pid:marker lines land, exactly as the old sync path produced them.
+  while (pending.length) pending.shift()();
   assert.equal(files.get('/x/brain.pids'), '4242:Fri Jul 3 10:00:01 2026\n8888:Fri Jul 3 10:00:02 2026\n');
+  // then the app is force-quit (no clean stop) — the ledger persists both recorded (pid, marker) pairs.
 
   // between runs the OS RECYCLES pid 4242 for an unrelated process (a new start-time); 8888 is still our orphan.
   startTimes.set(4242, 'Fri Jul  3 11:30:00 2026');
