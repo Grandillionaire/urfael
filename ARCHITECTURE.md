@@ -12,7 +12,7 @@ untrusted content with real power. Urfael inverts both: **the topology is one-wa
 your `claude` login and the chat APIs it polls; nothing reaches *in*), and **untrusted input is structurally
 contained** (every remote turn resolves — fail-closed — to a read-only, no-egress, nonce-framed sandbox
 *before a single token reaches the model*). The claim is not an adjective; it is a command: `npm run security`
-boots the real daemon and dashboard and attacks them, printing **10/10 attack classes · 99/99 checks**.
+boots the real daemon and dashboard and attacks them, printing **10/10 attack classes · 100/100 checks**.
 
 ## System shape
 
@@ -130,7 +130,7 @@ Honesty is the product, so the tests are too:
   BM25 recall, did-you-mean, and the registry drift guard. Several are frozen adversarial regressions.
 - **The security benchmark** (`npm run security` → `node test/security-benchmark.js`) — boots the **real**
   daemon + dashboard and runs the actual attack classes that compromised self-hosted agents in the wild:
-  **10/10 attack classes · 99/99 individual checks**. Class 9, "correctness & craft regressions," guards against
+  **10/10 attack classes · 100/100 individual checks**. Class 9, "correctness & craft regressions," guards against
   silent quality rot (a typo burning a turn, a status card that stops verifying its own numbers, a persona
   that widens real power, a Council worker that escalates its tools).
 - **The end-to-end harness** (`npm run e2e`) — every feature against a live daemon: streamed conversation,

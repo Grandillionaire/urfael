@@ -75,6 +75,13 @@ async function main() {
   check('daemon opens NO TCP port (nothing the LAN/internet can reach)', tcpListeners === '', 'lsof: 0 TCP listeners');
   const sockMode = (() => { try { return (fs.statSync(SOCK).mode & 0o777).toString(8); } catch { return '?'; } })();
   check('the socket is owner-only (0600)', sockMode === '600', 'mode ' + sockMode);
+  // DEFENSE IN DEPTH: the socket is not the only thing that leaks. Without a hardening umask the daemon's state
+  // dir + logs are created world/group-readable on a multi-user box. The daemon clamps process.umask(0o077) at the
+  // top of boot and chmods JDIR to 0700 IN-PROCESS (not just via the launchd plist), so the surrounding state is
+  // owner-only too — proven live: the just-booted daemon has tightened its own ~/.claude/urfael.
+  const daemonSrcNet = fs.readFileSync(path.join(APP, 'daemon.js'), 'utf8');
+  const jdirMode = (() => { try { return (fs.statSync(JDIR).mode & 0o777).toString(8); } catch { return '?'; } })();
+  check('the daemon hardens its umask (0077) so JDIR + logs are owner-only, not just the socket', /process\.umask\(0o077\)/.test(daemonSrcNet) && jdirMode === '700', 'in-process umask 0077; ~/.claude/urfael is 0700 (mode ' + jdirMode + ')');
   // REGRESSION: the attestation's no-inbound-port posture must be COMPUTED by the fortress verifier, never a
   // hardcoded literal — an assert-without-verify is exactly the overclaim `urfael attest` is built to avoid.
   const cliSrcNet = fs.readFileSync(path.join(APP, 'cli.js'), 'utf8');

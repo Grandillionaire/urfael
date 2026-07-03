@@ -11,6 +11,20 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
+// SECURITY (defense in depth): clamp the process umask to 0o077 at the VERY TOP of boot — before any mkdir, log,
+// or socket is created — so every file the daemon writes is owner-only (files 0600, dirs 0700). The api +
+// dashboard launchd plists set `Umask 0077`; the daemon must not depend on how it was launched, so it enforces
+// the same posture IN-PROCESS. Then make JDIR exist at 0700 and best-effort tighten a pre-existing world/group-
+// readable ~/.claude/urfael on boot. fortress.js audits the 0600 socket as the load-bearing invariant; this is
+// purely additive hardening for the surrounding state + logs and never touches the socket logic.
+(function hardenBootPerms() {
+  try { process.umask(0o077); } catch {}
+  try {
+    const jdir = path.join(os.homedir(), '.claude', 'urfael');
+    fs.mkdirSync(jdir, { recursive: true, mode: 0o700 });
+    fs.chmodSync(jdir, 0o700);   // tighten a pre-existing JDIR the umask alone can't reach
+  } catch {}
+})();
 // Load the user's provider config (~/.claude/urfael/provider.env) into the environment BEFORE anything reads
 // it — so an API key, a custom endpoint, or a model override written by `urfael setup` reaches the claude CLI
 // (and every spawn, via scopedEnv) with no plist/unit editing. KEY=value lines; an explicit shell/unit env
