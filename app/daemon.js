@@ -40,7 +40,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv: libScopedEnv, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs, makeCronGate } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv: libScopedEnv, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs, makeCronGate, dedupePending, makePidLedger } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -185,11 +185,20 @@ function verifyLatestSeal() {
   } catch {}
   return { ok: !!sigOk, reason: sigOk ? 'valid' : 'bad_signature', seq: last.seq, t: last.t, fp: last.fp, headStillInChain };
 }
-function recordBrainPid(pid) { try { fs.appendFileSync(BRAIN_PIDFILE, pid + '\n'); } catch {} }
-function cleanupOrphanBrains() {
-  try { for (const pid of fs.readFileSync(BRAIN_PIDFILE, 'utf8').split('\n').map((s) => parseInt(s, 10)).filter(Boolean)) { try { process.kill(pid, 'SIGKILL'); } catch {} } } catch {}
-  try { fs.writeFileSync(BRAIN_PIDFILE, ''); } catch {}
-}
+// Brain-session orphan reaper. A crash/force-quit/SIGKILL of the daemon leaks the detached `claude` child; a
+// later boot SIGKILLs it so the ledger never accumulates zombies. Records `pid:marker` (the pid's start-time)
+// and reaps only a pid that is STILL our process — alive AND its start-time marker still matches — so a pid the
+// OS recycled for an unrelated process is never killed. Same lib.makePidLedger main.js uses for whisper.pids.
+const brainLedger = makePidLedger({
+  read: (f) => fs.readFileSync(f, 'utf8'),
+  write: (f, s) => fs.writeFileSync(f, s),
+  append: (f, s) => fs.appendFileSync(f, s),
+  mkdir: () => fs.mkdirSync(JDIR, { recursive: true }),
+  kill: (pid) => process.kill(pid, 'SIGKILL'),
+  run: (cmd, args) => require('child_process').execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).toString(),
+}, BRAIN_PIDFILE);
+function recordBrainPid(pid) { brainLedger.record(pid); }
+function cleanupOrphanBrains() { brainLedger.reap(); }
 
 // concurrency + safety caps (defense against floods / fork-bombs over the owner-only socket)
 const inflightScoped = new Set(); // live remote one-shot procs
@@ -271,153 +280,20 @@ function sendSay(p) { emit({ kind: 'say', ...p }); }
 // Only true em/en dashes are touched; hyphens in CLI flags like --model are left alone.
 const deDash = (s) => String(s == null ? '' : s).replace(/\s*[–—]\s*/g, ', ');
 
-// One warm Claude process per model (stdin kept open). stderr is drained into a small ring buffer so a failed
-// turn can be classified (why it failed), without ever stalling the child.
-class Session {
-  constructor(model) { this.model = model; this.proc = null; this.queue = []; this.current = null; this.buf = ''; this.acc = ''; this.errBuf = ''; this.lastFailed = false; this.spokenSent = false; this.spokenDone = false; this.spokenEmitted = 0; this.spokenChars = 0; this.speakCur = false; this.curSilent = false; this.curTurn = 0; this.spawnErr = null; }
-  _ensure() {
-    if (this.proc && !this.proc.killed) return;
-    const overlayArgs = currentOverlay ? ['--append-system-prompt', currentOverlay] : [];   // active PERSONA voice; [] on the anchor → byte-identical spawn
-    // Per-chat provider routing is resolved into the CHILD env ONLY. When providerId is '' (the anchor) childEnv is
-    // the unchanged {...process.env}, so the warm spawn stays byte-identical. resolveScopedEnv returns a NEW object,
-    // so process.env is never mutated and the provider secret stays scoped to this child (never logged, never global).
-    let childEnv = { ...process.env, URFAEL_OVERLAY: '1' };
-    this.spawnErr = null;
-    if (this.providerId) {
-      const e = providerSessions.findProvider(providerList(), this.providerId);
-      if (e) {
-        // FAIL-CLOSED: a key-auth provider missing its stored secret must NEVER fall back to the daemon's own
-        // (base-env) credentials — that would silently answer this chat on the MAIN provider. Refuse to spawn and
-        // surface the failure to the waiter (drained in _next); never spawn a provider-bound child on the base env.
-        try { childEnv = providerSessions.resolveScopedEnv(childEnv, e, secretStore[e.authEnv]); }
-        catch (err) { logEvent({ ev: 'chat_provider_no_secret', provider: this.providerId }); this.spawnErr = 'provider ' + this.providerId + ' needs its key, set it with: urfael plugin secret ' + (e.authEnv || ''); return; }
-        childEnv.URFAEL_OVERLAY = '1';
-      }
-    }
-    this.proc = spawn(CLAUDE_BIN, [
-      '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
-      '--model', this.model, '--verbose', '--include-partial-messages', '--permission-mode', PERM_MODE,
-      ...MEMDIR_ADD,   // the brain can READ its own memory (it lives outside the vault/project root)
-      ...overlayArgs,  // persona = a VOICE overlay only; the moat is PERM_MODE + the vault settings, not this text
-      ...pluginMcpArgs(),  // enabled plugins on the WARM (owner) session only; [] when none → byte-identical spawn. Scoped/remote/cron spawns stay --strict-mcp-config, so a plugin never reaches an untrusted turn.
-    ], { cwd: VAULT, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
-    const p = this.proc; // bind handlers to THIS proc identity so a stale exit can't clobber a freshly-spawned one
-    recordBrainPid(p.pid);
-    p.stdout.on('data', (d) => this._onData(d));
-    if (p.stderr) p.stderr.on('data', (d) => { try { this.errBuf = (this.errBuf + d).slice(-2048); } catch {} });   // drained (consumed) so it can't stall; last 2KB kept for classification
-    p.on('exit', () => { logEvent({ ev: 'brain_exit', model: this.model, cat: classifyError(this.errBuf).category }); if (this.proc !== p) return; this.proc = null;
-      // mirror the timeout/abort cleanup: clear THIS turn's watchdog (else it later aborts a healthy turn) and drain
-      // the queue so a turn waiting behind the crashed one is promoted instead of hanging forever.
-      if (this.current) { const c = this.current; this.current = null; this.lastFailed = true; clearTimeout(c.timer); c.cb('(' + (classifyError(this.errBuf).hint || 'restarted, try again') + ')'); }
-      this._next(); });
-    p.on('error', (e) => { // spawn failure (claude missing / bad cwd) must never crash the daemon
-      logEvent({ ev: 'brain_spawn_error', model: this.model, err: String((e && e.message) || e), cat: classifyError(this.errBuf || String((e && e.message) || e)).category });
-      if (this.proc !== p) return;
-      this.proc = null;
-      if (this.current) { const c = this.current; this.current = null; this.lastFailed = true; clearTimeout(c.timer); c.cb('(' + (classifyError(this.errBuf || String((e && e.message) || e)).hint || 'brain spawn failed, is claude installed?') + ')'); }
-      this._next();   // promote a turn queued behind the spawn failure instead of hanging it forever
-    });
-  }
-  _onData(d) {
-    this.buf += d.toString();
-    let i;
-    while ((i = this.buf.indexOf('\n')) >= 0) {
-      const line = this.buf.slice(0, i).trim(); this.buf = this.buf.slice(i + 1);
-      if (!line) continue;
-      let e; try { e = JSON.parse(line); } catch { continue; }
-      this._handle(e);
-    }
-  }
-  _handle(e) {
-    if (!this.current) return;
-    if (e.type === 'stream_event' && e.event?.type === 'content_block_delta' && e.event.delta?.type === 'text_delta') {
-      const t = e.event.delta.text;
-      if (!this.curSilent) sendThinking({ delta: deDash(t) }); // HUD shows the full streaming answer, de-dashed (tags stripped client-side)
-      if (this.speakCur) { this.acc += t; this._emitSpoken(false); } // voice = ONLY the [SPOKEN] comment, streamed by sentence
-    }
-    if (e.type === 'assistant' && !this.curSilent) { for (const b of (e.message?.content || [])) if (b.type === 'tool_use') sendThinking({ tool: b.name }); }
-    if (e.type === 'result') {
-      this.lastUsage = e.usage || (e.modelUsage ? Object.values(e.modelUsage)[0] : null) || null; // tokens for telemetry (session is serialized, so this is race-free)
-      if (this.speakCur && !this.spokenDone) {
-        if (/\[SPOKEN\]/i.test(this.acc)) this._emitSpoken(true); // open tag, never closed → flush what's pending (capped)
-        if (!this.spokenSent) {                   // fallback: no [SPOKEN] tags → speak one short line so it isn't silent
-          const m = this.acc.match(/[^.!?]*[.!?]/);
-          const c = (m ? m[0] : this.acc.slice(0, 160)).replace(/\[\/?SPOKEN\]/gi, '').trim();
-          if (c) { this.spokenSent = true; sendSay({ text: c, turnId: this.curTurn }); }
-        }
-        if (!this.spokenDone) { this.spokenDone = true; sendSay({ end: true, turnId: this.curTurn }); }
-      }
-      const c = this.current; this.current = null; clearTimeout(c.timer);
-      c.cb(typeof e.result === 'string' ? deDash(e.result) : '');
-      this._next();
-    }
-  }
-  // Stream the [SPOKEN]...[/SPOKEN] comment sentence-by-sentence as it arrives, so the voice starts
-  // the moment the first sentence completes instead of waiting for the closing tag. Capped at
-  // MAX_SPOKEN_CHARS so a runaway/unclosed block can't read the whole answer aloud.
-  _emitSpoken(flush) {
-    if (this.spokenDone) return;
-    const open = this.acc.search(/\[SPOKEN\]/i);
-    if (open < 0) return;
-    const start = open + '[SPOKEN]'.length;
-    const closeRel = this.acc.slice(start).search(/\[\/SPOKEN\]/i);
-    const closed = closeRel >= 0;
-    const content = closed ? this.acc.slice(start, start + closeRel) : this.acc.slice(start);
-    const { sentences, rest } = segmentSentences(content.slice(this.spokenEmitted), closed || flush);
-    for (const s of sentences) {
-      if (this.spokenChars >= MAX_SPOKEN_CHARS) break;
-      this.spokenChars += s.length; this.spokenSent = true;
-      sendSay({ text: s, turnId: this.curTurn });
-    }
-    this.spokenEmitted = content.length - rest.length;
-    if (closed || this.spokenChars >= MAX_SPOKEN_CHARS) { this.spokenDone = true; sendSay({ end: true, turnId: this.curTurn }); }
-  }
-  _send(text) { this.proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }) + '\n'); }
-  _next() {
-    if (this.current || !this.queue.length) return;
-    this._ensure();
-    if (this.spawnErr) {   // fail-closed: provider env unresolved (missing key) — fail this turn, never spawn on the base env
-      const c = this.queue.shift(); const reason = this.spawnErr; this.spawnErr = null; this.lastFailed = true;
-      c.cb('(' + reason + ')'); this._next(); return;
-    }
-    this.current = this.queue.shift();
-    this.speakCur = !!this.current.speak; this.curSilent = !!this.current.silent; this.curTurn = this.current.turnId || 0;
-    this.acc = ''; this.errBuf = ''; this.lastFailed = false; this.spokenSent = false; this.spokenDone = false; this.spokenEmitted = 0; this.spokenChars = 0;
-    this.current.timer = setTimeout(() => {
-      if (!this.current) return;
-      const c = this.current; this.current = null; this.lastFailed = true;
-      this.errBuf = 'timed out';   // record a RETRYABLE reason so the fallback gate (classifyError -> timeout/retryable) fires; re-zeroed in _next on the next turn
-      try { this.proc && this.proc.kill('SIGKILL'); } catch {} this.proc = null; // discard hung process
-      c.cb('(timed out)'); this._next();
-    }, TURN_TIMEOUT_MS);
-    this._send(this.current.text);
-  }
-  ask(text, opts = {}) { return new Promise((res) => { this.queue.push({ text, cb: res, speak: opts.speak, silent: opts.silent, turnId: opts.turnId }); this._next(); }); }
-  // Abort the in-flight turn (if any): mirror the timeout path — clear the watchdog, SIGKILL the proc,
-  // discard it, resolve the waiter with '(stopped)', then drain the queue. No-op when idle.
-  abort() {
-    if (!this.current) return false;
-    if (this.speakCur && !this.spokenDone) { this.spokenDone = true; sendSay({ end: true, turnId: this.curTurn }); } // cleanly end the dangling spoken stream
-    const c = this.current; this.current = null; clearTimeout(c.timer);
-    try { this.proc && this.proc.kill('SIGKILL'); } catch {} this.proc = null; // discard the killed process
-    c.cb('(stopped)'); this._next();
-    return true;
-  }
-}
-
-const sessions = new Map();
-function getSession(model, providerId) {
-  const key = providerSessions.sessionKey(model, providerId);
-  if (!sessions.has(key)) { const s = new Session(model); s.providerId = providerId || ''; sessions.set(key, s); }
-  return sessions.get(key);
-}
-// getSessionByKey: a warm session under an EXPLICIT bucket key (used for per-chat tiles, whose key folds in the
-// chatId so each tile is its own child and never the shared main-brain bucket). The model+providerId still drive
-// the spawn + scoped child env exactly as getSession does; only the Map key differs.
-function getSessionByKey(key, model, providerId) {
-  if (!sessions.has(key)) { const s = new Session(model); s.providerId = providerId || ''; sessions.set(key, s); }
-  return sessions.get(key);
-}
+// The warm-session turn machinery (the Session class, the brain spawn, getSession, getSessionByKey, and the
+// sessions Map) lives in session.js as a PURE MOVE, wired here with the REAL collaborators so the
+// queue / timeout / fallback / exit paths are unit-testable in isolation (app/test/session.test.js) while this
+// daemon keeps byte-for-byte identical behaviour. The two LIVE daemon-state reads the spawn needs — the active
+// persona overlay and a provider secret — are passed as GETTERS so they are read at spawn time (never snapshotted
+// at wiring time); everything else (spawn, the emit surface, logEvent, the pure lib helpers, the config constants)
+// is injected by value. The returned instances + Map are unchanged, so every other daemon path that iterates
+// `sessions` or touches a session's .proc/.current/.abort() keeps working exactly as before.
+const { getSession, getSessionByKey, sessions } = require('./session')({
+  spawn, logEvent, sendThinking, sendSay, deDash, classifyError, segmentSentences,
+  providerSessions, providerList, secretFor: (k) => secretStore[k], recordBrainPid,
+  getOverlay: () => currentOverlay, pluginMcpArgs,
+  CLAUDE_BIN, VAULT, MEMDIR_ADD, PERM_MODE, MAX_SPOKEN_CHARS, TURN_TIMEOUT_MS,
+});
 
 let transcript = [];
 let convoModel = MODELS.sonnet;   // sticky: escalate to Opus and stay for the conversation (continuity)
@@ -1181,7 +1057,28 @@ function deliverReminder(r) {
 // a one-shot watch fire, or an already-202-acked webhook 'ask' is never silently lost. Only an overflow past the
 // cap drops, and it drops LOUDLY. The busy/enqueue/drain policy is the pure, unit-tested lib.makeCronGate.
 const CRON_PENDING_MAX = 32;
-const cronGate = makeCronGate(CRON_PENDING_MAX);
+// Persist the pending FIFO so a QUEUED fire — already REMOVED from its own one-shot store (a one-shot cron, a one-shot
+// watch fire, an already-202-acked webhook 'ask') — is not lost if the daemon dies before it drains. The gate hands us a
+// snapshot of the whole queue on every enqueue/drain; we mirror it to a bounded, 0600 pending.json (temp+rename atomic).
+// An empty queue removes the file. The not-busy fast path never calls this, so the common case still writes nothing.
+const CRON_PENDING_FILE = path.join(JDIR, 'pending.json');
+function savePendingCron(queue) {
+  try {
+    if (!queue.length) { fs.rmSync(CRON_PENDING_FILE, { force: true }); return; }
+    fs.mkdirSync(JDIR, { recursive: true });
+    const tmp = CRON_PENDING_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(queue.slice(0, CRON_PENDING_MAX), null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, CRON_PENDING_FILE);
+  } catch {}
+}
+// Boot: read the survivors, deduped + bounded (a corrupt/oversized file can't double-fire or flood). The caller CLEARS
+// the file before re-dispatch — the loaded copy is in memory, and the gate re-persists whatever stays queued as they go.
+function loadPendingCron() {
+  let raw = null;
+  try { raw = JSON.parse(fs.readFileSync(CRON_PENDING_FILE, 'utf8')); } catch { return []; }
+  return dedupePending(raw, CRON_PENDING_MAX);
+}
+const cronGate = makeCronGate(CRON_PENDING_MAX, savePendingCron);
 // Completion: release the flight and, if a fire was deferred while busy, drain EXACTLY ONE and re-dispatch it
 // through the normal deliverCron gate (the flight is free again, so it acquires cleanly). setImmediate keeps the
 // drain off the completing job's stack and lets a fresher tick race in harmlessly (it just re-queues).
@@ -2592,6 +2489,17 @@ function listen() {
     scheduler.start(deliverReminder);
     scheduler.startCron(deliverCron); // re-arm persisted cron jobs; ticked in the same scheduler interval
     scheduler.startWatchers(deliverWatch); // re-arm persisted local event triggers (file/glob fs.watch + pid poll)
+    // Re-dispatch any fires that were QUEUED behind an in-flight run when the daemon last died — they were already pulled
+    // from their one-shot stores, so pending.json is their ONLY survivor. Clear the file first (they're in memory now);
+    // re-dispatching through deliverCron re-persists whatever stays queued (the flight is free, so the first runs at once).
+    try {
+      const pend = loadPendingCron();
+      if (pend.length) {
+        savePendingCron([]);
+        for (const it of pend) { const p = it; setImmediate(() => deliverCron(p.job, p.opts)); }
+        logEvent({ ev: 'cron_pending_restore', n: pend.length });
+      }
+    } catch {}
     if (HB_MINS) { lastBeat = Date.now(); const t = setInterval(heartbeat, 60000); if (t.unref) t.unref(); } // first beat ~HB_MINS after boot
     if (CURATOR_DAYS) { const t = setInterval(curate, 30 * 60000); if (t.unref) t.unref(); } // every 30min the curator re-checks its N-day cadence + busy state
     // recall index: build/catch-up off the hot path (a first build over a huge archive shouldn't block serving),

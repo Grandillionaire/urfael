@@ -12,6 +12,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const uiPalette = require('./ui-palette');  // unified presentation prefs -> live CSS vars (closed schema; no security knob)
+const dc = require('./daemon-client');       // shared unix-socket client (request + /ask NDJSON stream)
 
 const HOST = '127.0.0.1';                                  // loopback ONLY — never 0.0.0.0, never a LAN/public iface
 const PORT = Math.min(Math.max(parseInt(process.env.URFAEL_DASHBOARD_PORT, 10) || 7717, 1), 65535);
@@ -83,12 +84,8 @@ function cookieToken(req) {
 
 // ---- daemon proxy: forward GETs and the /ask POST over the unix socket, never expose a daemon path verbatim ----
 function daemonGet(p) {
-  return new Promise((resolve, reject) => {
-    const r = http.request({ socketPath: SOCK, method: 'GET', path: p, timeout: 15000 }, (res) => {
-      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } });
-    });
-    r.on('error', reject); r.on('timeout', () => { r.destroy(); reject(new Error('timeout')); }); r.end();
-  });
+  // parse the JSON reply, else null; a socket error/timeout REJECTS (callers .catch to a fallback).
+  return dc.request('GET', p, undefined, { socketPath: SOCK, timeoutMs: 15000 }).then((b) => { try { return JSON.parse(b); } catch { return null; } });
 }
 // STREAM the daemon's /ask NDJSON to the browser as incremental plain text (the brain already streams; we no
 // longer collapse it to one reply). [SPOKEN] asides are stripped exactly as the OpenAI server does (reused, not
@@ -99,19 +96,16 @@ function daemonAskStreamTo(text, res, hl) {
   let acc = '', emitted = 0, ended = false;
   const flush = (full) => { if (full.length > emitted) { try { res.write(full.slice(emitted)); } catch {} emitted = full.length; } };
   const finish = (fallback) => { if (ended) return; ended = true; if (fallback != null && !emitted) { try { res.write(fallback); } catch {} } try { res.end(); } catch {} };
-  const r = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 200000 }, (resp) => {
-    let buf = '';
-    resp.on('data', (d) => { buf += d.toString(); let i;
-      while ((i = buf.indexOf('\n')) >= 0) { const ln = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-        if (!ln) continue; let e; try { e = JSON.parse(ln); } catch { continue; }
-        if (e.kind === 'thinking' && typeof e.delta === 'string') { acc += e.delta; flush(stripSpoken(safeRawPrefix(acc))); }
-        else if (e.kind === 'done') { flush(stripSpoken(typeof e.text === 'string' && e.text ? e.text : acc)); finish(); }
-      } });
-    resp.on('end', () => finish('(no reply)'));
-  });
-  r.on('error', () => finish('(brain unreachable — is the Urfael daemon running?)'));
-  r.on('timeout', () => { r.destroy(); finish('(timed out)'); });
-  r.end(JSON.stringify({ text, hl: !!hl }));
+  // ./daemon-client frames + routes the /ask NDJSON stream; we forward the written answer to the browser as plain text.
+  dc.streamAsk(text, {
+    onDelta: (e) => { acc += e.delta; flush(stripSpoken(safeRawPrefix(acc))); },
+    onDone: (e) => { flush(stripSpoken(typeof e.text === 'string' && e.text ? e.text : acc)); finish(); },
+    onError: (err) => {
+      if (err.phase === 'error') finish('(brain unreachable — is the Urfael daemon running?)');
+      else if (err.phase === 'timeout') finish('(timed out)');
+      else finish('(no reply)');   // 'end'
+    },
+  }, { socketPath: SOCK, body: { text, hl: !!hl }, timeoutMs: 200000 });
 }
 
 // sessions search — RANKED recall via the daemon's GET /recall (BM25), not substring grep. The daemon
@@ -132,30 +126,22 @@ function readBody(req) {
 }
 // POST JSON to a daemon path over the socket, resolve the parsed reply (or null). Used by the multi-chat manager.
 function daemonPostJson(p, obj) {
-  return new Promise((resolve) => {
-    const body = JSON.stringify(obj || {});
-    const r = http.request({ socketPath: SOCK, method: 'POST', path: p, headers: { 'Content-Type': 'application/json' }, timeout: 30000 }, (res) => {
-      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } });
-    });
-    r.on('error', () => resolve(null)); r.on('timeout', () => { r.destroy(); resolve(null); }); r.end(body);
-  });
+  return dc.request('POST', p, obj || {}, { socketPath: SOCK, timeoutMs: 30000 }).then((b) => { try { return JSON.parse(b); } catch { return null; } }, () => null);
 }
 // Forward a per-chat ask to /chat/<id>/ask and stream its NDJSON 'done' to the browser as plain text. The chatId is
 // already pattern-validated by the route regex before this is called (defence in depth: the daemon re-validates).
 function daemonChatAskTo(chatId, text, res) {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   let ended = false; const finish = (t) => { if (ended) return; ended = true; try { if (t != null) res.write(t); } catch {} try { res.end(); } catch {} };
-  const r = http.request({ socketPath: SOCK, method: 'POST', path: '/chat/' + chatId + '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 200000 }, (resp) => {
-    let buf = '';
-    resp.on('data', (d) => { buf += d.toString(); let i;
-      while ((i = buf.indexOf('\n')) >= 0) { const ln = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-        if (!ln) continue; let e; try { e = JSON.parse(ln); } catch { continue; }
-        if (e.kind === 'done') finish(stripSpoken(typeof e.text === 'string' ? e.text : '')); } });
-    resp.on('end', () => finish('(no reply)'));
-  });
-  r.on('error', () => finish('(brain unreachable — is the Urfael daemon running?)'));
-  r.on('timeout', () => { r.destroy(); finish('(timed out)'); });
-  r.end(JSON.stringify({ text }));
+  // the chat's warm session streams NDJSON like /ask; forward only its final done text to the browser as plain text.
+  dc.streamAsk(text, {
+    onDone: (e) => finish(stripSpoken(typeof e.text === 'string' ? e.text : '')),
+    onError: (err) => {
+      if (err.phase === 'error') finish('(brain unreachable — is the Urfael daemon running?)');
+      else if (err.phase === 'timeout') finish('(timed out)');
+      else finish('(no reply)');   // 'end'
+    },
+  }, { socketPath: SOCK, path: '/chat/' + chatId + '/ask', body: { text }, timeoutMs: 200000 });
 }
 function sendJson(res, code, obj) { const s = JSON.stringify(obj); res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(s); }
 function unauthorized(res) { res.writeHead(401, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); res.end('unauthorized'); } // no info leak

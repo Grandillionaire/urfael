@@ -22,6 +22,7 @@ const ONBOARDED = path.join(JDIR, 'onboarded'); // marker: first-run GUI onboard
 const DAEMON = path.join(__dirname, 'daemon.js');
 const setup = require('./setup'); // reuse the wizard's provider.env read/write (no side effects on require)
 const lib = require('./lib');     // reuse the pure reapOrphanPids helper (no side effects on require)
+const dc = require('./daemon-client'); // shared unix-socket client (request + /ask NDJSON stream)
 
 let win = null;
 let consoleWin = null;
@@ -61,44 +62,30 @@ function askDaemon(text) {
     const finish = (v) => { if (settled) return; settled = true; askInFlight = Math.max(0, askInFlight - 1); dockBadge(); resolve(v); }; // idempotent: error+end can both fire
     if (!(await ensureDaemon())) { finish({ ok: false, text: '(brain offline)', model: '' }); return; }
     let done = false;
-    const req = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' } }, (res) => {
-      let buf = '';
-      res.on('data', (d) => {
-        buf += d.toString();
-        let i;
-        while ((i = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-          if (!line) continue;
-          let e; try { e = JSON.parse(line); } catch { continue; }
-          if (e.kind === 'thinking') { const { kind, ...p } = e; forward('urfael:thinking', p); }
-          else if (e.kind === 'say') { const { kind, ...p } = e; forward('urfael:say', p); }
-          else if (e.kind === 'done') { done = true; forward('urfael:done', { model: e.model, ms: e.ms, text: e.text, aborted: e.aborted }); finish({ ok: true, text: e.text, model: e.model }); }
-        }
-      });
-      res.on('end', () => { if (!done) finish({ ok: true, text: '', model: '' }); });
-    });
-    req.on('error', () => { if (!done) finish({ ok: false, text: '(brain unreachable)', model: '' }); });
-    try { req.write(JSON.stringify({ text })); req.end(); } catch { finish({ ok: false, text: '(brain unreachable)', model: '' }); } // a sync throw must still settle (and clear the badge)
+    // ./daemon-client frames + routes the /ask NDJSON stream. The overlay HUD needs EVERY raw thinking event
+    // (reset/tool/delta), so we take them via onThinking and forward the payload verbatim, exactly as before.
+    // No timeout is set (the overlay's turns can run long); a sync throw must still settle (and clear the badge).
+    try {
+      dc.streamAsk(text, {
+        onThinking: (e) => { const { kind, ...p } = e; forward('urfael:thinking', p); },
+        onSay: (e) => { const { kind, ...p } = e; forward('urfael:say', p); },
+        onDone: (e) => { done = true; forward('urfael:done', { model: e.model, ms: e.ms, text: e.text, aborted: e.aborted }); finish({ ok: true, text: e.text, model: e.model }); },
+        onError: (err) => {
+          if (err.phase === 'end') { if (!done) finish({ ok: true, text: '', model: '' }); }
+          else if (!done) finish({ ok: false, text: '(brain unreachable)', model: '' });   // 'error'
+        },
+      }, { socketPath: SOCK });
+    } catch { finish({ ok: false, text: '(brain unreachable)', model: '' }); }
   });
 }
 function daemonPost(p) { try { const req = http.request({ socketPath: SOCK, method: 'POST', path: p }, (res) => res.resume()); req.on('error', () => {}); req.end(); } catch {} }
 function daemonGet(p) {
-  return new Promise((resolve) => {
-    const req = http.request({ socketPath: SOCK, method: 'GET', path: p, timeout: 1500 }, (res) => {
-      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } });
-    });
-    req.on('error', () => resolve(null)); req.on('timeout', () => { req.destroy(); resolve(null); }); req.end();
-  });
+  // parse the JSON reply, else null; a socket error/timeout resolves null (fail-soft for the always-on poller).
+  return dc.request('GET', p, undefined, { socketPath: SOCK, timeoutMs: 1500 }).then((b) => { try { return JSON.parse(b); } catch { return null; } }, () => null);
 }
 
 function daemonPostJson(p, body) {
-  return new Promise((resolve) => {
-    const req = http.request({ socketPath: SOCK, method: 'POST', path: p, headers: { 'Content-Type': 'application/json' }, timeout: 5000 }, (res) => {
-      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } });
-    });
-    req.on('error', () => resolve(null)); req.on('timeout', () => { req.destroy(); resolve(null); });
-    req.end(JSON.stringify(body || {}));
-  });
+  return dc.request('POST', p, body || {}, { socketPath: SOCK, timeoutMs: 5000 }).then((b) => { try { return JSON.parse(b); } catch { return null; } }, () => null);
 }
 
 ipcMain.handle('urfael:ask', (_e, text) => askDaemon(text));
@@ -159,15 +146,17 @@ ipcMain.handle('urfael:chat-close', (_e, id) => SAFE_ID.test(String(id)) ? daemo
 ipcMain.handle('urfael:chat-ask', (_e, id, text) => {
   if (!SAFE_ID.test(String(id))) return { text: '(bad chat id)' };
   return new Promise((resolve) => {
-    const req = http.request({ socketPath: SOCK, method: 'POST', path: '/chat/' + id + '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 200000 }, (res) => {
-      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => {
-        let out = ''; for (const ln of b.split('\n')) { const t = ln.trim(); if (!t) continue; try { const e = JSON.parse(t); if (e.kind === 'done') out = e.text || ''; } catch {} }
-        resolve({ text: out });
-      });
-    });
-    req.on('error', () => resolve({ text: '(brain unreachable)' }));
-    req.on('timeout', () => { req.destroy(); resolve({ text: '(timed out)' }); });
-    try { req.end(JSON.stringify({ text: String(text || '').slice(0, 8000) })); } catch { resolve({ text: '(error)' }); }
+    let out = '';   // the chat's warm session streams NDJSON like /ask; we only surface its final done text
+    try {
+      dc.streamAsk('', {
+        onDone: (e) => { out = e.text || ''; },
+        onError: (err) => {
+          if (err.phase === 'error') resolve({ text: '(brain unreachable)' });
+          else if (err.phase === 'timeout') resolve({ text: '(timed out)' });
+          else resolve({ text: out });   // 'end'
+        },
+      }, { socketPath: SOCK, path: '/chat/' + id + '/ask', body: { text: String(text || '').slice(0, 8000) }, timeoutMs: 200000 });
+    } catch { resolve({ text: '(error)' }); }
   });
 });
 ipcMain.on('urfael:conversation-end', () => daemonPost('/conversation-end'));
@@ -471,17 +460,22 @@ ipcMain.handle('urfael:stt', async (_e, buf) => voice.transcribe(Buffer.from(buf
 let whisperProc = null, whisperStopped = false, whisperRestarts = 0;
 function whisperBin() { for (const p of ['/opt/homebrew/bin/whisper-server', '/usr/local/bin/whisper-server', '/usr/bin/whisper-server']) { try { fs.accessSync(p); return p; } catch {} } return 'whisper-server'; } // Linux: whisper.cpp typically installs to /usr/bin or /usr/local/bin
 // Whisper-server orphan reaper — mirror of the brain's brain.pids discipline (daemon.js recordBrainPid /
-// cleanupOrphanBrains). The 168MB model server is a detached long-lived child; on any Electron crash / force-
-// quit / SIGKILL it would otherwise be orphaned forever, and only the OLDEST orphan owns STT port 8462, so a
-// fresh spawn silently fails to bind. So: record every spawned pid, and reap any still-alive recorded pid
-// (guard against pid-reuse the same way daemon.js does — reap only at boot / before a fresh spawn) then truncate.
+// cleanupOrphanBrains, now the SAME lib.makePidLedger). The 168MB model server is a detached long-lived child;
+// on any Electron crash / force-quit / SIGKILL it would otherwise be orphaned forever, and only the OLDEST
+// orphan owns STT port 8462, so a fresh spawn silently fails to bind. So: record every spawned pid WITH its
+// start-time marker, and reap any recorded pid that is STILL our process (alive AND marker matches) then
+// truncate — a pid the OS recycled for something unrelated no longer matches its marker and is left untouched.
 const WHISPER_PIDFILE = path.join(JDIR, 'whisper.pids');
-const whisperAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } }; // signal 0 tests existence without touching the process
-function recordWhisperPid(pid) { try { fs.mkdirSync(JDIR, { recursive: true }); fs.appendFileSync(WHISPER_PIDFILE, pid + '\n'); } catch {} }
-function cleanupOrphanWhispers() {
-  try { for (const pid of lib.reapOrphanPids(fs.readFileSync(WHISPER_PIDFILE, 'utf8'), whisperAlive)) { try { process.kill(pid, 'SIGKILL'); } catch {} } } catch {}
-  try { fs.writeFileSync(WHISPER_PIDFILE, ''); } catch {}
-}
+const whisperLedger = lib.makePidLedger({
+  read: (f) => fs.readFileSync(f, 'utf8'),
+  write: (f, s) => fs.writeFileSync(f, s),
+  append: (f, s) => fs.appendFileSync(f, s),
+  mkdir: () => fs.mkdirSync(JDIR, { recursive: true }),
+  kill: (pid) => process.kill(pid, 'SIGKILL'),
+  run: (cmd, args) => require('child_process').execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).toString(),
+}, WHISPER_PIDFILE);
+function recordWhisperPid(pid) { whisperLedger.record(pid); }
+function cleanupOrphanWhispers() { whisperLedger.reap(); }
 function startWhisper() {
   const cfg = readTtsEnv();
   if (cfg.sttProvider !== 'whispercpp') return;                                  // only the local-STT path needs the server

@@ -17,6 +17,7 @@ const anim = require('./tui-anim');
 const rend = require('./tui-render');
 const slash = require('./slash');
 const hist = require('./tui-history');
+const dc = require('./daemon-client');   // shared unix-socket client (request + /ask NDJSON stream)
 
 const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
 
@@ -63,14 +64,8 @@ function clipboard() {
 }
 
 function req(method, p, body) {
-  return new Promise((resolve, reject) => {
-    const r = http.request({ socketPath: SOCK, method, path: p, headers: { 'Content-Type': 'application/json' }, timeout: 8000 }, (res) => {
-      let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(b); } });
-    });
-    r.on('error', reject); r.on('timeout', () => { r.destroy(); reject(new Error('timeout')); });
-    if (body) r.write(JSON.stringify(body));
-    r.end();
-  });
+  // parse the JSON reply, else fall back to the raw string; a socket error/timeout REJECTS (Error('timeout')).
+  return dc.request(method, p, body, { socketPath: SOCK, timeoutMs: 8000 }).then((b) => { try { return JSON.parse(b); } catch { return b; } });
 }
 
 // ---- transcript model: a flat list of {who, text}; 'sys' rows carry footers/notices ----
@@ -441,7 +436,7 @@ function sendTurn(text) {
   animTimer = anim.startWorker(cfg, tickWorker);
   render();
 
-  let buf = '', sawDelta = false;
+  let sawDelta = false;
   const ensureAnswer = () => { if (answerIdx < 0) { add('urfael', ''); answerIdx = lines.length - 1; } };
   const finish = (suffix) => {
     if (!inflight) return;
@@ -451,40 +446,34 @@ function sendTurn(text) {
     render();
   };
 
-  const r = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 300000 }, (res) => {
-    res.on('data', (d) => {
-      buf += d.toString(); let i;
-      while ((i = buf.indexOf('\n')) >= 0) {
-        const ln = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-        if (!ln) continue;
-        let e; try { e = JSON.parse(ln); } catch { continue; }
-        if (e.kind === 'thinking' && e.tool && e.tool !== lastTool) {
-          lastTool = e.tool;
-          if (toolIdx < 0) { add('tool', e.tool); toolIdx = lines.length - 1; } else lines[toolIdx].text = sanitize(lines[toolIdx].text + ' · ' + e.tool);
-          render();
-        } else if (e.kind === 'thinking' && e.delta) {
-          sawDelta = true; ensureAnswer(); lines[answerIdx].text = sanitize(lines[answerIdx].text + stripSpoken(e.delta)); render();
-        } else if (e.kind === 'done') {
-          const finalText = stripSpoken(e.text || '');
-          ensureAnswer();
-          if (!sawDelta && finalText) lines[answerIdx].text = sanitize(finalText);
-          if (!lines[answerIdx].text) lines[answerIdx].text = e.aborted ? '(stopped)' : '(no reply)';
-          usageTokens = (e.usage && (e.usage.output_tokens || 0)) || null;       // authoritative; no '~'
-          inflight = false; streamReq = null; animTimer = anim.stopWorker(animTimer);
-          const secs = e.ms ? (e.ms / 1000).toFixed(1) + 's' : '';
-          const tok = usageTokens != null ? anim.fmtTok(usageTokens) + ' tok' : '';
-          const stamp = cfg.timestamps ? ' · ' + new Date().toTimeString().slice(0, 5) : '';
-          add('sys', e.aborted ? '╶ stopped' : '╶ ' + (e.model || '') + (secs ? ' · ' + secs : '') + (tok ? ' · ' + tok : '') + stamp);
-          render(); refreshVitals();
-        }
-      }
-    });
-    res.on('end', () => finish(''));
-  });
-  streamReq = r;
-  r.on('error', () => finish(answerIdx >= 0 && lines[answerIdx].text ? '' : ' (brain unreachable)'));
-  r.on('timeout', () => { try { r.destroy(); } catch {} finish(' (timed out)'); });
-  r.end(JSON.stringify({ text }));
+  // ./daemon-client frames + routes the /ask NDJSON stream; the per-event + per-phase bodies below are the TUI's own.
+  streamReq = dc.streamAsk(text, {
+    onTool: (e) => {
+      if (e.tool === lastTool) return;
+      lastTool = e.tool;
+      if (toolIdx < 0) { add('tool', e.tool); toolIdx = lines.length - 1; } else lines[toolIdx].text = sanitize(lines[toolIdx].text + ' · ' + e.tool);
+      render();
+    },
+    onDelta: (e) => { if (e.delta) { sawDelta = true; ensureAnswer(); lines[answerIdx].text = sanitize(lines[answerIdx].text + stripSpoken(e.delta)); render(); } },
+    onDone: (e) => {
+      const finalText = stripSpoken(e.text || '');
+      ensureAnswer();
+      if (!sawDelta && finalText) lines[answerIdx].text = sanitize(finalText);
+      if (!lines[answerIdx].text) lines[answerIdx].text = e.aborted ? '(stopped)' : '(no reply)';
+      usageTokens = (e.usage && (e.usage.output_tokens || 0)) || null;       // authoritative; no '~'
+      inflight = false; streamReq = null; animTimer = anim.stopWorker(animTimer);
+      const secs = e.ms ? (e.ms / 1000).toFixed(1) + 's' : '';
+      const tok = usageTokens != null ? anim.fmtTok(usageTokens) + ' tok' : '';
+      const stamp = cfg.timestamps ? ' · ' + new Date().toTimeString().slice(0, 5) : '';
+      add('sys', e.aborted ? '╶ stopped' : '╶ ' + (e.model || '') + (secs ? ' · ' + secs : '') + (tok ? ' · ' + tok : '') + stamp);
+      render(); refreshVitals();
+    },
+    onError: (err) => {
+      if (err.phase === 'error') finish(answerIdx >= 0 && lines[answerIdx].text ? '' : ' (brain unreachable)');
+      else if (err.phase === 'timeout') finish(' (timed out)');   // streamAsk already destroyed the request
+      else finish('');                                            // 'end': natural stream close
+    },
+  }, { socketPath: SOCK, timeoutMs: 300000 });
 }
 
 function abortTurn() {
