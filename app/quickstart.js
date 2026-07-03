@@ -61,7 +61,7 @@ async function run() {
   row('urfael code "<task>"',          'Claude Code in your repo with an auto-checkpoint and a one-command undo.');
   row('urfael attest',                 'a signed, tamper-evident report of exactly what it did, for you or a reviewer.');
   row('urfael "search the web ..."',   'web is OFF by default to block exfiltration. Turn it on in `urfael setup` (Full mode).');
-  row('npm run security',              'attack the daemon yourself. The last run held 10 of 10 classes, 95 of 95 checks.');
+  row('npm run security',              'attack the daemon yourself. The last run held 10 of 10 classes, 101 of 101 checks.');
   p('');
 
   // 4) one concrete first win the user can feel in 30 seconds

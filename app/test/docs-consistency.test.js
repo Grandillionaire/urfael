@@ -119,3 +119,48 @@ test('the security-benchmark scorecard lists every attack class', () => {
 test('the package version has a CHANGELOG entry', () => {
   assert.match(read('CHANGELOG.md'), new RegExp('\\[' + VERSION.replace(/\./g, '\\.') + '\\]'), 'CHANGELOG.md must have an entry for v' + VERSION);
 });
+
+// ── the maturity ledger is single-sourced. The "which channels are battle-tested" line drifted three ways at once
+//    (README, honesty.html, and the manual disagreed, and QQ/SimpleX/PSTN-phone were in no list at all). CHANNEL_MATURITY
+//    in app/lib.js is now the one source of truth: it must classify EXACTLY the real roster, and every code-complete
+//    channel it names must appear in every maturity ledger, so a doc can never quietly drop or reclassify a channel. ──
+const MATURITY = require('../lib').CHANNEL_MATURITY;
+const CODE_COMPLETE = Object.values(MATURITY).filter((v) => v.status === 'code-complete').map((v) => v.label);
+
+test('CHANNEL_MATURITY classifies exactly the real channel roster', () => {
+  const roster = [...require('../lib').TEAM_CHANNELS].sort();
+  const classified = Object.keys(MATURITY).sort();
+  assert.deepEqual(classified, roster, 'CHANNEL_MATURITY must classify every TEAM_CHANNELS entry and no extras');
+  for (const k of Object.keys(MATURITY)) {
+    assert.ok(['certified', 'code-complete'].includes(MATURITY[k].status), k + ' has an unknown maturity status "' + MATURITY[k].status + '"');
+    assert.ok(MATURITY[k].label && MATURITY[k].label.length, k + ' needs a display label');
+  }
+  assert.ok(CODE_COMPLETE.includes('QQ') && CODE_COMPLETE.includes('SimpleX') && CODE_COMPLETE.includes('PSTN phone'),
+    'QQ, SimpleX and PSTN phone must be classified code-complete (they were previously in no maturity list)');
+});
+
+test('every maturity ledger names every code-complete channel (single-sourced, no underclaim)', () => {
+  const ledgers = {
+    'README.md': /## What's lightly tested([\s\S]*?)\n## /,
+    'docs/honesty.html': /class="light-list">([\s\S]*?)<\/ul>/,
+    'docs/manual/channels/overview.md': /## What is lightly tested([\s\S]*?)(?:\n## |$)/,
+  };
+  for (const [rel, re] of Object.entries(ledgers)) {
+    const block = (read(rel).match(re) || [, ''])[1];
+    assert.ok(block && block.length > 40, rel + ' has no maturity section for the guard to police (marker changed?)');
+    for (const label of CODE_COMPLETE) {
+      assert.ok(block.includes(label), rel + ' maturity section omits the code-complete channel "' + label + '"; keep it in lockstep with CHANNEL_MATURITY');
+    }
+  }
+});
+
+// ── SETUP.md was a pre-Console fossil (Node 18 floor, no `urfael setup` wizard). Pin it to the current flow: it must
+//    cite the real Node floor from package.json engines and mention the onboarding wizard, so it cannot rot back. ──
+test('SETUP.md matches the current install flow (node floor + setup wizard)', () => {
+  const setup = read('docs/SETUP.md');
+  const floor = (require('../package.json').engines.node.match(/(\d+)/) || [])[1];
+  assert.ok(floor, 'package.json engines.node must declare a numeric floor');
+  assert.ok(setup.includes('Node ' + floor), 'SETUP.md must cite the real Node floor (Node ' + floor + ')');
+  assert.ok(!/Node\s*18/.test(setup), 'SETUP.md still cites the stale Node 18 floor');
+  assert.ok(/urfael setup/.test(setup), 'SETUP.md must mention the `urfael setup` onboarding wizard, not just manual placeholder editing');
+});

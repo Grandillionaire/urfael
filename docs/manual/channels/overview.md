@@ -59,7 +59,7 @@ So even WhatsApp does not expose a listener to the LAN or the internet by defaul
 
 ## What is lightly tested
 
-The pure parsing and allowlist logic for every channel is unit-tested. The live relay of the Matrix, Signal, and WhatsApp bridges has not been exercised against real accounts yet; treat those as code-complete and reviewed, not battle-hardened. Linux paths are newer than macOS. The README states this plainly and so do we.
+The pure parsing and allowlist logic for every channel is unit-tested and frozen as a security-benchmark check. The certified core, exercised against real accounts, is Telegram, Discord, Slack, iMessage, and Email. The Matrix, Signal, and WhatsApp bridges, the QQ, SimpleX, and PSTN phone bridges, and the eight native webhook channels (Mattermost, Google Chat, SMS, DingTalk, Home Assistant, BlueBubbles, Feishu, WeCom) are code-complete and reviewed but not yet battle-hardened against a live account: treat them that way. Linux paths are newer than macOS. The README states this plainly and so do we; the same split is the maturity map in `app/lib.js`.
 
 ## Where to go next
 

@@ -9,8 +9,8 @@ macOS is the primary, best-tested target; the `install.sh` at the repo root does
   The brain just shells out to your `claude` CLI, so it runs on that subscription — there's **no API key
   and nothing to "connect."** If `claude` works in your terminal, the daemon works. (Gmail/Calendar/Drive
   connectors come from your account.)
-- **Node 18+**, **uv**, **coreutils** (`brew install coreutils` → `gtimeout`), **Python 3 + matplotlib**
-  (`pip3 install --user matplotlib numpy`).
+- **Node 20+** (`app/package.json` declares `"engines": { "node": ">=20" }`), **uv**, **coreutils**
+  (`brew install coreutils` → `gtimeout`), **Python 3 + matplotlib** (`pip3 install --user matplotlib numpy`).
 - **Local voice (free, default):** `brew install ffmpeg whisper-cpp` — `say` is built in; the installer
   downloads the ~142 MB speech model. **No API key needed.**
 - **Obsidian** + the **Local REST API** community plugin.
@@ -22,9 +22,20 @@ macOS is the primary, best-tested target; the `install.sh` at the repo root does
 ```
 It checks deps, writes `~/.claude/urfael/{tts.env,api-keys.env}` from the examples (chmod 600), scaffolds
 `~/Urfael` from the template (with a `.claude → _urfael` symlink), creates a private local `~/Urfael-memory`
-git repo, runs `npm install`, and writes the launchd plists (without loading them).
+git repo, runs `npm install`, links the `urfael` CLI onto your PATH, and writes the launchd plists (without
+loading them). On Linux it writes `systemd --user` units instead.
 
-## 3. Configure
+## 2b. Onboard with the wizard
+```bash
+urfael setup
+```
+The onboarding wizard chooses how Urfael reaches Claude (the Claude subscription is the default; an API key or
+a local model are the other options), writes `~/.claude/urfael/provider.env` (chmod 600, since it may hold a
+key), auto-detects and fills the `CLAUDE.md` persona placeholders for you (so you are never addressed as
+`{{USER_NAME}}`), checks the essentials, and offers to start the always-on daemon. Everything below is optional
+detail on top of what the wizard sets. Re-run `urfael setup` any time to switch provider or turn on **Full** mode.
+
+## 3. Configure (optional detail)
 - **Voice (works out of the box, free & local):** the default is macOS `say` (TTS) + whisper.cpp (STT) —
   nothing to configure. In `~/.claude/urfael/tts.env` you can set `SAY_VOICE` (run `say -v '?'` to list
   voices) or `WHISPER_MODEL=small.en` for better accuracy.
@@ -34,7 +45,8 @@ git repo, runs `npm install`, and writes the launchd plists (without loading the
     `ELEVENLABS_API_KEY` (use a **premade** voice — premade voices don't drift).
   - *Acknowledgments:* while it works on a slow answer, Urfael says a short "On it, sir." instead of
     leaving silence. Disable with `URFAEL_ACKS=0` in `tts.env`.
-- **Persona:** fill `{{USER_NAME}}` / `{{CITY}}` / `{{TIMEZONE}}` / `{{LANGUAGE}}` in `~/Urfael/CLAUDE.md`.
+- **Persona:** `urfael setup` already auto-detects and fills `{{USER_NAME}}` / `{{CITY}}` / `{{TIMEZONE}}` /
+  `{{LANGUAGE}}` in `~/Urfael/CLAUDE.md`. Edit that file by hand only if you want to override what it detected.
 - **Obsidian:** open `~/Urfael` as a vault → Settings → Community plugins → enable → install *Local REST API*
   → copy its API key → register it:
   ```bash
@@ -45,9 +57,9 @@ git repo, runs `npm install`, and writes the launchd plists (without loading the
 ## 4. Run it
 ```bash
 launchctl load -w ~/Library/LaunchAgents/com.urfael.daemon.plist   # the always-on brain
-cd app && npm start                                                # the overlay UI
+cd app && npm start                                                # the Console (overlay UI)
 ```
-The orb appears bottom-right. Tap it to talk, or set a Picovoice key for a spoken wake word: any built-in keyword via `WAKE_KEYWORD` (default "Computer"), or a custom "Urfael" keyword — train it free at console.picovoice.ai, save the `.ppn`, and set `WAKE_KEYWORD_PATH` in `tts.env`.
+The Console opens and its orb sits bottom-right. Tap it to talk, or set a Picovoice key for a spoken wake word: any built-in keyword via `WAKE_KEYWORD` (default "Computer"), or a custom "Urfael" keyword, trained free at console.picovoice.ai; save the `.ppn` and set `WAKE_KEYWORD_PATH` in `tts.env`.
 `⌘⇧U` show/hide · `⌘⇧H` expands the HUD · `⌘⇧T` changes the look · `⌘⇧Q` full shutdown.
 
 Optional background jobs (opt-in): `com.urfael.morningbrief` (8am brief), `com.urfael.obsidian-heal`
@@ -77,7 +89,7 @@ no writes, no shell, no web) — see SECURITY.md. Web lookup / phone capture are
    it from `config/bridge.env.example`; that file has the step-by-step for getting each value). `chmod 600`.
 2. Load the bridge(s) — they were written to `~/Library/LaunchAgents` by the installer but not started:
    ```bash
-   launchctl load -w ~/Library/LaunchAgents/com.urfael.telegram.plist   # Telegram (Node 18+)
+   launchctl load -w ~/Library/LaunchAgents/com.urfael.telegram.plist   # Telegram (Node 20+)
    launchctl load -w ~/Library/LaunchAgents/com.urfael.discord.plist    # Discord (Node 22+, MESSAGE CONTENT intent)
    ```
 3. DM your bot — text or a **voice memo** (transcribed locally via whisper-cpp on your Mac; the

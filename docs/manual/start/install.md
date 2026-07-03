@@ -5,7 +5,7 @@ Urfael is an always-on local brain that runs your installed `claude` CLI as a su
 ## Prerequisites
 
 - **Claude Code on a paid plan (Pro or Max), signed in.** Run `claude` once and log in before you start Urfael. The brain shells out to that CLI, so it rides your existing subscription. (Opus escalation needs Max. On Pro, set `URFAEL_OPUS_MODEL=sonnet` so hard turns stay on Sonnet instead of failing.)
-- **Node 20 or newer.** `app/package.json` declares `"engines": { "node": ">=20" }`. (Older SETUP notes say Node 18; treat 20 as the floor.)
+- **Node 20 or newer.** `app/package.json` declares `"engines": { "node": ">=20" }`, the single source of truth for the floor.
 - **An operating system Urfael supports.** macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the headless brain and the Electron GUI, but it is newer and has far less mileage. There is no Windows build of the daemon today.
 - **Obsidian** with its Local REST API community plugin, for the vault.
 - For local voice (the free default): `ffmpeg`, `whisper-cpp`, and `coreutils` on macOS. The installer downloads the speech model (checksum-pinned). Docker is optional and only needed for sandboxed autonomous coding.

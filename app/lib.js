@@ -302,6 +302,37 @@ function resolvePrincipal(roster, channel, senderId) {
 // The channels a roster can have (used to validate `urfael team add`).
 const TEAM_CHANNELS = ['telegram', 'discord', 'slack', 'imessage', 'email', 'matrix', 'signal', 'whatsapp', 'qq', 'simplex', 'phone', 'mattermost', 'googlechat', 'sms', 'dingtalk', 'homeassistant', 'bluebubbles', 'feishu', 'wecom'];
 
+// Single source of truth for channel maturity, cited identically in README, docs/honesty.html and the manual so the
+// ledger can never disagree with itself again. `status` is one of two honest buckets:
+//   'certified'     — exercised against real accounts; the best-tested core.
+//   'code-complete' — parsing, signature verification and the fail-closed allowlist are unit-tested and frozen as
+//                     security-benchmark checks, and the code is reviewed, but the live relay is not yet
+//                     battle-hardened against a real account/device. Treat it that way.
+// The docs-consistency guard asserts this map classifies EXACTLY TEAM_CHANNELS (no missing, no extra) and that every
+// code-complete `label` (QQ, SimpleX and PSTN phone included) is named in each maturity ledger, so a doc that quietly
+// drops or reclassifies a channel fails the build. `label` is the human display name the docs use verbatim.
+const CHANNEL_MATURITY = {
+  telegram:      { label: 'Telegram',       status: 'certified' },
+  discord:       { label: 'Discord',        status: 'certified' },
+  slack:         { label: 'Slack',          status: 'certified' },
+  imessage:      { label: 'iMessage',       status: 'certified' },
+  email:         { label: 'Email',          status: 'certified' },
+  matrix:        { label: 'Matrix',         status: 'code-complete' },
+  signal:        { label: 'Signal',         status: 'code-complete' },
+  whatsapp:      { label: 'WhatsApp',       status: 'code-complete' },
+  qq:            { label: 'QQ',             status: 'code-complete' },
+  simplex:       { label: 'SimpleX',        status: 'code-complete' },
+  phone:         { label: 'PSTN phone',     status: 'code-complete' },
+  mattermost:    { label: 'Mattermost',     status: 'code-complete' },
+  googlechat:    { label: 'Google Chat',    status: 'code-complete' },
+  sms:           { label: 'SMS',            status: 'code-complete' },
+  dingtalk:      { label: 'DingTalk',       status: 'code-complete' },
+  homeassistant: { label: 'Home Assistant', status: 'code-complete' },
+  bluebubbles:   { label: 'BlueBubbles',    status: 'code-complete' },
+  feishu:        { label: 'Feishu',         status: 'code-complete' },
+  wecom:         { label: 'WeCom',          status: 'code-complete' },
+};
+
 // Pure parser for a SimpleX `newChatItems` response from the local simplex-chat control WS → {contactId, text} | null.
 // Fail-closed/defensive: null for the wrong type, a group (only Direct is bridged), a self-loop (outbound/snd
 // direction = our own echo), or any item with no extractable text. The allowlist key is the LOCAL integer
@@ -1089,4 +1120,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, CHAIN_MAX, makeCronGate, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, CHAIN_MAX, makeCronGate, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };

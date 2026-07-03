@@ -58,7 +58,7 @@ See [features/models.md](features/models.md).
 
 ## Channels
 
-Drive Urfael from 19 owner-allowlisted channels (the eight best-tested: Telegram, Discord, Slack, iMessage, Email as draft-only, Matrix, Signal, WhatsApp; the rest, including QQ, SimpleX, phone, and eight native webhook channels, are newer), by text or by voice memo transcribed locally. Every channel is gated to your id before the brain sees anything and is sandboxed read-only by default. The universal `relay` turns any platform with an in/out webhook into a two-way channel. The live relay of the Matrix, Signal, and WhatsApp bridges is not yet exercised against real accounts; treat them as code-complete and reviewed, not battle-hardened.
+Drive Urfael from 19 owner-allowlisted channels (the certified core, exercised against real accounts, is Telegram, Discord, Slack, iMessage, and Email as draft-only; the Matrix, Signal, and WhatsApp bridges, the QQ, SimpleX, and PSTN phone bridges, and the eight native webhook channels are code-complete and reviewed, not yet battle-hardened), by text or by voice memo transcribed locally. Every channel is gated to your id before the brain sees anything and is sandboxed read-only by default. The universal `relay` turns any platform with an in/out webhook into a two-way channel. The maturity split is single-sourced from `CHANNEL_MATURITY` in `app/lib.js`.
 
 See [channels/overview.md](channels/overview.md).
 

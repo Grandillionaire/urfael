@@ -91,9 +91,10 @@ The owner-key-to-channel mapping is `OWNER_ENV` in `app/bridge/bridge-core.js`. 
 
 Be honest with yourself about maturity. The README says it and so does this page:
 
-- Solid and best-tested: Telegram, Discord, Slack, iMessage, Email. The README counts these (plus Matrix) as the curated eight.
-- Code-complete and reviewed, but not yet exercised against real accounts: the live relay of Matrix, Signal, and WhatsApp. Their parsing and allowlist logic is unit-tested; the network path is not battle-hardened. Treat them accordingly.
-- Newer still: `qq`, `simplex`, and `phone` are real channel names the roster validates, with less mileage again. WhatsApp and phone are also the only inbound surfaces, so they carry more surface area; see the overview.
+- Certified and best-tested, exercised against real accounts: Telegram, Discord, Slack, iMessage, Email. This is the certified core.
+- Code-complete and reviewed, but not yet battle-hardened against a live account: the Matrix, Signal, and WhatsApp bridges, the `qq`, `simplex`, and `phone` (PSTN) bridges, and the eight native webhook channels below. Their parsing, signature verification, and fail-closed allowlist logic is unit-tested and frozen as a benchmark check; the live relay is the remaining certification step. Treat them accordingly. WhatsApp and phone are also the only inbound surfaces, so they carry more surface area; see the overview.
+
+This split is single-sourced from the `CHANNEL_MATURITY` map in `app/lib.js`, so the README, the honesty page, and this manual cite it identically.
 
 ## Native webhook channels
 
