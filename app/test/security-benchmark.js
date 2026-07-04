@@ -720,6 +720,19 @@ async function main() {
   check('a native sub-agent cannot WRITE and cannot RECURSE — write_file + delegate are denied at dispatch, and nothing hit disk',
     /denied: subagent is read-only/.test(subWrite) && /denied: subagent is read-only/.test(subDelegate) && !subWroteDisk,
     'double-gate: the mutating tools are absent from defs AND refused at dispatch, and a sub-agent has no delegate tool — enforcing max-1-level, no fan-out onto write/exec/another provider (structurally, not by a depth counter)');
+  // LIVE PROVIDER FALLBACK (fallback): a native turn that failed transiently may retry the NEXT provider in the
+  // chain. The pure decision logic (engine/fallback.js) upholds the credential boundary: a provider whose OWN secret
+  // is absent is DROPPED from the candidate list (never attempted on the daemon's own creds), and an auth/4xx error
+  // is TERMINAL (a bad key is never retried into a loop). Freeze both so a future edit can't loosen them.
+  const fbKeyless = eng.nativeFallbackChain({
+    chain: [{ id: 'primary' }, { id: 'nokey', authKind: 'key', authEnv: 'X' }],
+    canEngine: () => true, hasSecret: (e) => e.authKind !== 'key',    // the key provider has NO stored secret
+  });
+  check('live provider fallback NEVER attempts a keyless provider and NEVER retries a 4xx/auth error (fail-closed cross-provider retry)',
+    Array.isArray(fbKeyless) && fbKeyless.length === 0
+      && eng.classifyNativeError({ ok: false, error: 'HTTP 401 unauthorized' }).retryable === false
+      && eng.classifyNativeError({ ok: false, error: 'HTTP 400: {"message":"503 overloaded"}' }).retryable === false,
+    'nativeFallbackChain drops a provider with no stored secret so a retry can never run on the daemon\'s base-env credentials, and classifyNativeError treats auth/4xx as terminal (status read from the anchored prefix, so a hostile body can\'t spoof a retry) — the cross-provider retry inherits the fail-closed default');
   fs.rmSync(engVault, { recursive: true, force: true });
   fs.rmSync(engOut, { recursive: true, force: true });
 

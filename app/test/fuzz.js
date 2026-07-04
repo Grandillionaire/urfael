@@ -19,6 +19,7 @@ const connectors = require('../connectors');
 const pluginhub = require('../pluginhub');
 const providers = require('../providers');
 const review = require('../engine/review');
+const fallback = require('../engine/fallback');
 
 const ITERS = parseInt(process.env.FUZZ_ITERS || '20000', 10);
 const BUDGET_MS = parseInt(process.env.FUZZ_BUDGET_MS || '250', 10);   // a parser must be ~linear; > this = ReDoS suspect
@@ -89,6 +90,11 @@ const targets = [
   ['ndjson.reader', (v) => ndjsonDrain(typeof v === 'string' ? v : JSON.stringify(v)), (r) => Array.isArray(r) || 'ndjson reader non-array'],
   ['review.parseReview', (v) => review.parseReview(v, typeof v === 'string' ? v : ''), (r) => (r && typeof r.revised === 'boolean') || 'parseReview did not return a boolean revised'],
   ['review.buildReviewMessages', (v) => review.buildReviewMessages(Array.isArray(v) ? v : [v], typeof v === 'string' ? v : JSON.stringify(v)), (r) => (Array.isArray(r) && r.length >= 1 && r.at(-1).role === 'user' && r.every((m) => !m.toolCalls && m.role !== 'tool')) || 'buildReviewMessages produced tool rows / no trailing user / bad shape'],
+  // native fallback classifier: total (never throws), returns {retryable:bool, category:string}; string inputs go
+  // through the error-classification regexes (ReDoS guard on the anchored HTTP/network/overload patterns).
+  ['fallback.classifyNativeError', (v) => fallback.classifyNativeError(typeof v === 'string' ? { ok: false, error: v } : v), (r) => (r && typeof r.retryable === 'boolean' && typeof r.category === 'string') || 'classifyNativeError bad shape'],
+  // native fallback chain: total, returns an array no longer than the input chain (never grows, never throws).
+  ['fallback.nativeFallbackChain', (v) => { const chain = Array.isArray(v) ? v : [v]; return { out: fallback.nativeFallbackChain({ chain, canEngine: () => true, hasSecret: () => true }), len: chain.length }; }, (r) => (Array.isArray(r.out) && r.out.length <= r.len) || 'nativeFallbackChain non-array / grew beyond the chain'],
 ];
 
 const fails = [];

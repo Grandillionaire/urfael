@@ -995,25 +995,57 @@ async function runNativeTurn({ text, providerId, model, onDelta, onThinking }) {
   if (need && !secret) return { ok: false, error: 'provider ' + entry.id + ' needs its key, set it with: urfael plugin secret ' + need.env };
   const useModel = model || entry.big_model || entry.small_model || '';
   if (!useModel) return { ok: false, error: 'provider ' + entry.id + ' has no model; pass {model} or set big_model in the registry' };
-  const built = engine.buildEngine({
-    entry, secret, model: useModel, vaultDir: VAULT, memoryDir: MEMORY_DIR,
+  // ONE buildEngine spec shape, reused for the primary AND every fallback so a fallback attempt is byte-identical to a
+  // fresh primary on THAT provider — only the entry/secret/model differ (each fallback re-resolves its OWN secret).
+  const mkSpec = (e, sec, m) => ({
+    entry: e, secret: sec, model: m, vaultDir: VAULT, memoryDir: MEMORY_DIR,
     recall: recallText, appendMemory: async (n) => rememberNative(n),
     contextWindow: 32000, maxTokens: 2048, selfReview: NATIVE_SELF_REVIEW, onDelta, onThinking,
   });
+  const built = engine.buildEngine(mkSpec(entry, secret, useModel));
   if (!built) return { ok: false, error: 'that provider runs on the CLI engine (subscription), not the native engine' };
   if (built.needsSecret) return { ok: false, error: 'provider ' + entry.id + ' needs its key (set it with: urfael plugin secret ' + (built.authEnv || '') + ')' };
   const t0 = Date.now();
   let promptText = text;
   try { const mem = await activeRecall(text); if (mem && mem.promptText) promptText = mem.promptText; } catch {}
+  // loop.run() slices `messages` (never mutates it), so the SAME clean initial history is reused for each fallback.
   const messages = engine.assembleMessages({ system: nativeSystemPrompt(), userText: promptText });
   let r; try { r = await built.run(messages); } catch (e) { return { ok: false, error: 'native engine error: ' + String((e && e.message) || e) }; }
+  // adopt the winning provider (primary until a fallback succeeds) for the transcript/record/return contract below.
+  let winEntry = entry, winModel = useModel, winAdapter = built._adapter;
+  // LIVE PROVIDER FALLBACK (native): a primary that failed for a RETRYABLE reason (network/timeout/overload/5xx/429/408
+  // — NOT a 4xx/auth/bad-request/abort) is retried ONCE per fallback across providers.chain. The pure classifier +
+  // chain (engine/fallback.js) decide; nativeFallbackChain FAIL-CLOSED drops keyless providers (never the daemon's own
+  // creds) and CLI-only/subscription providers (never degrade a native turn onto the flat-rate path). Each fallback
+  // re-resolves ITS OWN secret from secretStore. Off when URFAEL_FALLBACK=0. A success or a TERMINAL error skips this
+  // block entirely -> the exact single-attempt path as before (the success path is never perturbed).
+  if (FALLBACK_ON && engine.classifyNativeError(r).retryable) {
+    const fbChain = engine.nativeFallbackChain({
+      chain: providers.chain(providerList(), providerId),
+      canEngine: (e) => !!engine.pickAdapter(e),
+      hasSecret: (e) => { const n = providers.secretNeeded(e); return !n || !!secretStore[n.env]; },
+    });
+    for (const fb of fbChain) {
+      const fbNeed = providers.secretNeeded(fb);
+      const fbSecret = fbNeed ? secretStore[fbNeed.env] : '';            // re-resolve THIS provider's OWN secret (fail-closed)
+      const fbModel = fb.big_model || fb.small_model || '';
+      if (!fbModel) continue;                                            // no model to run on -> skip (fail-soft)
+      const fbBuilt = engine.buildEngine(mkSpec(fb, fbSecret, fbModel));
+      if (!fbBuilt || fbBuilt.needsSecret) continue;                      // double gate: buildEngine refused -> skip
+      logEvent({ ev: 'native_fallback', from: winEntry.id, to: fb.id, cat: engine.classifyNativeError(r).category });
+      let fr; try { fr = await fbBuilt.run(messages); } catch { continue; }   // run never throws, but guard anyway -> next fallback
+      r = fr; winEntry = fb; winModel = fbModel; winAdapter = fbBuilt._adapter;   // adopt this attempt as the new latest
+      if (fr.ok) break;                                                   // first success wins; stop the chain
+      if (!engine.classifyNativeError(fr).retryable) break;              // a TERMINAL fallback error -> stop retrying
+    }
+  }
   const ms = Date.now() - t0;
-  logEvent({ ev: 'native_turn', provider: entry.id, model: useModel, ms, ok: r.ok, steps: r.steps, tokIn: (r.usage && r.usage.inTok) || 0, tokOut: (r.usage && r.usage.outTok) || 0 });
+  logEvent({ ev: 'native_turn', provider: winEntry.id, model: winModel, ms, ok: r.ok, steps: r.steps, tokIn: (r.usage && r.usage.inTok) || 0, tokOut: (r.usage && r.usage.outTok) || 0 });
   if (r.ok && r.text) {
     transcript.push({ user: text, urfael: r.text });
-    recordSession({ t: new Date().toISOString(), channel: 'native:' + entry.id, model: useModel, user: text, urfael: r.text, ms });
+    recordSession({ t: new Date().toISOString(), channel: 'native:' + winEntry.id, model: winModel, user: text, urfael: r.text, ms });
   }
-  return { ok: r.ok, text: r.text, error: r.error, model: useModel, usage: r.usage, steps: r.steps, engine: built._adapter };
+  return { ok: r.ok, text: r.text, error: r.error, model: winModel, usage: r.usage, steps: r.steps, engine: winAdapter };
 }
 
 // Reinforce what active recall surfaced (the testing effect): bump each lesson's `surfaced` so consolidation can

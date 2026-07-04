@@ -20,6 +20,7 @@ const { createToolset } = require('./tools');
 const { createCompactor } = require('./compactor');
 const { createEngine } = require('./loop');
 const { makeDelegate } = require('./delegate');
+const { classifyNativeError, nativeFallbackChain } = require('./fallback');
 
 // pickAdapter(entry) — { adapter, baseUrl } or null when this entry must stay on the CLI engine.
 function pickAdapter(entry) {
@@ -121,4 +122,4 @@ function assembleMessages({ system, history, userText } = {}) {
   return msgs;
 }
 
-module.exports = { buildEngine, pickAdapter, makeSummarizer, assembleMessages };
+module.exports = { buildEngine, pickAdapter, makeSummarizer, assembleMessages, classifyNativeError, nativeFallbackChain };
