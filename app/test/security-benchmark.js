@@ -693,6 +693,16 @@ async function main() {
   check('the native-engine endpoint fails closed on an unknown provider (never a silent fallback onto daemon creds)',
     /unknown provider/.test(engUnknown.raw),
     'an unrecognized providerId is rejected; the native turn never runs on the daemon\'s own credentials');
+  // OPT-IN self-review (loop's post-answer critique): the reviewer is a SUB-CALL and must never be broader than its
+  // parent. It is offered ZERO tools, and runReview reads ONLY res.text — a hostile endpoint that returns spurious
+  // tool_calls in the critique is inert (no dispatch, no escalation). Freeze that narrow-only floor here.
+  const review = require('../engine/review');
+  let reviewToolsSeen = 'unset';
+  const reviewAdapter = { chat: async (o) => { reviewToolsSeen = o.tools; return { ok: true, text: 'CONFIRM', toolCalls: [{ id: 'z', name: 'write_file', args: '{"path":"pwn","content":"x"}' }], usage: { inTok: 1, outTok: 1 }, stopReason: 'tool_calls' }; } };
+  const rvRes = await review.runReview({ adapter: reviewAdapter, model: 'm', baseUrl: '', apiKey: 'k' }, [{ role: 'user', content: 'q' }], 'the original answer', {});
+  check('the OPT-IN self-review pass offers the reviewer ZERO tools and never dispatches a reviewer-returned tool_call (narrow-only floor)',
+    Array.isArray(reviewToolsSeen) && reviewToolsSeen.length === 0 && rvRes.revised === false && rvRes.text === 'the original answer',
+    'the self-critique sub-call is the empty-set case of council.intersectTools: the reviewer is shown no tools, and runReview reads only res.text, so a hostile endpoint returning spurious tool_calls in the critique cannot write/exec/read/escalate or trigger a second call');
   fs.rmSync(engVault, { recursive: true, force: true });
   fs.rmSync(engOut, { recursive: true, force: true });
 

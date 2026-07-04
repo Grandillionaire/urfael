@@ -272,6 +272,10 @@ function councilStreamOne({ prompt, model, allowedTools, onDelta, onTool }) {
 // deny. It is the daemon's env — a remote sender can NEVER select it. Anything but 'full' is Fortress.
 const AGENT_MODE = String(process.env.URFAEL_MODE || 'fortress').toLowerCase() === 'full' ? 'full' : 'fortress';
 const FALLBACK_ON = process.env.URFAEL_FALLBACK !== '0';   // owner local turns retry once on the other tier after a retryable failure; URFAEL_FALLBACK=0 to disable
+// OPT-IN: the native engine makes ONE extra self-critique pass over its final answer before returning it. Default
+// OFF (URFAEL_SELF_REVIEW=1 to enable), so the default native/subscription paths stay byte-identical. Fail-soft and
+// bounded to one pass in the loop; a reviewer error/timeout keeps the original answer.
+const NATIVE_SELF_REVIEW = process.env.URFAEL_SELF_REVIEW === '1';
 if (AGENT_MODE === 'full') { try { logEvent({ ev: 'WARN', msg: 'URFAEL_MODE=full — remote owner/member turns can browse the web (still sandboxed: no write, no shell, no bypass, credential-deny holds).' }); } catch {} }
 
 // the in-flight /ask response stream — brain events are written to it as NDJSON
@@ -994,7 +998,7 @@ async function runNativeTurn({ text, providerId, model, onDelta, onThinking }) {
   const built = engine.buildEngine({
     entry, secret, model: useModel, vaultDir: VAULT, memoryDir: MEMORY_DIR,
     recall: recallText, appendMemory: async (n) => rememberNative(n),
-    contextWindow: 32000, maxTokens: 2048, onDelta, onThinking,
+    contextWindow: 32000, maxTokens: 2048, selfReview: NATIVE_SELF_REVIEW, onDelta, onThinking,
   });
   if (!built) return { ok: false, error: 'that provider runs on the CLI engine (subscription), not the native engine' };
   if (built.needsSecret) return { ok: false, error: 'provider ' + entry.id + ' needs its key (set it with: urfael plugin secret ' + (built.authEnv || '') + ')' };

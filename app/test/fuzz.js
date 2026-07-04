@@ -18,6 +18,7 @@ const personas = require('../personas');
 const connectors = require('../connectors');
 const pluginhub = require('../pluginhub');
 const providers = require('../providers');
+const review = require('../engine/review');
 
 const ITERS = parseInt(process.env.FUZZ_ITERS || '20000', 10);
 const BUDGET_MS = parseInt(process.env.FUZZ_BUDGET_MS || '250', 10);   // a parser must be ~linear; > this = ReDoS suspect
@@ -86,6 +87,8 @@ const targets = [
   ['council._parsePlan', (v) => council._parsePlan(typeof v === 'string' ? v : JSON.stringify(v), 'task', 3), (r) => (r && Array.isArray(r.subtasks) && r.subtasks.length >= 1 && r.subtasks.length <= 3) || 'plan subtasks out of [1,cap]'],
   ['personas.normalizeAuthored', (v) => personas.normalizeAuthored(v), (r) => r === null || (r && /^[a-z0-9][a-z0-9_-]{0,40}$/.test(r.id) && r.prompt.length <= 4000) || 'authored persona escaped its bounds'],
   ['ndjson.reader', (v) => ndjsonDrain(typeof v === 'string' ? v : JSON.stringify(v)), (r) => Array.isArray(r) || 'ndjson reader non-array'],
+  ['review.parseReview', (v) => review.parseReview(v, typeof v === 'string' ? v : ''), (r) => (r && typeof r.revised === 'boolean') || 'parseReview did not return a boolean revised'],
+  ['review.buildReviewMessages', (v) => review.buildReviewMessages(Array.isArray(v) ? v : [v], typeof v === 'string' ? v : JSON.stringify(v)), (r) => (Array.isArray(r) && r.length >= 1 && r.at(-1).role === 'user' && r.every((m) => !m.toolCalls && m.role !== 'tool')) || 'buildReviewMessages produced tool rows / no trailing user / bad shape'],
 ];
 
 const fails = [];

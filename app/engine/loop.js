@@ -20,6 +20,8 @@
 // createEngine(cfg) -> { run }.  cfg = { adapter, toolset, compactor?, model, apiKey?, baseUrl?, maxTokens?,
 //   maxSteps?, temperature?, onDelta?(text), onThinking?(text), now? }
 
+const { runReview } = require('./review');
+
 const DEFAULT_MAX_STEPS = 8;          // model→tools→model cycles per user turn
 const DEFAULT_MAX_TOKENS = 4096;      // per-call output budget
 
@@ -91,6 +93,22 @@ function createEngine(cfg) {
       // a normal stop (or length): the assistant's text IS the answer
       messages.push({ role: 'assistant', content: res.text || '' });
       finalText = res.text || '';
+      // OPT-IN self-review (cfg.selfReview): exactly ONE extra critique pass over this genuine, model-authored
+      // answer. OFF by default (this block is skipped when cfg.selfReview is falsy, so the default + subscription
+      // paths are byte-identical to before). Fail-soft (any reviewer error keeps the original), never a loop, and
+      // the reviewer is offered ZERO tools. Adopt the corrected answer ONLY if the reviewer actually revised it.
+      // This is the LAST mutation of finalText/messages before result(); it runs on no other return path (the
+      // error/aborted returns happen earlier; the max_steps fallthrough is a placeholder, not a model answer).
+      if (cfg.selfReview && finalText) {
+        if (typeof cfg.onThinking === 'function') { try { cfg.onThinking('· self-review'); } catch {} }
+        let rv = null;
+        try { rv = await runReview(cfg, messages, finalText, { signal }); } catch { rv = null; }
+        if (rv && rv.usage) { usage.inTok += rv.usage.inTok | 0; usage.outTok += rv.usage.outTok | 0; }
+        if (rv && rv.revised && rv.text && rv.text !== finalText) {
+          finalText = rv.text;
+          messages[messages.length - 1] = { role: 'assistant', content: finalText };   // reflect the adopted revision in the returned/persisted history
+        }
+      }
       return result(true, null, res.stopReason || 'stop');
     }
 

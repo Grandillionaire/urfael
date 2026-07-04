@@ -63,7 +63,8 @@ function makeSummarizer(adapter, modelCfg) {
 
 // buildEngine(spec) — the daemon's entry point. Returns { run } or null (⇒ use the CLI engine for this provider).
 //   spec = { entry, secret, model, vaultDir, memoryDir?, workspaceDir?, allowShell?, runShell?, recall?,
-//            appendMemory?, maxTokens?, maxSteps?, summaryModel?, onDelta?, onThinking?, now? }
+//            appendMemory?, maxTokens?, maxSteps?, summaryModel?, selfReview?, onDelta?, onThinking?, now? }
+//   selfReview? — OPT-IN: after a genuine final answer the loop makes ONE extra self-critique pass (off by default).
 function buildEngine(spec) {
   spec = spec || {};
   const pick = pickAdapter(spec.entry);
@@ -85,6 +86,7 @@ function buildEngine(spec) {
     adapter: pick.adapter, toolset, compactor,
     model: spec.model, apiKey, baseUrl: pick.baseUrl,
     maxTokens: spec.maxTokens, contextWindow: spec.contextWindow, maxSteps: spec.maxSteps,
+    selfReview: spec.selfReview,
     onDelta: spec.onDelta, onThinking: spec.onThinking, now: spec.now,
   });
   return { run: engine.run, toolset, _adapter: pick.adapter === anthropic ? 'anthropic' : 'openai' };
