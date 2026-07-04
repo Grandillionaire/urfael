@@ -51,6 +51,7 @@ const calendar = require('./calendar');         // LOCAL-FIRST calendar event st
 const schedchan = require('./schedule-channel'); // the dedicated Reminders & Calendar channel: parse+validate+assemble (pure; the gate is the daemon's)
 const consolidate = require('./consolidate');   // masterful compaction: dedupe + evidence-retire the ledger, right-size recall
 const engine = require('./engine');             // NATIVE ENGINE: in-process agentic loop for API-key/local (Ollama) providers — the "run on its own" path, additive to the CLI engine
+const defaultBrain = require('./engine/default-brain');   // NATIVE DEFAULT BRAIN: pure decision + shape-mapper for the opt-in "run the local turn on a pinned native provider" path
 const jobstore = require('./jobstore');
 const council = require('./council');
 const runner = require('./runner');
@@ -318,6 +319,17 @@ function setPin(model) {
   try { fs.mkdirSync(JDIR, { recursive: true }); if (pinnedModel) fs.writeFileSync(MODELPIN, pinnedModel + '\n'); else fs.rmSync(MODELPIN, { force: true }); } catch {}
   return pinnedModel;
 }
+// NATIVE DEFAULT BRAIN (opt-in): a PINNED native provider makes the local voice/overlay turn run on the in-process
+// native engine instead of the CLI subscription. Persisted like the model pin (survives restarts, shared by every
+// local surface), set only from the LOCAL-only POST /engine/default endpoint. null = the byte-identical subscription
+// default. Only a sanitized id string is stored; it is validated against the live registry lazily at turn time.
+const NATIVEBRAIN = path.join(JDIR, 'native.default');
+let nativeDefault = (() => { try { return defaultBrain.sanitizeBrainId(fs.readFileSync(NATIVEBRAIN, 'utf8').trim()); } catch { return null; } })();
+function setNativeDefault(id) {
+  nativeDefault = defaultBrain.sanitizeBrainId(id);
+  try { fs.mkdirSync(JDIR, { recursive: true }); if (nativeDefault) fs.writeFileSync(NATIVEBRAIN, nativeDefault + '\n', { mode: 0o600 }); else fs.rmSync(NATIVEBRAIN, { force: true }); } catch {}
+  return nativeDefault;
+}
 const tierName = (m) => (m === MODELS.opus ? 'Opus' : 'Sonnet');
 
 // PERSONA: a voice overlay applied to the warm sessions via --append-system-prompt. The anchor 'urfael'
@@ -502,6 +514,12 @@ const brain = {
     if (dir) return applyModelDirective(dir);                          // a control command — no LLM turn, not recorded
     const pdir = parsePersonaDirective(text, personas.knownIds(personaRoster));   // "be the architect" / "list personas" / "back to urfael"
     if (pdir) return applyPersonaDirective(pdir);
+    // NATIVE DEFAULT BRAIN (opt-in). When the owner has pinned a native provider as the default brain AND it is
+    // resolvable + keyed AND this turn carries no explicit per-turn /model override, run the turn on the in-process
+    // native engine and return its (identically-shaped) result. On ANY miss tryNativeDefault returns null and we fall
+    // through UNCHANGED to the CLI subscription path below. When nativeDefault is null this whole block is skipped, so
+    // everything from here down is BYTE-IDENTICAL to today (same routing, budget guardrail, telemetry, CLI fallback).
+    if (nativeDefault) { const nr = await tryNativeDefault(text, opts); if (nr) return nr; }
     const ov = routeOverride(text);                                   // explicit "/opus …" / "/sonnet …" wins for THIS turn
     if (ov) { text = ov.text; convoModel = MODELS[ov.model]; softTurns = 0; }
     else if (pinnedModel) { convoModel = MODELS[pinnedModel]; softTurns = 0; }   // a user pin overrides auto-routing entirely
@@ -1046,6 +1064,33 @@ async function runNativeTurn({ text, providerId, model, onDelta, onThinking }) {
     recordSession({ t: new Date().toISOString(), channel: 'native:' + winEntry.id, model: winModel, user: text, urfael: r.text, ms });
   }
   return { ok: r.ok, text: r.text, error: r.error, model: winModel, usage: r.usage, steps: r.steps, engine: winAdapter };
+}
+
+// The ONLY place the NATIVE DEFAULT BRAIN runs. A thin wrapper that binds the daemon's real dependencies onto the
+// pure decision + shape-mapper (engine/default-brain.js): it resolves the pinned provider through the SAME fail-closed
+// chain the /engine/ask endpoint uses (findProvider → pickAdapter rejects the subscription → secretNeeded + secretStore),
+// runs the turn through the runNativeTurn choke point (inheriting its native fallback + read-only toolset + self-review),
+// and maps a success onto brain.ask's exact contract. Returns null on ANY miss so brain.ask falls through UNCHANGED to
+// the CLI subscription path — the turn is never dropped. It does NOT re-record (runNativeTurn already did transcript.push
+// + recordSession + logEvent('native_turn') on success) and the native path deliberately scopes out the CLI-tail
+// reviewTurn/modelUser/reinforceSurfaced + the URFAEL_BUDGET rolling window (that window meters the flat-rate
+// subscription, not a metered key). Known v1 limits: not abortable via brain.abort() (which only iterates the CLI
+// `sessions` map — an in-flight native default turn runs to completion), and TTS streams raw token deltas via
+// sendSay({delta}), not sentence-segmented speech. Never throws (the pure fn never throws; runNativeTurn never throws).
+function tryNativeDefault(text /* , opts */) {
+  return defaultBrain.nativeDefaultResult(nativeDefault, text, {
+    routeOverride,
+    findProvider: providerSessions.findProvider,
+    providers: providerList,
+    pickAdapter: engine.pickAdapter,
+    secretNeeded: providers.secretNeeded,
+    hasSecret: (env) => !!secretStore[env],
+    runNativeTurn,
+    onDelta: (t) => { try { sendSay({ delta: t }); } catch {} },
+    onThinking: (t) => { try { sendThinking({ note: t }); } catch {} },
+    resetStream: ({ model }) => { lastLocalTurn = Date.now(); const turnId = ++turnCounter; sendThinking({ reset: true, model, turnId }); },
+    now: () => Date.now(),
+  });
 }
 
 // Reinforce what active recall surfaced (the testing effect): bump each lesson's `surfaced` so consolidation can
@@ -2080,6 +2125,37 @@ const server = http.createServer(async (req, res) => {
     });
     res.writeHead((!r.ok && r.error) ? 400 : 200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(r));
+  } else if (req.method === 'POST' && req.url === '/engine/default') {
+    // POST /engine/default {providerId} — pin (or clear) the NATIVE DEFAULT BRAIN: the local voice/overlay turn runs
+    // on this provider's in-process native engine instead of the CLI subscription. LOCAL-ONLY (a present channel is
+    // refused, identical to /engine/ask) so a remote channel can never flip the owner's brain. Fail-closed: the
+    // flat-rate subscription / any CLI-only provider is REJECTED (a contradiction — it has no native engine), and an
+    // unknown provider is rejected, both BEFORE any pin is written. A keyless-but-valid pin is accepted with a warning
+    // — turns fall through to the subscription until the key is set. {providerId:null} | {action:'clear'} clears it.
+    const body = await readBody(req);
+    let parsed = {}; try { parsed = JSON.parse(body); } catch {}
+    if ('channel' in parsed && parsed.channel) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'native default is local-only' })); return; }
+    if (parsed.action === 'clear' || parsed.providerId === null || parsed.providerId === '') {
+      setNativeDefault(null); logEvent({ ev: 'native_default', action: 'clear' });
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, nativeDefault: null })); return;
+    }
+    const entry = providerSessions.findProvider(providerList(), parsed.providerId);
+    if (!entry) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'unknown provider' })); return; }
+    if (!engine.pickAdapter(entry)) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'that provider runs on the CLI subscription engine; it cannot be a native default brain' })); return; }
+    setNativeDefault(entry.id);
+    const need = providers.secretNeeded(entry);
+    const hasKey = !(need && !secretStore[need.env]);
+    logEvent({ ev: 'native_default', action: 'set', provider: entry.id, hasKey });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, nativeDefault: entry.id, hasKey, warning: hasKey ? undefined : 'key not set — turns fall through to the subscription until you set it' }));
+  } else if (req.method === 'GET' && req.url === '/engine/default') {
+    // GET /engine/default → {nativeDefault, hasKey} — report the pinned native default brain (GET /model still reports
+    // the CLI tier; the native model is surfaced here). null when unpinned (the subscription default).
+    const entry = nativeDefault ? providerSessions.findProvider(providerList(), nativeDefault) : null;
+    const need = entry ? providers.secretNeeded(entry) : null;
+    const hasKey = entry ? !(need && !secretStore[need.env]) : false;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ nativeDefault: nativeDefault || null, hasKey }));
   } else if (req.method === 'POST' && req.url === '/chat') {
     // POST /chat {model, providerId} -> {chatId} — open a new chat bound to a provider WITHOUT disconnecting any
     // existing chat. Validates providerId against the registry (fail-closed: unknown provider is rejected).

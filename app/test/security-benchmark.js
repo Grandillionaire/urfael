@@ -733,6 +733,28 @@ async function main() {
       && eng.classifyNativeError({ ok: false, error: 'HTTP 401 unauthorized' }).retryable === false
       && eng.classifyNativeError({ ok: false, error: 'HTTP 400: {"message":"503 overloaded"}' }).retryable === false,
     'nativeFallbackChain drops a provider with no stored secret so a retry can never run on the daemon\'s base-env credentials, and classifyNativeError treats auth/4xx as terminal (status read from the anchored prefix, so a hostile body can\'t spoof a retry) — the cross-provider retry inherits the fail-closed default');
+  // NATIVE DEFAULT BRAIN (default-brain): the owner may PIN a native provider as the default brain so the LOCAL
+  // voice/overlay turn runs on the in-process native engine. The pin surface must be LOCAL-only and fail-closed —
+  // a remote channel can never flip the owner's brain, and the flat-rate subscription / an unknown provider can
+  // never be pinned (both refused BEFORE any pin is written). Live-probe all three refusals over the 0600 socket.
+  const dbRemote = await sock('POST', '/engine/default', { providerId: 'ollama', channel: 'telegram' });
+  const dbUnknown = await sock('POST', '/engine/default', { providerId: 'no-such-provider' });
+  const dbSub = await sock('POST', '/engine/default', { providerId: 'claude' });
+  check('the native DEFAULT-BRAIN pin is LOCAL-only + fail-closed: a remote channel is 403, and the flat-rate subscription + an unknown provider are 400',
+    dbRemote.status === 403 && /local-only/.test(dbRemote.raw)
+      && dbUnknown.status === 400 && /unknown provider/.test(dbUnknown.raw)
+      && dbSub.status === 400 && /CLI subscription/.test(dbSub.raw),
+    'a remote/untrusted channel can never make a native provider the owner\'s default brain; the flat-rate subscription (a contradiction — it has no native engine) and an unrecognized id are both refused before any pin is written, so the default brain can only ever be a real, keyed native provider set from the local socket');
+  // FROZEN SOURCE INVARIANT: the whole native-default branch runs ONLY inside `if (nativeDefault)` (null by default →
+  // the subscription path is byte-identical), and it reaches a native turn ONLY through runNativeTurn, which builds
+  // the fail-closed toolset with NO allowShell/runShell — so the default brain is strictly NARROWER than the CLI brain
+  // (read-only floor). Freeze both, the way /council's local-only guard is frozen above, so the riskiest change can
+  // never silently leak into the frozen default or grant the native brain a shell.
+  check('the native DEFAULT-BRAIN routing is GATED behind `if (nativeDefault)` and grants NO shell (byte-identical default + read-only floor, frozen)',
+    /if \(nativeDefault\)[\s\S]{0,200}tryNativeDefault/.test(daemonSrc)
+      && /function tryNativeDefault/.test(daemonSrc)
+      && !/function tryNativeDefault[\s\S]{0,900}(allowShell|runShell)/.test(daemonSrc),
+    'every native-default line executes only inside `if (nativeDefault)` so an unpinned turn is byte-identical to the subscription default, and tryNativeDefault passes neither allowShell nor runShell — the native default turn inherits runNativeTurn\'s read-only toolset (exec_shell OFF), strictly narrower than the CLI subscription brain');
   fs.rmSync(engVault, { recursive: true, force: true });
   fs.rmSync(engOut, { recursive: true, force: true });
 

@@ -125,6 +125,39 @@ describe('composed daemon smoke (offline claude stub)', () => {
     assert.ok(done.usage && typeof done.usage.output_tokens === 'number', 'the result usage object must reach the done event');
   });
 
+  it('the native DEFAULT-BRAIN pin: unpinned by default, local-only, and a set→get→clear roundtrip persists', async () => {
+    // default state: no native default pinned (the byte-identical subscription default)
+    const g0 = await sock('GET', '/engine/default');
+    assert.equal(g0.status, 200);
+    assert.equal(g0.json && g0.json.nativeDefault, null, 'no native default brain is pinned out of the box');
+    // LOCAL-only: a present channel is refused (a remote channel can never flip the owner's brain)
+    const remote = await sock('POST', '/engine/default', { providerId: 'ollama', channel: 'telegram' });
+    assert.equal(remote.status, 403, 'a remote channel must be refused (native default is local-only)');
+    // the flat-rate subscription can never be a native default (it has no native engine)
+    const sub = await sock('POST', '/engine/default', { providerId: 'claude' });
+    assert.equal(sub.status, 400, 'the subscription provider cannot be pinned as a native default brain');
+    // set a real native provider (ollama: a local-token provider, so hasKey is true without a stored secret), then
+    // confirm it PERSISTS via a fresh GET, then CLEAR it — leaving the daemon back on the byte-identical default.
+    const set = await sock('POST', '/engine/default', { providerId: 'ollama' });
+    assert.equal(set.status, 200);
+    assert.equal(set.json && set.json.nativeDefault, 'ollama');
+    const g1 = await sock('GET', '/engine/default');
+    assert.equal(g1.json && g1.json.nativeDefault, 'ollama', 'the pin persists across requests');
+    const cleared = await sock('POST', '/engine/default', { action: 'clear' });
+    assert.equal(cleared.status, 200);
+    assert.equal(cleared.json && cleared.json.nativeDefault, null);
+    const g2 = await sock('GET', '/engine/default');
+    assert.equal(g2.json && g2.json.nativeDefault, null, 'clearing removes the pin');
+  });
+
+  it('with NO native default pinned, a normal /ask still runs the CLI stub end-to-end (default path unchanged)', async () => {
+    // proves the unpinned hot path is untouched: the guard is skipped and the turn resolves on the offline CLI stub.
+    const ev = await ask('Reply with exactly: URFAEL_SMOKE_OK');
+    const done = ev.find((e) => e.kind === 'done');
+    assert.ok(done && typeof done.text === 'string' && done.text.includes('URFAEL_SMOKE_OK'), 'the unpinned turn must still complete on the CLI subscription engine');
+    assert.notEqual(done.aborted, true);
+  });
+
   it('GET /providers returns the curated registry as safe metadata', async () => {
     const r = await sock('GET', '/providers');
     assert.equal(r.status, 200);
