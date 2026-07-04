@@ -984,8 +984,10 @@ function nativeSystemPrompt() {
   try { const s = fs.readFileSync(path.join(VAULT, 'CLAUDE.md'), 'utf8'); if (s && s.trim()) return s.slice(0, 12000); } catch {}
   return 'You are Urfael, a security-first personal AI assistant running on your own machine. Use the provided tools to read and search the vault. Be terse, direct, and honest; never invent file contents — read them.';
 }
-// recallText — the native `recall` tool: BM25 (+ optional semantic) over the session archive, returned as text.
-async function recallText(q, k) {
+// nativeRecallSearch — the native `recall` tool: BM25 (+ optional semantic) over the session archive, returned as
+// text. NAMED distinctly (not `recallText`) because a module-scope `function recallText(e)` already exists below for
+// vector keys; two same-named function declarations hoist so the LATER wins, which silently mis-wired this tool.
+async function nativeRecallSearch(q, k) {
   try {
     const query = String(q || '').slice(0, 500);
     if (query.trim().length < 3) return 'query too short';
@@ -995,6 +997,16 @@ async function recallText(q, k) {
     if (!turns.length) return 'no matching memory';
     return turns.map((t) => '• ' + String(t.user || '').slice(0, 120) + ' → ' + String(t.urfael || '').slice(0, 200)).join('\n');
   } catch { return 'recall unavailable'; }
+}
+// nativeSecretFor — the secret to hand the native engine for a provider: a key-auth provider's stored secret, OR the
+// local-server placeholder token for authKind 'local' (Ollama/LM Studio accept any Bearer), else ''. Mirrors
+// providers.resolveEnv's local handling so a pinned LOCAL default brain actually BUILDS instead of silently falling
+// through to the CLI subscription (a real "run a local model offline" path, not just the cloud-key path).
+function nativeSecretFor(entry) {
+  const need = providers.secretNeeded(entry);
+  if (need) return secretStore[need.env] || '';
+  if (entry && entry.authKind === 'local') return entry.localToken || 'local';
+  return '';
 }
 // rememberNative — the native `remember` tool: append a one-line captured fact to a CAPTURED.md inbox (NOT MEMORY.md
 // directly — the distill pass curates that; appending raw would bloat it). CR/LF stripped so the ledger can't be injected.
@@ -1009,7 +1021,7 @@ async function runNativeTurn({ text, providerId, model, onDelta, onThinking }) {
   const entry = providerSessions.findProvider(providerList(), providerId);
   if (!entry) return { ok: false, error: 'unknown provider' };
   const need = providers.secretNeeded(entry);
-  const secret = need ? secretStore[need.env] : '';
+  const secret = nativeSecretFor(entry);
   if (need && !secret) return { ok: false, error: 'provider ' + entry.id + ' needs its key, set it with: urfael plugin secret ' + need.env };
   const useModel = model || entry.big_model || entry.small_model || '';
   if (!useModel) return { ok: false, error: 'provider ' + entry.id + ' has no model; pass {model} or set big_model in the registry' };
@@ -1017,7 +1029,7 @@ async function runNativeTurn({ text, providerId, model, onDelta, onThinking }) {
   // fresh primary on THAT provider — only the entry/secret/model differ (each fallback re-resolves its OWN secret).
   const mkSpec = (e, sec, m) => ({
     entry: e, secret: sec, model: m, vaultDir: VAULT, memoryDir: MEMORY_DIR,
-    recall: recallText, appendMemory: async (n) => rememberNative(n),
+    recall: nativeRecallSearch, appendMemory: async (n) => rememberNative(n),
     contextWindow: 32000, maxTokens: 2048, selfReview: NATIVE_SELF_REVIEW, onDelta, onThinking,
   });
   const built = engine.buildEngine(mkSpec(entry, secret, useModel));
@@ -1044,8 +1056,7 @@ async function runNativeTurn({ text, providerId, model, onDelta, onThinking }) {
       hasSecret: (e) => { const n = providers.secretNeeded(e); return !n || !!secretStore[n.env]; },
     });
     for (const fb of fbChain) {
-      const fbNeed = providers.secretNeeded(fb);
-      const fbSecret = fbNeed ? secretStore[fbNeed.env] : '';            // re-resolve THIS provider's OWN secret (fail-closed)
+      const fbSecret = nativeSecretFor(fb);                             // re-resolve THIS provider's OWN secret (fail-closed; local→placeholder)
       const fbModel = fb.big_model || fb.small_model || '';
       if (!fbModel) continue;                                            // no model to run on -> skip (fail-soft)
       const fbBuilt = engine.buildEngine(mkSpec(fb, fbSecret, fbModel));
