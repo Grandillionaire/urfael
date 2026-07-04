@@ -43,7 +43,7 @@ boots the real daemon and dashboard and attacks them, printing **10/10 attack cl
 
 **Why `daemon.js` is large and that is fine:** it is the *conductor*, not the orchestra. It owns I/O, process
 lifecycle, and routing; every decision worth testing is delegated to a pure satellite module that takes data
-and returns data with no daemon, no socket, no `claude`. That is why 939 unit tests run in ~0.5s with zero
+and returns data with no daemon, no socket, no `claude`. That is why 950 unit tests run in ~0.5s with zero
 credentials, and why the security benchmark re-uses the exact same functions the daemon calls.
 
 ## The moat, in five files (read these first)

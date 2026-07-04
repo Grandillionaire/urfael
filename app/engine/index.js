@@ -19,6 +19,7 @@ const anthropic = require('./anthropic-adapter');
 const { createToolset } = require('./tools');
 const { createCompactor } = require('./compactor');
 const { createEngine } = require('./loop');
+const { makeDelegate } = require('./delegate');
 
 // pickAdapter(entry) — { adapter, baseUrl } or null when this entry must stay on the CLI engine.
 function pickAdapter(entry) {
@@ -65,6 +66,8 @@ function makeSummarizer(adapter, modelCfg) {
 //   spec = { entry, secret, model, vaultDir, memoryDir?, workspaceDir?, allowShell?, runShell?, recall?,
 //            appendMemory?, maxTokens?, maxSteps?, summaryModel?, selfReview?, onDelta?, onThinking?, now? }
 //   selfReview? — OPT-IN: after a genuine final answer the loop makes ONE extra self-critique pass (off by default).
+// The toolset always carries a `delegate` tool (engine/delegate.js): the model can spawn ONE bounded, READ-ONLY
+// sub-agent bound to THIS provider only — narrow-only, no recursion, fail-soft. See delegate.js for the invariant.
 function buildEngine(spec) {
   spec = spec || {};
   const pick = pickAdapter(spec.entry);
@@ -77,9 +80,17 @@ function buildEngine(spec) {
   if (!apiKey) return { needsSecret: true, authEnv: spec.entry && spec.entry.authEnv };
 
   const modelCfg = { baseUrl: pick.baseUrl, apiKey, model: spec.model, summaryModel: spec.summaryModel };
+  // Bind the read-only subagent runner to THIS provider's adapter/modelCfg only (never a fallback chain — a sub must
+  // stay on the single provider that spawned it). Kept adjacent to createToolset so it relocates as one unit if
+  // buildEngine is ever refactored to build per-provider toolsets. toolsetCfg forwards ONLY the read roots + recall.
+  const runSub = makeDelegate({
+    toolsetCfg: { vaultDir: spec.vaultDir, memoryDir: spec.memoryDir, workspaceDir: spec.workspaceDir, recall: spec.recall },
+    adapter: pick.adapter, modelCfg,
+  });
   const toolset = createToolset({
     vaultDir: spec.vaultDir, memoryDir: spec.memoryDir, workspaceDir: spec.workspaceDir,
     allowShell: spec.allowShell, runShell: spec.runShell, recall: spec.recall, appendMemory: spec.appendMemory,
+    runSub,
   });
   const compactor = createCompactor({ summarize: makeSummarizer(pick.adapter, modelCfg), now: spec.now });
   const engine = createEngine({

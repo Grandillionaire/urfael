@@ -311,6 +311,16 @@ function createToolset(cfg) {
         return 'exit ' + r.exitCode + (out ? '\n' + out : '');
       } catch (e) { return 'shell error: ' + String((e && e.message) || e); }
     },
+    // delegate — spawn ONE bounded, READ-ONLY sub-agent (engine/delegate.js). Present only when cfg.runSub is
+    // injected (identical gating to recall/remember/exec_shell). The sub-agent is narrowed to a read-only floor and
+    // has NO `delegate` of its own (no recursion). Fully fail-soft: a sub error is a normal tool_result string.
+    async delegate(args) {
+      if (typeof cfg.runSub !== 'function') return 'delegate unavailable';
+      const task = String((args && args.task) || '').slice(0, 4000);
+      if (!task.trim()) return 'refused: empty task';
+      try { const r = await cfg.runSub(task); return String(r == null ? '' : r); }
+      catch (e) { return 'delegate error: ' + String((e && e.message) || e); }
+    },
   };
 
   // Tool DEFINITIONS handed to the adapters (engine-neutral {name, description, parameters}). exec_shell is only
@@ -326,6 +336,7 @@ function createToolset(cfg) {
   if (typeof cfg.recall === 'function') defs.push({ name: 'recall', description: 'Search prior conversations/memory (BM25-ranked).', parameters: { type: 'object', properties: { query: { type: 'string' }, k: { type: 'integer' } }, required: ['query'] } });
   if (typeof cfg.appendMemory === 'function') defs.push({ name: 'remember', description: 'Append a durable one-line fact to long-term memory.', parameters: { type: 'object', properties: { note: { type: 'string' } }, required: ['note'] } });
   if (shellOn) defs.push({ name: 'exec_shell', description: 'Run a shell command (owner-enabled).', parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } });
+  if (typeof cfg.runSub === 'function') defs.push({ name: 'delegate', description: 'Spawn ONE bounded, read-only sub-agent to handle a focused sub-task (it can only read/search files and recall memory — never write, edit, remember, run shells, or delegate). Returns the sub-agent\'s text result.', parameters: { type: 'object', properties: { task: { type: 'string' } }, required: ['task'] } });
 
   // dispatch(name, args) — run a tool by name; unknown/failed always resolve to a string. NEVER throws/rejects.
   async function dispatch(name, args) {

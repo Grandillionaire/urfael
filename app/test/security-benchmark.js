@@ -703,6 +703,23 @@ async function main() {
   check('the OPT-IN self-review pass offers the reviewer ZERO tools and never dispatches a reviewer-returned tool_call (narrow-only floor)',
     Array.isArray(reviewToolsSeen) && reviewToolsSeen.length === 0 && rvRes.revised === false && rvRes.text === 'the original answer',
     'the self-critique sub-call is the empty-set case of council.intersectTools: the reviewer is shown no tools, and runReview reads only res.text, so a hostile endpoint returning spurious tool_calls in the critique cannot write/exec/read/escalate or trigger a second call');
+  // SUBAGENT DELEGATION (delegate): a spawned sub-agent runs the SAME fail-closed toolset NARROWED to a read-only
+  // floor. This is the native-engine analog of council.intersectTools — an ALLOWLIST intersection, fail-closed to
+  // read-only, with NO recursion (no delegate tool inside a sub). Freeze that floor so a future tools.js addition
+  // can never silently leak a mutating tool into a sub-agent.
+  const delegate = require('../engine/delegate');
+  const subTs = delegate.readOnlyToolset({ vaultDir: engVault });
+  const subNames = subTs.defs.map((d) => d.name);
+  const subWrite = await subTs.dispatch('write_file', { path: 'pwn.md', content: 'x' });
+  const subDelegate = await subTs.dispatch('delegate', { task: 'recurse' });
+  const subWroteDisk = fs.existsSync(path.join(engVault, 'pwn.md'));
+  check('a native sub-agent is NARROWED to a read-only floor — write/edit/remember/exec_shell/delegate are ABSENT from its tools',
+    subNames.length > 0 && subNames.every((n) => delegate.READ_ONLY_TOOLS.includes(n))
+      && !subNames.some((n) => /write_file|edit_file|remember|exec_shell|delegate/.test(n)) && subNames.includes('read_file'),
+    'readOnlyToolset intersects the parent defs against an ALLOWLIST (the intersectTools mirror), so a sub-agent is provably a SUBSET of the parent read tools; any mutating tool a future feature adds to tools.js is excluded by default');
+  check('a native sub-agent cannot WRITE and cannot RECURSE — write_file + delegate are denied at dispatch, and nothing hit disk',
+    /denied: subagent is read-only/.test(subWrite) && /denied: subagent is read-only/.test(subDelegate) && !subWroteDisk,
+    'double-gate: the mutating tools are absent from defs AND refused at dispatch, and a sub-agent has no delegate tool — enforcing max-1-level, no fan-out onto write/exec/another provider (structurally, not by a depth counter)');
   fs.rmSync(engVault, { recursive: true, force: true });
   fs.rmSync(engOut, { recursive: true, force: true });
 
