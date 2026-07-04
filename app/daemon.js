@@ -977,7 +977,8 @@ async function recallText(q, k) {
 // rememberNative — the native `remember` tool: append a one-line captured fact to a CAPTURED.md inbox (NOT MEMORY.md
 // directly — the distill pass curates that; appending raw would bloat it). CR/LF stripped so the ledger can't be injected.
 function rememberNative(note) {
-  const line = String(note || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 500);
+  // strip EVERY line/paragraph separator (not just \r\n) so a note can never inject a second `- ` ledger bullet
+  const line = String(note || "").replace(/[\r\n\u2028\u2029\u0085\v\f]+/g, " ").trim().slice(0, 500);
   if (!line) throw new Error('empty note');
   const f = path.join(MEMORY_DIR, 'CAPTURED.md');
   try { fs.mkdirSync(MEMORY_DIR, { recursive: true }); fs.appendFileSync(f, '- ' + line + '\n', { mode: 0o600 }); } catch (e) { throw e; }

@@ -30,6 +30,8 @@ const os = require('os');
 
 const DEFAULT_MAX_BYTES = 256 * 1024;    // per read/write payload cap — a tool_result is not a file transfer
 const MAX_LIST = 400;                     // directory-listing entry cap
+const MAX_GLOB_WILD = 12;                 // cap wildcards in a glob — a `*a*a*…` chain is a polynomial-ReDoS regex
+const WALK_BUDGET_MS = 3000;              // wall-clock budget for a grep/find_files walk (bounds sync loop-blocking)
 
 // The credential / RC / persistence deny-globs — the code mirror of vault-template/_urfael/settings.json. These
 // are checked FIRST, before any allow-root, so they hold even if a root is misconfigured. Home-anchored.
@@ -74,6 +76,30 @@ function realDeepest(abs) {
   return null;   // budget exhausted (a >4096-deep non-existent path) OR the walk hit root without resolving — fail closed
 }
 
+// unsafeRegex — reject a model-supplied pattern that can backtrack catastrophically BEFORE it is ever run. grep runs
+// on the daemon's single event loop and a JS RegExp test is uninterruptible, so a length cap does NOT bound it (the
+// blowup is in input LENGTH the ambiguous part can match, e.g. (a+)+ on 40 chars = minutes). This is the real guard:
+// it flags the two catastrophic families — a NESTED unbounded/bounded quantifier ((a+)+, (a{9}){9}) and a QUANTIFIED
+// ALTERNATION ((a|a)*) — by tracking, per group, whether its body holds a quantifier or a `|`, and whether the group
+// is itself quantified. Conservative (may reject a safe (foo|bar)+), which is the correct trade for a search tool.
+function unsafeRegex(pattern) {
+  const s = String(pattern).replace(/\\./g, 'x').replace(/\[(?:[^\]\\]|\\.)*\]/g, 'C');   // neutralize escapes + char classes
+  const stack = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '(') stack.push({ quant: false, alt: false });
+    else if (c === '|') { if (stack.length) stack[stack.length - 1].alt = true; }
+    else if (c === '*' || c === '+' || c === '{') { if (stack.length) stack[stack.length - 1].quant = true; }
+    else if (c === ')') {
+      const g = stack.pop() || { quant: false, alt: false };
+      const quantified = s[i + 1] === '*' || s[i + 1] === '+' || s[i + 1] === '{';
+      if (quantified && (g.quant || g.alt)) return true;                 // nested quantifier OR quantified alternation
+      if (quantified && stack.length) stack[stack.length - 1].quant = true;   // a quantified group is itself a quantifier to its parent
+    }
+  }
+  return false;
+}
+
 // globToRe — translate a shell glob to an anchored RegExp. `**` crosses path separators, `*` does not, `?` is one
 // non-separator char; every other regex metachar is escaped. Pure; used by find_files and grep's optional filter.
 function globToRe(glob) {
@@ -88,6 +114,9 @@ function globToRe(glob) {
   }
   return new RegExp('^' + re + '$');
 }
+// globWildcards — count the `*`/`?` wildcards in a glob (each becomes a `[^/]*`/`.*`/`[^/]` in the regex). A glob with
+// many of them compiles to a high-degree polynomial matcher, so find_files/grep cap it. Pure.
+function globWildcards(glob) { return (String(glob).match(/[*?]/g) || []).length; }
 
 // walkFiles — a bounded, symlink-non-following file walk under `root`. Yields absolute file paths only. Skips
 // symlinked entries (so it can't leave the root) and any `.git`/node_modules dir. Caps total entries visited so a
@@ -119,6 +148,16 @@ function createToolset(cfg) {
   const denyGlobs = Array.isArray(cfg.denyGlobs) ? cfg.denyGlobs.map((p) => path.resolve(p)) : defaultDenyGlobs();
   const maxBytes = cfg.maxBytes || DEFAULT_MAX_BYTES;
   const shellOn = !!(cfg.allowShell && typeof cfg.runShell === 'function');
+  // WRITE-deny the CONTROL surface inside the roots. Reads stay allowed (an agent legitimately reads skills/notes),
+  // but a WRITE here is a privilege-escalation the allowlist alone would permit: rewriting CLAUDE.md changes the
+  // model's own next-turn system prompt; rewriting _urfael/settings.json weakens the CLI ENGINE's hard permissions.deny
+  // (cross-engine escalation); planting a *.sh / _urfael/hooks script runs shell out-of-band (the native engine is
+  // shell-off, but a written hook fires on cron/launchd); writing the curated MEMORY.md/USER.md/LESSONS.md ledger
+  // corrupts the verified-learning store. So these are read-only to the native toolset.
+  const writeDenyDirs = [];
+  const writeDenyFiles = [];
+  { const v = cfg.vaultDir && realDeepest(path.resolve(cfg.vaultDir)); if (v) { writeDenyDirs.push(path.join(v, '_urfael')); writeDenyFiles.push(path.join(v, 'CLAUDE.md')); } }
+  { const m = cfg.memoryDir && realDeepest(path.resolve(cfg.memoryDir)); if (m) for (const f of ['MEMORY.md', 'USER.md', 'LESSONS.md', 'WORKFLOW.md', '.learned.json']) writeDenyFiles.push(path.join(m, f)); }
 
   // guardPath(input, {forWrite}) — the one gate. Returns { path } (absolute, symlink-resolved, safe) or
   // { error } (a human-readable refusal). Deny-first, then allow-roots, then symlink re-check. Never throws.
@@ -138,6 +177,12 @@ function createToolset(cfg) {
     }
     // 2. ALLOWLIST: the resolved real path must live inside a configured root
     if (!roots.some((r) => isUnder(real, r))) return { error: 'denied: outside the vault/workspace (fail-closed)' };
+    // 3. WRITE-DENY the control surface (writes only; reads of these are allowed)
+    if (opts.forWrite) {
+      if (path.basename(real).toLowerCase().endsWith('.sh')) return { error: 'denied: cannot write an executable script into the vault' };
+      for (const d of writeDenyDirs) if (isUnder(real, d) || isUnder(abs, d)) return { error: 'denied: vault control directory is read-only to the native engine' };
+      for (const f of writeDenyFiles) if (real === f || abs === f) return { error: 'denied: protected control file is read-only to the native engine' };
+    }
     return { path: real, forWrite: !!opts.forWrite };
   }
 
@@ -192,13 +237,18 @@ function createToolset(cfg) {
       if (roots.length === 0) return 'denied: no file root configured (fail-closed)';
       const pattern = String((args && args.pattern) || '').slice(0, 200);
       if (!pattern) return 'refused: empty pattern';
+      if (unsafeRegex(pattern)) return 'refused: pattern can backtrack catastrophically (nested/quantified-alternation) — use a simpler pattern or a literal';
       let re; try { re = new RegExp(pattern, (args && args.ignoreCase) ? 'i' : ''); } catch (e) { return 'bad regex: ' + String((e && e.message) || e); }
-      const nameFilter = (args && args.glob) ? globToRe(String(args.glob)) : null;
+      let nameFilter = null;
+      if (args && args.glob) { if (globWildcards(String(args.glob)) > MAX_GLOB_WILD) return 'refused: glob has too many wildcards'; nameFilter = globToRe(String(args.glob)); }
       const out = [];
-      const MAX_MATCHES = 200, MAX_LINE = 2000;         // MAX_LINE bounds regex backtracking work per line (ReDoS guard)
-      for (const root of roots) {
+      const MAX_MATCHES = 200, MAX_LINE = 1000;
+      const deadline = Date.now() + WALK_BUDGET_MS;      // wall-clock budget: a large tree can't wedge the daemon loop
+      let scanned = 0, timedOut = false;
+      outer: for (const root of roots) {
         for (const f of walkFiles(root, 20000)) {
-          if (out.length >= MAX_MATCHES) break;
+          if (out.length >= MAX_MATCHES) break outer;
+          if ((++scanned & 0xff) === 0 && Date.now() > deadline) { timedOut = true; break outer; }
           if (nameFilter && !nameFilter.test(path.basename(f))) continue;
           const g = guardPath(f);                       // deny-first + allowlist even on a walked path (belt + suspenders)
           if (g.error) continue;
@@ -213,22 +263,28 @@ function createToolset(cfg) {
           }
         }
       }
-      return out.length ? out.join('\n') + (out.length >= MAX_MATCHES ? '\n… (truncated at ' + MAX_MATCHES + ' matches)' : '') : 'no matches';
+      const suffix = (out.length >= MAX_MATCHES ? '\n… (truncated at ' + MAX_MATCHES + ' matches)' : (timedOut ? '\n… (search budget reached; results partial)' : ''));
+      return out.length ? out.join('\n') + suffix : (timedOut ? 'no matches yet (search budget reached)' : 'no matches');
     },
     find_files(args) {
       if (roots.length === 0) return 'denied: no file root configured (fail-closed)';
       const pat = String((args && args.pattern) || '').slice(0, 200);
       if (!pat) return 'refused: empty pattern';
+      if (globWildcards(pat) > MAX_GLOB_WILD) return 'refused: glob has too many wildcards';
       let re; try { re = globToRe(pat); } catch (e) { return 'bad glob: ' + String((e && e.message) || e); }
       const out = [];
-      for (const root of roots) {
+      const deadline = Date.now() + WALK_BUDGET_MS;
+      let scanned = 0, timedOut = false;
+      outer: for (const root of roots) {
         for (const f of walkFiles(root, 50000)) {
-          if (out.length >= MAX_LIST) break;
+          if (out.length >= MAX_LIST) break outer;
+          if ((++scanned & 0xff) === 0 && Date.now() > deadline) { timedOut = true; break outer; }
           const rel = path.relative(root, f);
           if (re.test(rel) || re.test(path.basename(f))) { const g = guardPath(f); if (!g.error) out.push(rel); }
         }
       }
-      return out.length ? out.join('\n') + (out.length >= MAX_LIST ? '\n… (' + MAX_LIST + '+, truncated)' : '') : 'no matches';
+      const suffix = (out.length >= MAX_LIST ? '\n… (' + MAX_LIST + '+, truncated)' : (timedOut ? '\n… (search budget reached; results partial)' : ''));
+      return out.length ? out.join('\n') + suffix : (timedOut ? 'no matches yet (search budget reached)' : 'no matches');
     },
     async recall(args) {
       if (typeof cfg.recall !== 'function') return 'recall unavailable';
