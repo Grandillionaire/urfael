@@ -74,6 +74,41 @@ function realDeepest(abs) {
   return null;   // budget exhausted (a >4096-deep non-existent path) OR the walk hit root without resolving — fail closed
 }
 
+// globToRe — translate a shell glob to an anchored RegExp. `**` crosses path separators, `*` does not, `?` is one
+// non-separator char; every other regex metachar is escaped. Pure; used by find_files and grep's optional filter.
+function globToRe(glob) {
+  let re = '';
+  const g = String(glob || '');
+  for (let i = 0; i < g.length; i++) {
+    const c = g[i];
+    if (c === '*') { if (g[i + 1] === '*') { re += '.*'; i++; if (g[i + 1] === '/') i++; } else re += '[^/]*'; }
+    else if (c === '?') re += '[^/]';
+    else if ('.+^${}()|[]\\'.includes(c)) re += '\\' + c;
+    else re += c;
+  }
+  return new RegExp('^' + re + '$');
+}
+
+// walkFiles — a bounded, symlink-non-following file walk under `root`. Yields absolute file paths only. Skips
+// symlinked entries (so it can't leave the root) and any `.git`/node_modules dir. Caps total entries visited so a
+// huge tree can't wedge a tool call. NOT recursive-descent into a symlinked directory — that is the escape guard.
+function* walkFiles(root, maxEntries) {
+  const stack = [root];
+  let seen = 0;
+  while (stack.length) {
+    const dir = stack.shift();
+    let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of ents) {
+      if (++seen > maxEntries) return;
+      if (e.isSymbolicLink()) continue;                 // never traverse OR return a symlink (no escape, no loop)
+      if (e.name === '.git' || e.name === 'node_modules') continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) stack.push(full);
+      else if (e.isFile()) yield full;
+    }
+  }
+}
+
 function createToolset(cfg) {
   cfg = cfg || {};
   // Roots are symlink-RESOLVED at construction: guardPath compares against the realpath of an input, so the roots
@@ -153,6 +188,48 @@ function createToolset(cfg) {
       try { const tmp = g.path + '.urftmp-' + process.pid; fs.writeFileSync(tmp, next, { mode: 0o600 }); fs.renameSync(tmp, g.path); return 'edited ' + path.basename(g.path); }
       catch (e) { return 'edit error: ' + String((e && e.code) || e); }
     },
+    grep(args) {
+      if (roots.length === 0) return 'denied: no file root configured (fail-closed)';
+      const pattern = String((args && args.pattern) || '').slice(0, 200);
+      if (!pattern) return 'refused: empty pattern';
+      let re; try { re = new RegExp(pattern, (args && args.ignoreCase) ? 'i' : ''); } catch (e) { return 'bad regex: ' + String((e && e.message) || e); }
+      const nameFilter = (args && args.glob) ? globToRe(String(args.glob)) : null;
+      const out = [];
+      const MAX_MATCHES = 200, MAX_LINE = 2000;         // MAX_LINE bounds regex backtracking work per line (ReDoS guard)
+      for (const root of roots) {
+        for (const f of walkFiles(root, 20000)) {
+          if (out.length >= MAX_MATCHES) break;
+          if (nameFilter && !nameFilter.test(path.basename(f))) continue;
+          const g = guardPath(f);                       // deny-first + allowlist even on a walked path (belt + suspenders)
+          if (g.error) continue;
+          let st; try { st = fs.statSync(g.path); } catch { continue; }
+          if (st.size > maxBytes) continue;
+          let content; try { content = fs.readFileSync(g.path, 'utf8'); } catch { continue; }
+          if (content.indexOf('\0') !== -1) continue;   // skip binary
+          const lines = content.split('\n');
+          for (let i = 0; i < lines.length && out.length < MAX_MATCHES; i++) {
+            const line = lines[i].length > MAX_LINE ? lines[i].slice(0, MAX_LINE) : lines[i];
+            if (re.test(line)) out.push(path.relative(root, g.path) + ':' + (i + 1) + ': ' + line.trim().slice(0, 200));
+          }
+        }
+      }
+      return out.length ? out.join('\n') + (out.length >= MAX_MATCHES ? '\n… (truncated at ' + MAX_MATCHES + ' matches)' : '') : 'no matches';
+    },
+    find_files(args) {
+      if (roots.length === 0) return 'denied: no file root configured (fail-closed)';
+      const pat = String((args && args.pattern) || '').slice(0, 200);
+      if (!pat) return 'refused: empty pattern';
+      let re; try { re = globToRe(pat); } catch (e) { return 'bad glob: ' + String((e && e.message) || e); }
+      const out = [];
+      for (const root of roots) {
+        for (const f of walkFiles(root, 50000)) {
+          if (out.length >= MAX_LIST) break;
+          const rel = path.relative(root, f);
+          if (re.test(rel) || re.test(path.basename(f))) { const g = guardPath(f); if (!g.error) out.push(rel); }
+        }
+      }
+      return out.length ? out.join('\n') + (out.length >= MAX_LIST ? '\n… (' + MAX_LIST + '+, truncated)' : '') : 'no matches';
+    },
     async recall(args) {
       if (typeof cfg.recall !== 'function') return 'recall unavailable';
       const q = String((args && args.query) || '').slice(0, 500);
@@ -187,6 +264,8 @@ function createToolset(cfg) {
     { name: 'list_dir', description: 'List a directory inside the vault/workspace.', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
     { name: 'write_file', description: 'Create or overwrite a file inside the vault/workspace.', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } },
     { name: 'edit_file', description: 'Replace one unique occurrence of `find` with `replace` in a vault/workspace file.', parameters: { type: 'object', properties: { path: { type: 'string' }, find: { type: 'string' }, replace: { type: 'string' } }, required: ['path', 'find', 'replace'] } },
+    { name: 'grep', description: 'Search file contents by regex across the vault/workspace. Optional `glob` filters filenames; `ignoreCase` for case-insensitive. Returns path:line: match.', parameters: { type: 'object', properties: { pattern: { type: 'string' }, glob: { type: 'string' }, ignoreCase: { type: 'boolean' } }, required: ['pattern'] } },
+    { name: 'find_files', description: 'List files whose path matches a glob (e.g. **/*.md) across the vault/workspace.', parameters: { type: 'object', properties: { pattern: { type: 'string' } }, required: ['pattern'] } },
   ];
   if (typeof cfg.recall === 'function') defs.push({ name: 'recall', description: 'Search prior conversations/memory (BM25-ranked).', parameters: { type: 'object', properties: { query: { type: 'string' }, k: { type: 'integer' } }, required: ['query'] } });
   if (typeof cfg.appendMemory === 'function') defs.push({ name: 'remember', description: 'Append a durable one-line fact to long-term memory.', parameters: { type: 'object', properties: { note: { type: 'string' } }, required: ['note'] } });

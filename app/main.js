@@ -24,6 +24,16 @@ const setup = require('./setup'); // reuse the wizard's provider.env read/write 
 const lib = require('./lib');     // reuse the pure reapOrphanPids helper (no side effects on require)
 const dc = require('./daemon-client'); // shared unix-socket client (request + /ask NDJSON stream)
 
+// RESILIENCE (the caretFor lesson, applied to the Electron MAIN process). daemon.js and tui.js both carry a
+// top-level crash net; the overlay/tray/Console main process had none — so a single unguarded throw in any of the
+// 33 IPC handlers, a tray/whisper/gaze timer, or the whenReady bootstrap would take down every window at once.
+// Log it and KEEP RUNNING. The brain (daemon.js) is a separate process and is unaffected regardless of this window.
+function logMainCrash(kind, e) {
+  try { fs.appendFileSync(path.join(JDIR, 'urfael.log'), JSON.stringify({ t: new Date().toISOString(), ev: 'overlay_' + kind, err: String((e && (e.stack || e.message)) || e).slice(0, 800) }) + '\n'); } catch {}
+}
+process.on('uncaughtException', (e) => logMainCrash('uncaught', e));
+process.on('unhandledRejection', (e) => logMainCrash('unhandled_rejection', e));
+
 let win = null;
 let consoleWin = null;
 let wakeWorker = null;
@@ -398,8 +408,9 @@ function createTray() {
     tray.setIgnoreDoubleClickEvents(true);
     tray.on('click', () => { if (consoleWin && !consoleWin.isDestroyed()) { consoleWin.show(); consoleWin.focus(); } else createConsole(); }); // left-click -> Console
     tray.setContextMenu(buildTrayMenu(null));
-    refreshTray();
-    trayTimer = setInterval(refreshTray, 10000);
+    const tick = () => { try { const p = refreshTray(); if (p && p.catch) p.catch((e) => logMainCrash('tray', e)); } catch (e) { logMainCrash('tray', e); } };
+    tick();
+    trayTimer = setInterval(tick, 10000);   // an async tray refresh that rejects must not surface as an unhandled rejection
     if (trayTimer.unref) trayTimer.unref(); // don't keep the event loop alive for the tray poll
   } catch { tray = null; }
 }
@@ -528,7 +539,7 @@ app.whenReady().then(() => {
   ensureDaemon();
   cleanupOrphanWhispers();   // reap a whisper-server orphaned by a prior crash/force-quit even if STT is now disabled (mirrors daemon's cleanupOrphanBrains at boot)
   startWhisper();   // warm local STT (Console push-to-talk + orb voice)
-});
+}).catch((e) => logMainCrash('whenready', e));   // a throw in the bootstrap must not silently wedge a half-built app
 
 app.on('will-quit', () => { globalShortcut.unregisterAll(); stopWhisper(); destroyTray(); try { wakeWorker && wakeWorker.postMessage('stop'); } catch {} }); // daemon (brain) intentionally keeps running
 app.on('activate', () => { if (!consoleWin) createConsole(); });       // dock click → Console

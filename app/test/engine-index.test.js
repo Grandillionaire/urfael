@@ -8,7 +8,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { buildEngine, pickAdapter, makeSummarizer } = require('../engine/index');
+const { buildEngine, pickAdapter, makeSummarizer, assembleMessages } = require('../engine/index');
 
 test('pickAdapter: subscription anthropic (no baseUrl, auth none) ⇒ null (CLI engine owns it)', () => {
   assert.strictEqual(pickAdapter({ kind: 'anthropic', baseUrl: '', authKind: 'none' }), null);
@@ -65,4 +65,26 @@ test('makeSummarizer: any adapter failure ⇒ {ok:false} (compactor will then pr
   assert.deepStrictEqual(await sum([{ role: 'user', content: 'x' }], ''), { ok: false });
   const empty = { chat: async () => ({ ok: true, text: '   ' }) };
   assert.deepStrictEqual(await makeSummarizer(empty, { model: 'c', apiKey: 'k' })([{ role: 'user', content: 'x' }], ''), { ok: false });
+});
+
+test('assembleMessages: system + clean history + user; drops tool/system/malformed history rows', () => {
+  const m = assembleMessages({
+    system: 'You are Urfael.',
+    history: [
+      { role: 'user', content: 'earlier q' },
+      { role: 'assistant', content: 'earlier a' },
+      { role: 'tool', content: 'a tool row', toolCallId: 't1' },   // dropped (not a clean conversational turn)
+      { role: 'system', content: 'sneaky mid-history system' },     // dropped
+      { role: 'user', content: 123 },                               // dropped (non-string)
+    ],
+    userText: 'the new question',
+  });
+  assert.deepStrictEqual(m.map((x) => x.role), ['system', 'user', 'assistant', 'user']);
+  assert.strictEqual(m[0].content, 'You are Urfael.');
+  assert.strictEqual(m.at(-1).content, 'the new question');
+});
+
+test('assembleMessages: no system, no history still yields a single user message', () => {
+  const m = assembleMessages({ userText: 'hi' });
+  assert.deepStrictEqual(m, [{ role: 'user', content: 'hi' }]);
 });

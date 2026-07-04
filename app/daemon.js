@@ -50,6 +50,7 @@ const memctx = require('./memctx');             // ACTIVE RECALL: per-turn relev
 const calendar = require('./calendar');         // LOCAL-FIRST calendar event store (MEMORY_DIR/calendar.json; pure helpers + fail-soft I/O)
 const schedchan = require('./schedule-channel'); // the dedicated Reminders & Calendar channel: parse+validate+assemble (pure; the gate is the daemon's)
 const consolidate = require('./consolidate');   // masterful compaction: dedupe + evidence-retire the ledger, right-size recall
+const engine = require('./engine');             // NATIVE ENGINE: in-process agentic loop for API-key/local (Ollama) providers — the "run on its own" path, additive to the CLI engine
 const jobstore = require('./jobstore');
 const council = require('./council');
 const runner = require('./runner');
@@ -91,7 +92,9 @@ const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || ['/opt/homebrew/bin/claude',
 // Only enable bypass inside a dedicated VM / container / throwaway account — never your primary machine.
 const PERM_MODE = process.env.URFAEL_YOLO === '1' ? 'bypassPermissions' : (process.env.URFAEL_PERMISSION_MODE || 'acceptEdits');
 if (PERM_MODE === 'bypassPermissions') { try { fs.appendFileSync(path.join(os.homedir(), '.claude', 'urfael', 'urfael.log'), JSON.stringify({ t: new Date().toISOString(), ev: 'WARN', msg: 'URFAEL_YOLO active — agent has UNRESTRICTED shell. Run sandboxed.' }) + '\n'); } catch {} }
-const JDIR = path.join(os.homedir(), '.claude', 'urfael');
+// State dir (socket, secrets, hooks, all runtime state). URFAEL_STATE_DIR isolates a TEST daemon onto its own
+// socket + secret store so a cert never touches the real one — same spirit as URFAEL_VAULT_DIR/URFAEL_MEMORY_DIR.
+const JDIR = process.env.URFAEL_STATE_DIR ? path.resolve(process.env.URFAEL_STATE_DIR) : path.join(os.homedir(), '.claude', 'urfael');
 const UI_PREFS = path.join(JDIR, 'ui-prefs.json');   // presentation-only prefs; never carries a security knob (closed schema)
 const SOCK = path.join(JDIR, 'daemon.sock');
 const LOGFILE = path.join(JDIR, 'urfael.log');
@@ -949,6 +952,65 @@ async function activeRecall(text) {
     return { promptText: memctx.prepend(sizedBlock, q), surfaced: ctx.surfacedLessons };
   } catch { return { promptText: text, surfaced: [] }; }
 }
+// ---- NATIVE ENGINE local turn -------------------------------------------------------------------------
+// Run one turn on a NON-subscription provider (an API key, or a local/Ollama endpoint) via the in-process engine
+// instead of spawning the claude CLI. This is the "run on its own" path. It is ADDITIVE and LOCAL-ONLY: the route
+// 403s any remote channel, and it never touches the warm CLI sessions, so the subscription voice/overlay path stays
+// byte-identical. Fail-closed at every gate: unknown provider, a CLI-only provider, or a missing key all return an
+// error string, never a silent fallback onto the daemon's own credentials.
+function nativeSystemPrompt() {
+  try { const s = fs.readFileSync(path.join(VAULT, 'CLAUDE.md'), 'utf8'); if (s && s.trim()) return s.slice(0, 12000); } catch {}
+  return 'You are Urfael, a security-first personal AI assistant running on your own machine. Use the provided tools to read and search the vault. Be terse, direct, and honest; never invent file contents — read them.';
+}
+// recallText — the native `recall` tool: BM25 (+ optional semantic) over the session archive, returned as text.
+async function recallText(q, k) {
+  try {
+    const query = String(q || '').slice(0, 500);
+    if (query.trim().length < 3) return 'query too short';
+    const idx = refreshRecallIndex();
+    const kk = Math.min(Math.max(k | 0 || 8, 1), 25);
+    const turns = ridx.entriesFor(idx, ridx.query(idx, query, kk)).slice(0, kk);
+    if (!turns.length) return 'no matching memory';
+    return turns.map((t) => '• ' + String(t.user || '').slice(0, 120) + ' → ' + String(t.urfael || '').slice(0, 200)).join('\n');
+  } catch { return 'recall unavailable'; }
+}
+// rememberNative — the native `remember` tool: append a one-line captured fact to a CAPTURED.md inbox (NOT MEMORY.md
+// directly — the distill pass curates that; appending raw would bloat it). CR/LF stripped so the ledger can't be injected.
+function rememberNative(note) {
+  const line = String(note || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 500);
+  if (!line) throw new Error('empty note');
+  const f = path.join(MEMORY_DIR, 'CAPTURED.md');
+  try { fs.mkdirSync(MEMORY_DIR, { recursive: true }); fs.appendFileSync(f, '- ' + line + '\n', { mode: 0o600 }); } catch (e) { throw e; }
+}
+async function runNativeTurn({ text, providerId, model, onDelta, onThinking }) {
+  const entry = providerSessions.findProvider(providerList(), providerId);
+  if (!entry) return { ok: false, error: 'unknown provider' };
+  const need = providers.secretNeeded(entry);
+  const secret = need ? secretStore[need.env] : '';
+  if (need && !secret) return { ok: false, error: 'provider ' + entry.id + ' needs its key, set it with: urfael plugin secret ' + need.env };
+  const useModel = model || entry.big_model || entry.small_model || '';
+  if (!useModel) return { ok: false, error: 'provider ' + entry.id + ' has no model; pass {model} or set big_model in the registry' };
+  const built = engine.buildEngine({
+    entry, secret, model: useModel, vaultDir: VAULT, memoryDir: MEMORY_DIR,
+    recall: recallText, appendMemory: async (n) => rememberNative(n),
+    contextWindow: 32000, maxTokens: 2048, onDelta, onThinking,
+  });
+  if (!built) return { ok: false, error: 'that provider runs on the CLI engine (subscription), not the native engine' };
+  if (built.needsSecret) return { ok: false, error: 'provider ' + entry.id + ' needs its key (set it with: urfael plugin secret ' + (built.authEnv || '') + ')' };
+  const t0 = Date.now();
+  let promptText = text;
+  try { const mem = await activeRecall(text); if (mem && mem.promptText) promptText = mem.promptText; } catch {}
+  const messages = engine.assembleMessages({ system: nativeSystemPrompt(), userText: promptText });
+  let r; try { r = await built.run(messages); } catch (e) { return { ok: false, error: 'native engine error: ' + String((e && e.message) || e) }; }
+  const ms = Date.now() - t0;
+  logEvent({ ev: 'native_turn', provider: entry.id, model: useModel, ms, ok: r.ok, steps: r.steps, tokIn: (r.usage && r.usage.inTok) || 0, tokOut: (r.usage && r.usage.outTok) || 0 });
+  if (r.ok && r.text) {
+    transcript.push({ user: text, urfael: r.text });
+    recordSession({ t: new Date().toISOString(), channel: 'native:' + entry.id, model: useModel, user: text, urfael: r.text, ms });
+  }
+  return { ok: r.ok, text: r.text, error: r.error, model: useModel, usage: r.usage, steps: r.steps, engine: built._adapter };
+}
+
 // Reinforce what active recall surfaced (the testing effect): bump each lesson's `surfaced` so consolidation can
 // retire one that keeps surfacing yet never helps. Only writes when something was surfaced. Never throws.
 function reinforceSurfaced(ids) {
@@ -1964,6 +2026,23 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok }));
   } else if (req.method === 'POST' && req.url === '/conversation-end') {
     brain.endConversation(); distill(); res.writeHead(200); res.end('{}');
+  } else if (req.method === 'POST' && req.url === '/engine/ask') {
+    // POST /engine/ask {text, providerId, model?} -> {ok, text, model, usage, steps, engine} — run ONE turn on the
+    // NATIVE in-process engine (an API-key or local/Ollama provider), the "run on its own" path. LOCAL-ONLY: a
+    // present channel is refused. Additive: never touches the warm CLI sessions, so the subscription path is
+    // unchanged. Fail-closed: unknown / CLI-only / keyless provider each return a plain error, never a fallback.
+    const body = await readBody(req);
+    let parsed = {}; try { parsed = JSON.parse(body); } catch {}
+    if ('channel' in parsed && parsed.channel) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'native engine is local-only' })); return; }
+    const text = typeof parsed.text === 'string' ? parsed.text : '';
+    if (!text.trim()) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'need {text}' })); return; }
+    const r = await runNativeTurn({
+      text, providerId: parsed.providerId, model: typeof parsed.model === 'string' ? parsed.model : '',
+      onDelta: (t) => { try { sendSay({ delta: t }); } catch {} },
+      onThinking: (t) => { try { sendThinking({ note: t }); } catch {} },
+    });
+    res.writeHead((!r.ok && r.error) ? 400 : 200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(r));
   } else if (req.method === 'POST' && req.url === '/chat') {
     // POST /chat {model, providerId} -> {chatId} — open a new chat bound to a provider WITHOUT disconnecting any
     // existing chat. Validates providerId against the registry (fail-closed: unknown provider is rejected).

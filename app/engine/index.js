@@ -90,4 +90,22 @@ function buildEngine(spec) {
   return { run: engine.run, toolset, _adapter: pick.adapter === anthropic ? 'anthropic' : 'openai' };
 }
 
-module.exports = { buildEngine, pickAdapter, makeSummarizer };
+// assembleMessages — build the engine-neutral history for one native turn: an optional system prompt (the vault
+// constitution), prior user/assistant turns (tool/system rows from history are dropped — the daemon replays only
+// clean conversational turns), then the new user message. Pure + testable; the daemon owns where system/history
+// come from. Non-string/oddly-shaped history entries are skipped rather than trusted.
+function assembleMessages({ system, history, userText } = {}) {
+  const msgs = [];
+  if (system && String(system).trim()) msgs.push({ role: 'system', content: String(system) });
+  if (Array.isArray(history)) {
+    for (const h of history) {
+      if (h && (h.role === 'user' || h.role === 'assistant') && typeof h.content === 'string' && h.content) {
+        msgs.push({ role: h.role, content: h.content });
+      }
+    }
+  }
+  msgs.push({ role: 'user', content: String(userText == null ? '' : userText) });
+  return msgs;
+}
+
+module.exports = { buildEngine, pickAdapter, makeSummarizer, assembleMessages };

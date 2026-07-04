@@ -55,8 +55,8 @@
 
   <h2 class="solid">Solid, and verifiable yourself</h2>
   <ul class="solid-list">
-    <li><b>The security posture is a command, not a claim.</b> <code>npm run security</code> boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, landing on <b>11 of 11</b> attack classes across <b>108 of 108</b> checks. <code>npm run e2e</code> verifies every feature end-to-end against a live daemon, with <code>npm run fuzz</code> and <code>npm run redteam</code> on top.</li>
-    <li><b>906 unit tests</b>, several of them adversarial security regressions frozen from real findings, so a fixed hole cannot quietly reopen.</li>
+    <li><b>The security posture is a command, not a claim.</b> <code>npm run security</code> boots the real daemon and dashboard and attacks them the way self-hosted agents were attacked in 2026, landing on <b>11 of 11</b> attack classes across <b>110 of 110</b> checks. <code>npm run e2e</code> verifies every feature end-to-end against a live daemon, with <code>npm run fuzz</code> and <code>npm run redteam</code> on top.</li>
+    <li><b>913 unit tests</b>, several of them adversarial security regressions frozen from real findings, so a fixed hole cannot quietly reopen.</li>
     <li><b>The architecture is the moat.</b> No inbound network port (a <code>0600</code> unix socket only), fail-closed allowlists on every channel, read-only sandboxed remote turns, and a hard credential-deny boundary that holds even in Full mode.</li>
     <li><b>It can prove what it did.</b> A hash-chained Ledger of Record makes tampering detectable, and an ed25519 Sovereign Seal signs the chain head. Run <code>urfael attest</code> for one report a reviewer can keep.</li>
   </ul>

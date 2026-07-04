@@ -161,6 +161,62 @@ test('recall/remember appear only when injected, and route to the injected fns',
   s.cleanup();
 });
 
+test('grep: finds a regex across vault files with path:line output, respects a glob filter', async () => {
+  const s = sandbox();
+  fs.writeFileSync(path.join(s.vault, 'a.md'), 'alpha\nTODO: fix this\nbeta');
+  fs.mkdirSync(path.join(s.vault, 'sub'));
+  fs.writeFileSync(path.join(s.vault, 'sub', 'b.txt'), 'TODO: other\ngamma');
+  const ts = createToolset({ vaultDir: s.vault });
+  const all = await ts.dispatch('grep', { pattern: 'TODO' });
+  assert.match(all, /a\.md:2: TODO: fix this/);
+  assert.match(all, /b\.txt:1: TODO: other/);
+  const mdOnly = await ts.dispatch('grep', { pattern: 'TODO', glob: '*.md' });
+  assert.match(mdOnly, /a\.md/);
+  assert.ok(!mdOnly.includes('b.txt'));                 // glob filtered out the .txt
+  assert.strictEqual(await ts.dispatch('grep', { pattern: 'nomatchhere' }), 'no matches');
+  s.cleanup();
+});
+
+test('grep: a bad regex is refused, not thrown; empty pattern refused', async () => {
+  const s = sandbox();
+  const ts = createToolset({ vaultDir: s.vault });
+  assert.match(await ts.dispatch('grep', { pattern: '(' }), /bad regex/);
+  assert.match(await ts.dispatch('grep', { pattern: '' }), /empty pattern/);
+  s.cleanup();
+});
+
+test('grep/find_files: the walk never escapes the vault via a symlinked directory', async () => {
+  const s = sandbox();
+  fs.writeFileSync(path.join(s.outside, 'leak.md'), 'SECRETMARKER');
+  try { fs.symlinkSync(s.outside, path.join(s.vault, 'out')); } catch { s.cleanup(); return; }
+  const ts = createToolset({ vaultDir: s.vault });
+  const g = await ts.dispatch('grep', { pattern: 'SECRETMARKER' });
+  assert.ok(!g.includes('SECRETMARKER'));               // the symlinked dir is never descended into
+  const f = await ts.dispatch('find_files', { pattern: '**/leak.md' });
+  assert.ok(!f.includes('leak.md'));
+  s.cleanup();
+});
+
+test('find_files: matches a **/*.ext glob and lists relative paths', async () => {
+  const s = sandbox();
+  fs.mkdirSync(path.join(s.vault, 'notes'));
+  fs.writeFileSync(path.join(s.vault, 'notes', 'x.md'), '1');
+  fs.writeFileSync(path.join(s.vault, 'y.md'), '2');
+  fs.writeFileSync(path.join(s.vault, 'z.txt'), '3');
+  const ts = createToolset({ vaultDir: s.vault });
+  const r = await ts.dispatch('find_files', { pattern: '**/*.md' });
+  assert.match(r, /notes\/x\.md/);
+  assert.match(r, /y\.md/);
+  assert.ok(!r.includes('z.txt'));
+  s.cleanup();
+});
+
+test('grep + find_files fail closed with no configured root', async () => {
+  const ts = createToolset({});
+  assert.match(await ts.dispatch('grep', { pattern: 'x' }), /no file root/);
+  assert.match(await ts.dispatch('find_files', { pattern: '*' }), /no file root/);
+});
+
 test('dispatch never throws on an unknown tool or a throwing impl', async () => {
   const s = sandbox();
   const ts = createToolset({ vaultDir: s.vault, recall: async () => { throw new Error('boom'); } });

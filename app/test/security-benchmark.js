@@ -683,6 +683,16 @@ async function main() {
   check('a summarizer outage PRESERVES the live context window unchanged (fail-safe abort — no silent context loss)',
     cRes.compacted === false && cRes.messages === bigHist,
     'a transient aux-model failure returns the exact same message array; the user never loses history to a compaction that could not complete');
+  // LIVE daemon checks: the native-turn endpoint (the "run on its own" path) hits the REAL booted daemon over the
+  // 0600 socket, so the wiring — not just the pure modules — is frozen fail-closed.
+  const engRemote = await sock('POST', '/engine/ask', { text: 'hi', providerId: 'x', channel: 'telegram' });
+  check('the native-engine turn endpoint refuses a REMOTE channel (local-only, like /council and /chat)',
+    engRemote.status === 403 && /local-only/.test(engRemote.raw),
+    'a remote/untrusted channel can never reach the native engine — it is the owner-local "run on your own model" surface only');
+  const engUnknown = await sock('POST', '/engine/ask', { text: 'hi', providerId: 'no-such-provider' });
+  check('the native-engine endpoint fails closed on an unknown provider (never a silent fallback onto daemon creds)',
+    /unknown provider/.test(engUnknown.raw),
+    'an unrecognized providerId is rejected; the native turn never runs on the daemon\'s own credentials');
   fs.rmSync(engVault, { recursive: true, force: true });
   fs.rmSync(engOut, { recursive: true, force: true });
 
