@@ -6,7 +6,8 @@
 // UNCHANGED (fail-safe abort) instead of destroying context.
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { createCompactor, alignTailStart, countLeadingSystem } = require('../engine/compactor');
+const { createCompactor, alignTailStart, countLeadingSystem, pruneMiddle } = require('../engine/compactor');
+const { makeSummarizer } = require('../engine/index');
 
 // a big filler string so a handful of messages cross the token budget deterministically
 const big = (tag) => tag + ' ' + 'x'.repeat(2000);
@@ -138,4 +139,105 @@ test('summary larger than the original ⇒ abort, keep original', async () => {
 
 test('countLeadingSystem counts only the leading run', () => {
   assert.strictEqual(countLeadingSystem([{ role: 'system' }, { role: 'system' }, { role: 'user' }, { role: 'system' }]), 2);
+});
+
+// ── A. Phase-1 tool-output prune pass (borrowed from NousResearch/hermes-agent, MIT) ──
+test('phase-1 prune: a giant tool dump is stubbed and the pruned window SKIPS the summarizer', async () => {
+  let called = 0;
+  const c = createCompactor({ summarize: async () => { called++; return { ok: true, summary: 'S' }; } });
+  const giant = 'result line\n'.repeat(20000);          // a huge tool dump in the middle
+  const msgs = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'read the big file' },
+    { role: 'assistant', content: '', toolCalls: [{ id: 't1', name: 'read_file', args: '{"path":"big.txt"}' }] },
+    { role: 'tool', toolCallId: 't1', content: giant },
+    { role: 'assistant', content: 'done' }, { role: 'user', content: 'thanks' }, { role: 'assistant', content: 'yw' },
+  ];
+  const r = await c.maybeCompact(msgs, { maxTokens: 8000, tailTokenBudget: 2000 });
+  assert.strictEqual(r.compacted, true);
+  assert.strictEqual(r.reason, 'pruned');                 // pruning alone got us under budget
+  assert.strictEqual(called, 0);                          // NO model call — space reclaimed for free (doctrine-positive)
+  const toolMsg = r.messages.find((m) => m.role === 'tool');
+  assert.match(toolMsg.content, /\[read_file\].*lines, \d+ bytes \(elided\)/);   // honest 1-line stub
+  assert.ok(toolMsg.content.length < 120);
+  assert.ok(r.tokensAfter < r.tokensBefore);
+});
+
+test('phase-1 prune: identical bulky tool results dedupe to an elided marker', () => {
+  const body = 'DATA '.repeat(200);                       // ~1000 bytes, bulky, identical
+  const out = pruneMiddle([
+    { role: 'assistant', content: '', toolCalls: [{ id: 't1', name: 'read_file', args: '{"path":"a"}' }] },
+    { role: 'tool', toolCallId: 't1', content: body },
+    { role: 'assistant', content: '', toolCalls: [{ id: 't2', name: 'read_file', args: '{"path":"a"}' }] },
+    { role: 'tool', toolCallId: 't2', content: body },
+  ]);
+  assert.match(out[1].content, /\[read_file\].*bytes \(elided\)/);       // first occurrence: 1-line stub
+  assert.match(out[3].content, /identical to earlier result, elided/);   // duplicate: collapsed
+});
+
+test('phase-1 prune: oversized tool_call args are capped but stay VALID JSON', () => {
+  const big = 'q'.repeat(5000);
+  const out = pruneMiddle([{ role: 'assistant', content: '', toolCalls: [{ id: 't1', name: 'run_shell', args: JSON.stringify({ cmd: big, path: 'ok' }) }] }]);
+  const capped = out[0].toolCalls[0].args;
+  assert.ok(capped.length < 5000);
+  const parsed = JSON.parse(capped);                      // MUST NOT throw — still valid JSON
+  assert.ok(parsed.cmd.length <= 560);                    // the long field is truncated (512 cap + marker)
+  assert.strictEqual(parsed.path, 'ok');                  // a small field is untouched
+});
+
+test('phase-1 prune: unparseable oversized args are hard-capped with a marker', () => {
+  const junk = 'not-json ' + 'z'.repeat(1000);
+  const a = pruneMiddle([{ role: 'assistant', content: '', toolCalls: [{ id: 't1', name: 'x', args: junk }] }])[0].toolCalls[0].args;
+  assert.ok(a.length <= 560);
+  assert.match(a, /truncated, unparseable/);
+});
+
+test('phase-1 prune: base64 image payloads are elided, surrounding text preserved', () => {
+  const content = 'shot: data:image/png;base64,' + 'A'.repeat(400) + ' <- end';
+  const out = pruneMiddle([
+    { role: 'assistant', content: '', toolCalls: [{ id: 't1', name: 'screenshot', args: '{}' }] },
+    { role: 'tool', toolCallId: 't1', content },
+  ]);
+  assert.doesNotMatch(out[1].content, /AAAAAAAAAA/);      // the blob is gone
+  assert.match(out[1].content, /\[image elided\]/);
+  assert.match(out[1].content, /end/);                    // real text around it survives
+});
+
+test('phase-1 prune: a tool-FREE middle is a no-op (existing summarize path unchanged)', () => {
+  const middle = [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' }];
+  assert.deepStrictEqual(pruneMiddle(middle), middle);
+});
+
+// ── B. Secret redaction before summarization ──
+test('secret redaction: an API key in a tool result is scrubbed BEFORE it reaches the aux model', async () => {
+  let sent = null;
+  const rec = { chat: async (o) => { sent = o.messages; return { ok: true, text: 'clean summary' }; } };
+  const summarize = makeSummarizer(rec, { model: 'm' });
+  const key = 'sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const r = await summarize([{ role: 'tool', content: 'here is the api key ' + key }], '');
+  assert.strictEqual(r.ok, true);
+  const wire = sent.map((m) => String(m.content)).join('\n');   // the exact serialization that left the box
+  assert.ok(!wire.includes(key), 'the raw key must not reach the aux model');
+  assert.match(wire, /\[redacted\]/);
+});
+
+test('secret redaction: a key in the model summary is scrubbed BEFORE it is persisted', async () => {
+  const key = 'sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const c = createCompactor({ summarize: async () => ({ ok: true, summary: 'note token=' + key + ' end' }) });
+  const r = await c.maybeCompact(convo(20), { maxTokens: 8000, tailTokenBudget: 3000 });
+  assert.strictEqual(r.compacted, true);
+  assert.ok(!r.messages[1].content.includes(key), 'the fenced/persisted summary must not contain the key');
+  assert.match(r.messages[1].content, /\[redacted\]/);
+  assert.ok(!c.state.previousSummary.includes(key), 'the stored previousSummary must not contain the key');
+});
+
+// ── C. Real token accounting into the trigger ──
+test('compaction trigger uses REAL measured input tokens when present, the estimate when absent', async () => {
+  const { fn } = fakeSummarizer();
+  // convo(5) estimates well UNDER 0.75*10000 ⇒ no compaction when no measurement is supplied
+  const r1 = await createCompactor({ summarize: fn }).maybeCompact(convo(5), { maxTokens: 10000 });
+  assert.strictEqual(r1.reason, 'under_budget');
+  // a measured count OVER the trigger forces compaction despite the tiny char-estimate
+  const r2 = await createCompactor({ summarize: fakeSummarizer().fn }).maybeCompact(convo(5), { maxTokens: 10000, measuredInputTokens: 100000 });
+  assert.strictEqual(r2.compacted, true);
 });

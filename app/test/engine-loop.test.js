@@ -133,3 +133,49 @@ test('a compactor that throws does not break the turn (best-effort)', async () =
   assert.strictEqual(r.text, 'still fine');
   v.cleanup();
 });
+
+// ── D. deer-flow tool-call loop-detection guard ──
+// an adapter that records the tool count each call was offered, then plays a scripted queue
+function recordingAdapter(script) {
+  const seen = [];
+  return { seen, chat: async (o) => { seen.push({ tools: (o.tools || []).length }); return script.shift() || { ok: true, text: '', toolCalls: [], usage: {}, stopReason: 'stop' }; } };
+}
+
+test('loop guard: 3 identical tool calls force a final answer with tools denied (deer-flow)', async () => {
+  const v = vault();
+  const A = { id: 'c', name: 'list_dir', args: '{"path":"."}' };
+  const adapter = recordingAdapter([
+    { ok: true, text: '', toolCalls: [A], usage: {}, stopReason: 'tool_calls' },
+    { ok: true, text: '', toolCalls: [A], usage: {}, stopReason: 'tool_calls' },
+    { ok: true, text: '', toolCalls: [A], usage: {}, stopReason: 'tool_calls' },   // 3rd identical ⇒ trips the guard
+    { ok: true, text: 'final answer after the loop was broken', toolCalls: [], usage: {}, stopReason: 'stop' },
+  ]);
+  const notes = [];
+  const eng = createEngine({ adapter, toolset: createToolset({ vaultDir: v.dir }), model: 'm', onThinking: (t) => notes.push(t) });
+  const r = await eng.run([{ role: 'user', content: 'go' }]);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.text, 'final answer after the loop was broken');   // NOT the max_steps placeholder
+  assert.strictEqual(r.stopReason, 'loop_broken');
+  assert.strictEqual(adapter.seen.length, 4);
+  assert.strictEqual(adapter.seen[3].tools, 0);            // the forced 4th call was offered NO tools
+  assert.ok(notes.some((n) => /loop guard/i.test(n)));     // honest telemetry line
+  v.cleanup();
+});
+
+test('loop guard: 2 identical + 1 different tool call does NOT trip the guard', async () => {
+  const v = vault();
+  const A = { id: 'c1', name: 'list_dir', args: '{"path":"."}' };
+  const B = { id: 'c2', name: 'list_dir', args: '{"path":"other"}' };
+  const adapter = recordingAdapter([
+    { ok: true, text: '', toolCalls: [A], usage: {}, stopReason: 'tool_calls' },
+    { ok: true, text: '', toolCalls: [A], usage: {}, stopReason: 'tool_calls' },
+    { ok: true, text: '', toolCalls: [B], usage: {}, stopReason: 'tool_calls' },   // different args ⇒ no 3rd repeat
+    { ok: true, text: 'ordinary final', toolCalls: [], usage: {}, stopReason: 'stop' },
+  ]);
+  const eng = createEngine({ adapter, toolset: createToolset({ vaultDir: v.dir }), model: 'm' });
+  const r = await eng.run([{ role: 'user', content: 'go' }]);
+  assert.strictEqual(r.text, 'ordinary final');
+  assert.strictEqual(r.stopReason, 'stop');                // NOT loop_broken
+  assert.ok(adapter.seen[3].tools > 0);                    // tools were never denied
+  v.cleanup();
+});
