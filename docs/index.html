@@ -159,6 +159,20 @@
   /* oracle TUI */
   .t-out{font:13.5px/1.62 var(--mono);color:var(--gold-soft)}.t-out b{color:#fff}.t-out code{color:var(--gold)}
   .t-spin{font:13.5px var(--mono);color:var(--ember)}.t-foot{margin-top:13px;color:var(--dim);font:11px var(--mono)}
+  /* hero live TUI */
+  .hero-term{max-width:730px;margin:34px auto 0;text-align:left;box-shadow:0 0 60px rgba(212,168,90,.09)}
+  .hero-term .term-bar b{margin-left:auto}
+  .h-live{color:var(--green);font:10px var(--mono);letter-spacing:.6px}
+  .hero-term .term-body{min-height:252px;font:13.5px/1.7 var(--mono)}
+  .h-prompt{color:#fff}.h-prompt .h-caret{color:var(--gold);margin-right:5px}
+  .h-cur{color:var(--gold);animation:hcur 1.05s steps(1) infinite}@keyframes hcur{50%{opacity:0}}
+  .h-spin{color:var(--ember);font:13px var(--mono);margin:10px 0 4px}.h-spin .h-meta{color:var(--dim)}
+  .h-work{color:var(--dim);font:12.5px/1.95 var(--mono)}
+  .h-work .h-dot{color:var(--green);margin-right:7px}
+  .h-work .h-wname{color:var(--gold-soft);display:inline-block;min-width:58px}
+  .h-work .h-tag{color:var(--body);border:1px solid var(--line);border-radius:5px;padding:0 5px;font-size:10.5px;margin-left:5px}
+  .hero-term .t-out{margin-top:12px}.h-seal{color:var(--green)!important}
+  @media(prefers-reduced-motion:reduce){.h-cur{animation:none}}
   /* personas */
   .p-stage{display:grid;grid-template-columns:auto 1fr;gap:22px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:22px;background:var(--bg2)}
   @media(max-width:560px){.p-stage{grid-template-columns:1fr;text-align:center}}
@@ -280,8 +294,11 @@
       <a class="btn" href="manual/">Manual</a>
       <a class="btn" href="https://github.com/Grandillionaire/urfael">★ GitHub</a>
     </div>
-    <img class="shot" src="media/console.png" width="1320" height="865" alt="The Urfael Console, a gold-on-dark desktop app" />
-    <div class="cap">The Console, chat with live tool activity, push-to-talk, archive, reminders, jobs. Keyboard-first.</div>
+    <div class="term hero-term anim" data-anim="hero" role="img" aria-label="A live Urfael session: it recalls from your vault, reads your channels read-only, reasons, streams an answer, and seals the action to a signed ledger.">
+      <div class="term-bar"><i></i><i></i><i></i><span>urfael tui</span><b class="h-live" aria-hidden="true">● live</b></div>
+      <div class="term-body"><div class="h-log" aria-hidden="true"></div></div>
+    </div>
+    <div class="cap">A live session, faithful to real urfael output. No inbound port; every action sealed to a signed ledger.</div>
   </div>
 </header>
 
@@ -432,7 +449,7 @@ This restores your tracked files to that snapshot. The current state is checkpoi
   <section id="compare">
     <h2>The honest part</h2>
     <p class="lede">Against Hermes Agent and OpenClaw, Urfael wins where it counts for a machine that lives on your desk: no inbound port, a flat bill, an attack benchmark you run yourself, and a ledger that proves what it did. It loses on raw scale and channel count, and we put that in the same table.</p>
-    <p class="lede" style="margin-top:12px">The security posture is verified by a command and frozen by 981 tests. The newer bridges, Discord voice, and the Android host are code-complete but not yet certified against live accounts, and we label them that way.</p>
+    <p class="lede" style="margin-top:12px">The security posture is verified by a command and frozen by 983 tests. The newer bridges, Discord voice, and the Android host are code-complete but not yet certified against live accounts, and we label them that way.</p>
     <p style="text-align:center;margin:24px 0 0">
       <a href="/compare" style="font-family:ui-monospace,Menlo,monospace;font-size:14px;letter-spacing:.5px;color:#ecd3a0;border:1px solid rgba(212,168,90,.25);padding:11px 22px;border-radius:10px;display:inline-block;margin:5px">The full comparison &rsaquo;</a>
       <a href="/honesty" style="font-family:ui-monospace,Menlo,monospace;font-size:14px;letter-spacing:.5px;color:#ecd3a0;border:1px solid rgba(212,168,90,.25);padding:11px 22px;border-radius:10px;display:inline-block;margin:5px">What&rsquo;s lightly tested &rsaquo;</a>
@@ -561,7 +578,7 @@ cd app &amp;&amp; npm start # the Console opens</pre>
 
 <script>
 /* ---- ground truth: every number on this page reads from here, so it cannot drift from `npm run security` ---- */
-const URFAEL = { classes:11, checks:116, unitTests:981 };
+const URFAEL = { classes:11, checks:116, unitTests:983 };
 const RM = matchMedia('(prefers-reduced-motion:reduce)').matches;
 
 document.getElementById('navSeal').textContent = 'ᚢ '+URFAEL.classes+'/'+URFAEL.classes;
@@ -617,6 +634,36 @@ ANIMS.oracle=root=>{ const out=root.querySelector('.t-out'), spin=root.querySele
   setTimeout(()=>{ clearInterval(sp); spin.textContent='';
     let i=0;(function tick(){ if(i>md.length){ foot.textContent='✓ sealed · ledger seq+1'; return; }
       out.innerHTML=render(md.slice(0,i)); i+=2; setTimeout(tick,18); })(); },1200); };
+
+/* 0) hero — a live, looping session: recall → read (read-only) → reason → answer → seal */
+ANIMS.hero=root=>{ const log=root.querySelector('.h-log');
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const md=s=>s.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`(.+?)`/g,'<code>$1</code>');
+  const el=(cls,html)=>{ const d=document.createElement('div'); d.className=cls; if(html!=null)d.innerHTML=html; log.appendChild(d); return d; };
+  const PROMPT='brief me on my day, flag what needs a reply';
+  const WORK=[['recall','3 notes from your vault','read-only'],['read','12 unread · Email, Telegram','read-only'],['reason','ranking by who is waiting on you','']];
+  const ANSWER='Three things need you today. **Daniel** has waited on the staging deploy since yesterday, that is the one to answer first. The **Q3 invoice** is due Friday. Everything else can wait.';
+  const META='opus · turn 2 · council';
+  let inView=true;
+  if('IntersectionObserver' in window){ new IntersectionObserver(es=>{ inView=es[es.length-1].isIntersecting; }).observe(root); }
+  async function once(){
+    log.innerHTML='';
+    const p=el('h-prompt','<span class="h-caret">❯</span><span class="h-typed"></span><span class="h-cur">▋</span>');
+    const typed=p.querySelector('.h-typed'), cur=p.querySelector('.h-cur');
+    if(RM){ typed.textContent=PROMPT; } else { for(let i=1;i<=PROMPT.length;i++){ typed.textContent=PROMPT.slice(0,i); await sleep(30); } }
+    cur.remove(); await sleep(RM?0:260);
+    const spin=el('h-spin',''); let live=true,g=0,v=0; const VB=['recalling','weighing','reasoning','sealing'];
+    const tick=()=>{ if(live) spin.innerHTML=GLY[g++%GLY.length]+'  '+VB[v++%VB.length]+' …<span class="h-meta">   '+META+'</span>'; };
+    let sp; if(RM){ spin.innerHTML='ᚢ  reasoning …<span class="h-meta">   '+META+'</span>'; } else { tick(); sp=setInterval(tick,110); }
+    for(const [name,what,tag] of WORK){ await sleep(RM?0:540);
+      el('h-work','<span class="h-dot">●</span><span class="h-wname">'+name+'</span>'+what+(tag?' <span class="h-tag">'+tag+'</span>':'')); }
+    await sleep(RM?0:520); live=false; if(sp)clearInterval(sp); spin.remove();
+    const out=el('t-out','');
+    if(RM){ out.innerHTML=md(ANSWER); } else { let i=0; while(i<ANSWER.length){ out.innerHTML=md(ANSWER.slice(0,i)); i+=2; await sleep(16); } out.innerHTML=md(ANSWER); }
+    await sleep(RM?0:320); el('t-foot h-seal','✓ sealed to ledger · seq 1841 · ed25519');
+  }
+  (async function loop(){ if(RM){ await once(); return; }
+    for(;;){ while(!inView||document.hidden){ await sleep(400); } await once(); await sleep(3400); } })(); };
 
 /* 4) persona morph */
 const PERSONAS=[{g:'ᚢ',n:'Urfael',e:'the dry old-intelligence butler, the anchor'},
