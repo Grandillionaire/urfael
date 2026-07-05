@@ -67,6 +67,11 @@ const COMMANDS = [
     summary: 'restore your repo to a checkpoint (undo a coding turn)',
     usage: 'urfael rewind [<id>] [--dir <path>] [--yes] [--force]',
     examples: ['urfael rewind', 'urfael rewind k3xq9z-1a2b'], see: ['code', 'checkpoints'] },
+  { name: 'scan', group: 'CODE',
+    summary: 'read-only, verified security audit of a repo',
+    usage: 'urfael scan [<path>] [--dir <path>] [--model <m>] [--report <file.md>] [--json]',
+    examples: ['urfael scan .', 'urfael scan ~/work/app --report audit.md'],
+    see: ['code', 'council'] },
 
   // ── MEMORY ───────────────────────────────────────────────────────────────────
   { name: 'why', group: 'MEMORY',

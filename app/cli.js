@@ -504,6 +504,43 @@ function readStdinAdapter(maxBytes) {
     return;
   }
 
+  // scan: a read-only, VERIFIED security audit of a repo. Pure CLI — spawns its own read-only claude agents
+  // (Read/Grep/Glob only, no write/shell/egress), runs BEFORE ensureDaemon. The target repo is untrusted input.
+  if (cmd === 'scan') {
+    const scan = require('./scan');
+    const { spawn: spawnChild } = require('child_process');
+    const { scopedEnv: libScopedEnv } = require('./lib');
+    const dirArg = flag(rest, '--dir');
+    const posit = rest.find((a, i) => !a.startsWith('--') && !['--dir', '--model', '--report'].includes(rest[i - 1]));
+    const target = path.resolve(dirArg || posit || process.cwd());
+    if (!fs.existsSync(target)) { console.error('✗ ' + target + ' does not exist.'); process.exit(1); }
+    const model = flag(rest, '--model');
+    const reportPath = flag(rest, '--report');
+    const asJson = rest.includes('--json');
+    const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || 'claude';
+    const deps = { spawn: spawnChild, CLAUDE_BIN, scopedEnv: () => libScopedEnv(process.env) };
+    const emit = (e) => {
+      if (asJson) return;
+      if (e.ev === 'scan.start') process.stderr.write(gold('● urfael scan') + dim('  ' + path.basename(target) + '  ·  read-only, verified') + '\n');
+      else if (e.ev === 'scan.finding') process.stderr.write(dim('  finding…') + '\n');
+      else if (e.ev === 'scan.found') process.stderr.write(dim('  ' + e.count + ' candidate(s); verifying each…') + '\n');
+      else if (e.ev === 'scan.verify') process.stderr.write(dim('  verify ' + e.idx + '/' + e.total + '  ' + String(e.title || '').slice(0, 56)) + '\n');
+      else if (e.ev === 'scan.done') process.stderr.write(dim('  ' + e.confirmed + ' verified · ' + e.refuted + ' refuted · ' + e.unverified + ' unverified') + '\n');
+      else if (e.ev === 'scan.error') process.stderr.write(bad('✗') + ' the auditor could not run (is `claude` logged in?)\n');
+    };
+    const result = await scan.runScan(target, { model }, emit, deps);
+    if (result && result.meta && result.meta.error) process.exitCode = 1;
+    if (asJson) { process.stdout.write(JSON.stringify(result, null, 2) + '\n'); return; }
+    const report = scan.formatReport(result, { name: path.basename(target) });
+    if (reportPath) {
+      try { fs.writeFileSync(path.resolve(reportPath), report + '\n'); console.log(gold('✓ report written: ') + reportPath); }
+      catch (e) { console.error('✗ could not write ' + reportPath + ': ' + ((e && e.message) || e)); process.exit(1); }
+    } else {
+      process.stdout.write('\n' + require('./md').toAnsi(report, { color: COLOR }) + '\n');
+    }
+    return;
+  }
+
   // skills: a paranoid share/install hub for VAULT/_urfael/skills/. Pure CLI — no brain needed, runs
   // BEFORE ensureDaemon. Install never executes a skill; it only stores the markdown after you confirm.
   if (cmd === 'skills') {

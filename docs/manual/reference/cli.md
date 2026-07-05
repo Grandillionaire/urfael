@@ -114,6 +114,23 @@ urfael rewind k3xq9z-1a2b
 
 See also: `code` · `checkpoints`
 
+### `urfael scan`
+
+read-only security audit of a codebase, an AI finder plus a skeptic verifier that kills false positives.
+
+```bash
+urfael scan [<path>] [--dir <path>] [--model <m>] [--report <file.md>] [--json]
+```
+
+Examples:
+
+```bash
+urfael scan .
+urfael scan ~/work/app --report audit.md
+```
+
+See also: `code` · `council`
+
 ## Memory
 
 _what it knows about you, and where each belief came from_
