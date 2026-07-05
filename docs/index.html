@@ -202,10 +202,10 @@
   .dot.native{background:var(--green)}.dot.proxy{background:var(--gold)}.dot.light{background:var(--ember)}
   .wheel{position:relative;width:min(460px,86vw);aspect-ratio:1;margin:0 auto}
   .wheel-core{position:absolute;inset:0;display:grid;place-items:center;z-index:3;text-align:center}
-  .wheel-core::before{content:'';position:absolute;top:50%;left:50%;width:122px;height:122px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,var(--bg2) 56%,rgba(22,17,10,.82) 100%);border:1px solid rgba(212,168,90,.34);box-shadow:0 0 34px rgba(212,168,90,.16),inset 0 0 18px rgba(0,0,0,.55)}
-  .wheel-core .ru{position:relative;width:94px;height:94px;filter:drop-shadow(0 0 16px rgba(212,168,90,.45))}
+  .wheel-core::before{content:'';position:absolute;top:50%;left:50%;width:176px;height:176px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,var(--bg2) 56%,rgba(22,17,10,.82) 100%);border:1px solid rgba(212,168,90,.34);box-shadow:0 0 34px rgba(212,168,90,.16),inset 0 0 18px rgba(0,0,0,.55)}
+  .wheel-core .ru{position:relative;width:120px;height:120px;filter:drop-shadow(0 0 16px rgba(212,168,90,.45))}
   .wheel-core .ru path{stroke:var(--gold);stroke-width:8;fill:none}
-  .wheel-core small{position:absolute;top:calc(50% + 70px);left:0;right:0;display:block;font:10px var(--mono);color:var(--dim);letter-spacing:1px}
+  .wheel-core small{position:absolute;top:calc(50% + 100px);left:0;right:0;display:block;font:10px var(--mono);color:var(--dim);letter-spacing:1px}
   .ring{position:absolute;inset:0}
   .ring.r1{animation:spin 96s linear infinite}.ring.r2{inset:21%;animation:spin 120s linear infinite reverse}
   .orbit{position:absolute;top:50%;left:50%;width:54px;height:54px;margin:-27px;
@@ -233,7 +233,7 @@
   .gnote{color:var(--dim);font-size:14px;max-width:760px;margin:20px auto 0;text-align:center}
   .gnote b{color:var(--gold-soft)}
   /* reactive 3D, zero deps: a molten-gold "vessel" core + pointer-tilt; both degrade to the static markup */
-  .wheel-core .vessel{position:absolute;top:50%;left:50%;width:122px;height:122px;transform:translate(-50%,-50%);
+  .wheel-core .vessel{position:absolute;top:50%;left:50%;width:176px;height:176px;transform:translate(-50%,-50%);
     border-radius:50%;z-index:2;opacity:0;transition:opacity .9s ease;pointer-events:none}
   .wheel-core.gl-on .vessel{opacity:1}
   .wheel-core.gl-on::before{background:radial-gradient(circle,rgba(8,7,5,.35) 58%,rgba(20,15,9,.9) 100%);box-shadow:0 0 42px rgba(212,168,90,.24),inset 0 0 22px rgba(0,0,0,.6)}
@@ -738,33 +738,43 @@ ANIMS.wheel=root=>{
            ||cv.getContext('experimental-webgl',{alpha:true,premultipliedAlpha:false}); }catch(e){}
     if(!gl){ cv.remove(); return; }
     var VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}';
+    /* Crystalline faceted gold: the surface is partitioned into cells, each tilted into a flat facet that
+       reflects a procedural warm-studio environment, so it reads as the polished cut-gold "crystal ball"
+       from the launch film. Still zero-dependency raw WebGL, cursor-reactive, reduced-motion-safe. */
     var FS=[
 'precision highp float;',
 'uniform vec2 u_res; uniform float u_time; uniform vec2 u_light; uniform float u_energy;',
 'float hash(vec3 p){p=fract(p*0.3183099+0.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}',
-'float noise(vec3 x){vec3 i=floor(x);vec3 f=fract(x);f=f*f*(3.0-2.0*f);',
-' return mix(mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),',
-'            mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}',
-'float fbm(vec3 p){float a=0.5,s=0.0;for(int i=0;i<5;i++){s+=a*noise(p);p*=2.02;a*=0.5;}return s;}',
+'vec3 facetN(vec3 N,float t){',                      /* crystalline facets: per-cell normal tilt */
+' vec3 p=N*4.6+vec3(0.0,0.0,t); vec3 c=floor(p)+0.5;',
+' vec3 off=vec3(hash(c),hash(c+7.3),hash(c+13.1))-0.5;',
+' return normalize(N+0.6*off);',
+'}',
+'vec3 env(vec3 r){',                                 /* procedural warm studio for metallic reflections */
+' float up=r.y*0.5+0.5;',
+' vec3 sky=mix(vec3(0.11,0.075,0.04),vec3(1.0,0.93,0.74),smoothstep(0.4,0.98,up));',
+' float box=smoothstep(0.82,1.0,up)+0.5*smoothstep(0.6,0.86,r.x*0.5+0.5);',
+' return sky+vec3(1.0,0.96,0.82)*box*0.7;',
+'}',
 'void main(){',
 ' vec2 uv=(gl_FragCoord.xy*2.0-u_res)/u_res.y; float r=length(uv); float R=0.92;',
 ' vec3 col=vec3(0.0); float alpha=0.0;',
 ' if(r<R){',
-'  float z=sqrt(R*R-r*r); vec3 N=vec3(uv,z)/R; float t=u_time*0.22;',
-'  float n=fbm(N*2.6+vec3(0.0,0.0,t))+0.5*fbm(N*5.5-vec3(t*0.7));',
-'  vec3 Np=normalize(N+0.32*vec3(fbm(N*4.0+vec3(t,1.0,0.0))-0.5,fbm(N*4.0+vec3(0.0,t,2.0))-0.5,0.0));',
+'  float z=sqrt(R*R-r*r); vec3 N=vec3(uv,z)/R;',
+'  vec3 fn=facetN(N,u_time*0.12);',
 '  vec3 L=normalize(vec3(u_light*1.15,0.8)); vec3 V=vec3(0.0,0.0,1.0);',
-'  float diff=max(dot(Np,L),0.0); vec3 H=normalize(L+V);',
-'  float spec=pow(max(dot(Np,H),0.0),24.0); float fres=pow(1.0-max(dot(N,V),0.0),2.6);',
-'  float flow=smoothstep(0.18,0.96,n);',
-'  vec3 deep=vec3(0.18,0.11,0.04),gold=vec3(0.83,0.60,0.26),hot=vec3(1.0,0.78,0.42),ember=vec3(1.0,0.52,0.24);',
-'  vec3 b=mix(deep,gold,diff*0.9+0.1);',
-'  b=mix(b,hot,flow*diff*(0.5+0.5*u_energy));',
-'  b+=ember*spec*(1.0+1.2*u_energy);',
-'  b+=gold*fres*(0.45+0.7*u_energy);',
-'  b*=(0.5+0.62*z); col=b; alpha=smoothstep(R,R-0.045,r);',
+'  vec3 Rf=reflect(-V,fn); vec3 e=env(Rf);',
+'  float diff=max(dot(fn,L),0.0);',
+'  float spec=pow(max(dot(reflect(-L,fn),V),0.0),42.0);',
+'  float fres=pow(1.0-max(dot(N,V),0.0),3.0);',
+'  vec3 gold=vec3(0.86,0.63,0.29);',
+'  vec3 b=e*gold*(0.5+0.55*diff);',                  /* metallic gold reflection */
+'  b+=vec3(1.0,0.96,0.82)*spec*(1.0+1.1*u_energy);', /* sharp glint */
+'  b+=gold*fres*(0.45+0.7*u_energy);',               /* rim light */
+'  b+=vec3(1.0,0.55,0.25)*(0.06+0.10*u_energy);',    /* faint ember core */
+'  b*=(0.55+0.55*z); col=b; alpha=smoothstep(R,R-0.03,r);',
 ' } else {',
-'  float g=exp(-(r-R)*7.5); col=vec3(0.83,0.60,0.26)*g*(0.28+0.55*u_energy); alpha=g*(0.55+0.4*u_energy);',
+'  float g=exp(-(r-R)*7.5); col=vec3(0.86,0.63,0.29)*g*(0.28+0.55*u_energy); alpha=g*(0.5+0.4*u_energy);',
 ' }',
 ' gl_FragColor=vec4(col,clamp(alpha,0.0,1.0));',
 '}'].join('\n');
@@ -781,7 +791,7 @@ ANIMS.wheel=root=>{
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
     var uRes=gl.getUniformLocation(prog,'u_res'),uTime=gl.getUniformLocation(prog,'u_time'),
         uLight=gl.getUniformLocation(prog,'u_light'),uEnergy=gl.getUniformLocation(prog,'u_energy');
-    var dpr=Math.min(devicePixelRatio||1,1.75), SIZE=122;
+    var dpr=Math.min(devicePixelRatio||1,1.75), SIZE=176;
     cv.width=SIZE*dpr; cv.height=SIZE*dpr; gl.viewport(0,0,cv.width,cv.height);
     core.classList.add('gl-on');
     var lx=0.25,ly=0.35,tlx=0.25,tly=0.35,energy=0.32,tEnergy=0.32,lastMove=0;
