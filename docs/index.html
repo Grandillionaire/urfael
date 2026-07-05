@@ -635,35 +635,53 @@ ANIMS.oracle=root=>{ const out=root.querySelector('.t-out'), spin=root.querySele
     let i=0;(function tick(){ if(i>md.length){ foot.textContent='✓ sealed · ledger seq+1'; return; }
       out.innerHTML=render(md.slice(0,i)); i+=2; setTimeout(tick,18); })(); },1200); };
 
-/* 0) hero — a live, looping session: recall → read (read-only) → reason → answer → seal */
+/* 0) hero — a live cockpit cycling four real scenarios: prompt → read-only workers → answer → seal */
+const HERO_SCENES=[
+  { prompt:'brief me on my day, flag what needs a reply', meta:'opus · turn 2 · council',
+    verbs:['recalling','reading','weighing','ranking'],
+    work:[['recall','3 notes from your vault','read-only'],['read','12 unread · Email, Telegram','read-only'],['reason','ranking by who is waiting on you','']],
+    answer:'Three things need you today. **Daniel** has waited on the staging deploy since yesterday, that is the one to answer first. The **Q3 invoice** is due Friday. Everything else can wait.',
+    seal:'✓ sealed to ledger · seq 1841 · ed25519' },
+  { prompt:'add a retry to the api client, then show me the diff', meta:'opus · repo api-client · code',
+    verbs:['checkpointing','editing','verifying','sealing'],
+    work:[['checkpoint','snapshot mg3k1-a2b4 · tracked + untracked','undoable'],['edit','client.ts · backoff, 3 tries',''],['verify','17 tests pass','']],
+    answer:'Done. Wrapped `request()` in a bounded retry with backoff, **2 files** changed. Undo anytime with `urfael rewind mg3k1-a2b4` — the rewind is itself reversible.',
+    seal:'✓ checkpoint mg3k1-a2b4 · sealed · seq 1842' },
+  { prompt:'prove nothing reached in while I was away', meta:'opus · turn 1 · direct',
+    verbs:['reading ledger','verifying chain','counting','sealing'],
+    work:[['ledger','verify hash chain · 1,840 entries','signed'],['ports','0 TCP · unix socket 0600 only',''],['senders','every inbound allowlisted first','read-only']],
+    answer:'Verified. **0 inbound connections** — the daemon opened no TCP port the entire window. The ledger hash chain is intact and all **1,840 actions** are signed. Nothing reached in.',
+    seal:'✓ ledger verified · seq 1843 · ed25519' },
+  { prompt:'why did our error rate spike on Tuesday?', meta:'opus · turn 3 · council',
+    verbs:['recalling','reading','correlating','synthesizing'],
+    work:[['recall','last week incident notes','read-only'],['read','deploy log + error traces','read-only'],['reason','correlating the spike to a change','']],
+    answer:'The spike tracks a **14:20 deploy** on Tuesday that shipped a stricter timeout. Three downstream services were not retrying, so a slow dependency turned into errors. Fix: retry on those three, or revert the timeout.',
+    seal:'✓ sealed to ledger · seq 1844 · ed25519' },
+];
 ANIMS.hero=root=>{ const log=root.querySelector('.h-log');
   const sleep=ms=>new Promise(r=>setTimeout(r,ms));
   const md=s=>s.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`(.+?)`/g,'<code>$1</code>');
   const el=(cls,html)=>{ const d=document.createElement('div'); d.className=cls; if(html!=null)d.innerHTML=html; log.appendChild(d); return d; };
-  const PROMPT='brief me on my day, flag what needs a reply';
-  const WORK=[['recall','3 notes from your vault','read-only'],['read','12 unread · Email, Telegram','read-only'],['reason','ranking by who is waiting on you','']];
-  const ANSWER='Three things need you today. **Daniel** has waited on the staging deploy since yesterday, that is the one to answer first. The **Q3 invoice** is due Friday. Everything else can wait.';
-  const META='opus · turn 2 · council';
   let inView=true;
   if('IntersectionObserver' in window){ new IntersectionObserver(es=>{ inView=es[es.length-1].isIntersecting; }).observe(root); }
-  async function once(){
+  async function once(sc){
     log.innerHTML='';
     const p=el('h-prompt','<span class="h-caret">❯</span><span class="h-typed"></span><span class="h-cur">▋</span>');
     const typed=p.querySelector('.h-typed'), cur=p.querySelector('.h-cur');
-    if(RM){ typed.textContent=PROMPT; } else { for(let i=1;i<=PROMPT.length;i++){ typed.textContent=PROMPT.slice(0,i); await sleep(30); } }
+    if(RM){ typed.textContent=sc.prompt; } else { for(let i=1;i<=sc.prompt.length;i++){ typed.textContent=sc.prompt.slice(0,i); await sleep(30); } }
     cur.remove(); await sleep(RM?0:260);
-    const spin=el('h-spin',''); let live=true,g=0,v=0; const VB=['recalling','weighing','reasoning','sealing'];
-    const tick=()=>{ if(live) spin.innerHTML=GLY[g++%GLY.length]+'  '+VB[v++%VB.length]+' …<span class="h-meta">   '+META+'</span>'; };
-    let sp; if(RM){ spin.innerHTML='ᚢ  reasoning …<span class="h-meta">   '+META+'</span>'; } else { tick(); sp=setInterval(tick,110); }
-    for(const [name,what,tag] of WORK){ await sleep(RM?0:540);
+    const spin=el('h-spin',''); let live=true,g=0,v=0; const VB=sc.verbs;
+    const tick=()=>{ if(live) spin.innerHTML=GLY[g++%GLY.length]+'  '+VB[v++%VB.length]+' …<span class="h-meta">   '+sc.meta+'</span>'; };
+    let sp; if(RM){ spin.innerHTML='ᚢ  '+VB[0]+' …<span class="h-meta">   '+sc.meta+'</span>'; } else { tick(); sp=setInterval(tick,110); }
+    for(const [name,what,tag] of sc.work){ await sleep(RM?0:540);
       el('h-work','<span class="h-dot">●</span><span class="h-wname">'+name+'</span>'+what+(tag?' <span class="h-tag">'+tag+'</span>':'')); }
     await sleep(RM?0:520); live=false; if(sp)clearInterval(sp); spin.remove();
     const out=el('t-out','');
-    if(RM){ out.innerHTML=md(ANSWER); } else { let i=0; while(i<ANSWER.length){ out.innerHTML=md(ANSWER.slice(0,i)); i+=2; await sleep(16); } out.innerHTML=md(ANSWER); }
-    await sleep(RM?0:320); el('t-foot h-seal','✓ sealed to ledger · seq 1841 · ed25519');
+    if(RM){ out.innerHTML=md(sc.answer); } else { let i=0; while(i<sc.answer.length){ out.innerHTML=md(sc.answer.slice(0,i)); i+=2; await sleep(16); } out.innerHTML=md(sc.answer); }
+    await sleep(RM?0:320); el('t-foot h-seal',sc.seal);
   }
-  (async function loop(){ if(RM){ await once(); return; }
-    for(;;){ while(!inView||document.hidden){ await sleep(400); } await once(); await sleep(3400); } })(); };
+  (async function loop(){ if(RM){ await once(HERO_SCENES[0]); return; }
+    let k=0; for(;;){ while(!inView||document.hidden){ await sleep(400); } await once(HERO_SCENES[k%HERO_SCENES.length]); k++; await sleep(3000); } })(); };
 
 /* 4) persona morph */
 const PERSONAS=[{g:'ᚢ',n:'Urfael',e:'the dry old-intelligence butler, the anchor'},
