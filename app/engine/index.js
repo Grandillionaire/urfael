@@ -17,7 +17,7 @@
 const openai = require('./openai-adapter');
 const anthropic = require('./anthropic-adapter');
 const { createToolset } = require('./tools');
-const { createCompactor } = require('./compactor');
+const { createCompactor, redactSecrets } = require('./compactor');
 const { createEngine } = require('./loop');
 const { makeDelegate } = require('./delegate');
 const { classifyNativeError, nativeFallbackChain } = require('./fallback');
@@ -46,15 +46,20 @@ function makeSummarizer(adapter, modelCfg) {
       if (Array.isArray(m.toolCalls) && m.toolCalls.length) line += ' [called: ' + m.toolCalls.map((c) => c.name).join(', ') + ']';
       return line;
     }).join('\n').slice(0, 60000);   // bound the prompt; the middle is already token-bounded but a hostile tool result could be huge
+    // REDACT before the transcript (and any prior summary) reach the aux model — this is the exact serialization that
+    // leaves the box, so a credential a tool surfaced never ships to the summarizer provider. (compactor.js redacts
+    // the summary that comes back too; defense in depth on both edges.)
+    const safeTranscript = redactSecrets(transcript);
+    const safePrior = prior ? redactSecrets(prior) : prior;
     const instruction =
       'Condense the following conversation excerpt into a compact, factual summary that preserves decisions, ' +
       'open questions, file paths, names, numbers, and any task state. Omit pleasantries. Write in terse notes, ' +
-      'not prose.' + (prior ? ' First, an earlier summary to MERGE and carry forward:\n' + prior + '\n\nNow the newer excerpt:\n' : '\n\n');
+      'not prose.' + (safePrior ? ' First, an earlier summary to MERGE and carry forward:\n' + safePrior + '\n\nNow the newer excerpt:\n' : '\n\n');
     const res = await adapter.chat({
       baseUrl: modelCfg.baseUrl, apiKey: modelCfg.apiKey, model: modelCfg.summaryModel || modelCfg.model,
       messages: [
         { role: 'system', content: 'You are a precise conversation summarizer. Output only the summary.' },
-        { role: 'user', content: instruction + transcript },
+        { role: 'user', content: instruction + safeTranscript },
       ],
       maxTokens: 1024, temperature: 0,
     });
