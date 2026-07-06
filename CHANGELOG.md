@@ -4,6 +4,12 @@ All notable changes to Urfael are recorded here. The format follows [Keep a Chan
 
 Run `urfael version` to see what you are on, and `urfael update` to pull and reinstall the latest.
 
+## [Unreleased]
+
+### Added
+
+- **`urfael scan <path>`: a read-only, verified security audit of any codebase.** A read-only agent (Read, Grep, Glob only; no write, no shell, no egress) sweeps the source with an anti-fabrication prompt, then an independent skeptic verifier re-checks every candidate and refutes the false ones, so no AI slop ships. It prints an honest report (verified findings, a "checked and cleared" section, and a scope-and-limits block) or writes it with `--report file.md`. The target repo is treated as untrusted input, and the read-only floor holds even if a hijack is attempted.
+
 ## [0.9.0] - 2026-06-25
 
 The "JARVIS" release (feat/jarvis-pillars). A large feature wave, each backend live-or-unit verified; UI surfacing is in progress.
