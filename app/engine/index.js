@@ -97,6 +97,10 @@ function buildEngine(spec) {
     vaultDir: spec.vaultDir, memoryDir: spec.memoryDir, workspaceDir: spec.workspaceDir,
     allowShell: spec.allowShell, runShell: spec.runShell, recall: spec.recall, appendMemory: spec.appendMemory,
     runSub,
+    // CaMeL-lite capability gate — PASSED THROUGH only when the caller opts in (spec.taint present, i.e. a turn that
+    // consumes untrusted data). Omitted by default → the toolset is byte-identical to the subscription path. See
+    // engine/taint.js: a tainted argument to a privileged/mutating tool is refused unless the policy table allows it.
+    taint: spec.taint,
   });
   const compactor = createCompactor({ summarize: makeSummarizer(pick.adapter, modelCfg), now: spec.now });
   const engine = createEngine({
