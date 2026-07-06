@@ -604,14 +604,58 @@ function readStdinAdapter(maxBytes) {
         if (!v) { console.log(dim('aborted — no value entered for ' + f.key)); return; }
         secrets[f.key] = v;
       }
+      // TOOL-POISONING GATE: connectors.scan() judged only the resolved COMMAND. Now fetch the server's advertised
+      // tool manifest (names + descriptions + input schemas — the runtime-mutable strings the brain reads as
+      // instructions) and run the SAME static scanner over it. FAIL CLOSED: a poisoned description refuses the add;
+      // a clean manifest is sha-pinned so a later swap (rug-pull) fails closed. Fetching may be skipped offline.
+      const mg = require('./mcpgate');
+      const gate = await mg.gateAdd(e, { secrets }).catch(() => ({ ok: true, listed: false, reason: 'gate error' }));
+      if (!gate.ok) {
+        console.error('\n\x1b[31m✗ refusing to connect — the advertised tool manifest is POISONED\x1b[0m');
+        console.error(dim("  the server's own tool descriptions carry instruction-override / exfil / hidden-unicode content the brain would read as commands:"));
+        for (const f of gate.scan.flags.filter((x) => x.level === 'danger')) console.error('  ' + gold('[DANGER]') + ' ' + f.tool + ': ' + f.why + (f.sample ? dim('  «' + f.sample + '»') : ''));
+        console.error(dim('  nothing was added — this is the MCP tool-poisoning / rug-pull vector.'));
+        process.exit(1);
+      }
+      if (gate.listed) console.log(gold('  ✓ tool manifest scanned clean') + dim('  · ' + gate.pin.count + ' tool(s), sha ' + gate.pin.sha256.slice(0, 12) + '…' + (gate.scan.warns ? '  (' + gate.scan.warns + ' advisory warn' + (gate.scan.warns > 1 ? 's' : '') + ')' : '')));
+      else console.log(dim('  ~ could not fetch the tool manifest to scan it (' + gate.reason + ') — the command scan above still applied; recheck later with ') + gold('urfael connect verify ' + e.id));
+
       const ok = await promptYesNo('\nAdd this connector?' + (danger ? gold(' (DANGER flags present!)') : ''));
       if (!ok) { console.log(dim('aborted — nothing added')); return; }
       let args; try { args = con.buildAddArgs(e, secrets); } catch (err) { console.error('✗ ' + ((err && err.message) || err)); process.exit(1); }
       try { execFileSync('claude', args, { stdio: 'inherit', cwd: VAULT }); }  // execFile array → secrets never hit the shell / history
       catch (err) { console.error('✗ `claude mcp add` failed: ' + ((err && err.message) || err)); process.exit(1); }
+      if (gate.listed && gate.pin) { mg.approve(e, gate.pin); console.log(dim('  tool manifest pinned — a later description/schema swap (rug-pull) fails closed until you re-approve.')); }
       console.log(gold('✓ connected ') + e.name + dim('  — owner turns only; sandboxed turns never load it'));
       if (e.auth === 'oauth') console.log(dim('  next time you use it on an owner turn, Claude opens the browser to authorize — no key is stored here.'));
       return;
+    }
+    // verify — a LATER connect: re-fetch the advertised tool manifest and check it against the pin you approved.
+    // FAIL CLOSED on a rug-pull (a description/schema swapped after approval) or a newly-poisoned manifest.
+    if (sub === 'verify' && rest[1]) {
+      const e = con.find(list, rest[1]);
+      if (!e) { console.error('✗ no connector "' + rest[1] + '". Try: urfael connect search <term>'); process.exit(1); }
+      const mg = require('./mcpgate');
+      const v = await mg.gateVerify(e).catch(() => ({ ok: false, reason: 'gate error' }));
+      if (v.ok) { console.log(gold('✓ tool manifest unchanged') + dim(' — still matches the pin you approved (' + String((v.drift && v.drift.pinned) || '').slice(0, 12) + '…)')); return; }
+      if (v.reason === 'unpinned') { console.log(dim('  ' + v.note + '. add it through the gate first: ') + gold('urfael connect add ' + e.id)); return; }
+      if (v.reason === 'unverifiable') { console.log('\x1b[33m~ could not re-fetch the tool manifest to verify it\x1b[0m' + dim('  (' + (v.note || '') + ')')); return; }
+      if (v.reason === 'poisoned') {
+        console.error('\x1b[31m✗ the advertised tool manifest is now POISONED\x1b[0m');
+        for (const f of v.scan.flags.filter((x) => x.level === 'danger')) console.error('  ' + gold('[DANGER]') + ' ' + f.tool + ': ' + f.why);
+        process.exit(1);
+      }
+      console.error('\x1b[31m✗ tool manifest DRIFTED since you approved it (possible rug-pull)\x1b[0m');
+      if (v.drift.changed.length) console.error(dim('  changed: ') + v.drift.changed.join(', '));
+      if (v.drift.added.length) console.error(dim('  added:   ') + v.drift.added.join(', '));
+      if (v.drift.removed.length) console.error(dim('  removed: ') + v.drift.removed.join(', '));
+      if (rest.includes('--reapprove')) {
+        const r = await mg.reapprove(e).catch(() => ({ ok: false, reason: 'gate error' }));
+        if (r.ok) { console.log(gold('✓ re-approved') + dim(' — the current manifest is now the pin')); return; }
+        console.error('✗ re-approve failed (' + (r.reason || 'unknown') + ')'); process.exit(1);
+      }
+      console.error(dim('  re-approve after reviewing the change: ') + gold('urfael connect verify ' + e.id + ' --reapprove'));
+      process.exit(1);
     }
     if ((sub === 'remove' || sub === 'rm') && rest[1]) {
       const e = con.find(list, rest[1]) || { id: con.slugify(rest[1]) };
@@ -634,6 +678,7 @@ function readStdinAdapter(maxBytes) {
       }
     }
     console.log('\n' + dim('details:  ') + gold('urfael connect info <id>') + dim('   ·   add:  ') + gold('urfael connect add <id>') + dim('   ·   active:  ') + gold('urfael connect installed'));
+    console.log(dim('re-check a connector\'s tool manifest against its pin (rug-pull guard):  ') + gold('urfael connect verify <id>'));
     console.log(dim('beyond this curated set, the whole MCP ecosystem (thousands of servers) also works via ') + gold('claude mcp add'));
     return;
   }
