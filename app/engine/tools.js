@@ -27,6 +27,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const camel = require('./taint');   // CaMeL-lite: value-level taint + capability gate (opt-in; see cfg.taint below)
 
 const DEFAULT_MAX_BYTES = 256 * 1024;    // per read/write payload cap — a tool_result is not a file transfer
 const MAX_LIST = 400;                     // directory-listing entry cap
@@ -148,6 +149,12 @@ function createToolset(cfg) {
   const denyGlobs = Array.isArray(cfg.denyGlobs) ? cfg.denyGlobs.map((p) => path.resolve(p)) : defaultDenyGlobs();
   const maxBytes = cfg.maxBytes || DEFAULT_MAX_BYTES;
   const shellOn = !!(cfg.allowShell && typeof cfg.runShell === 'function');
+  // CaMeL-lite capability gate config — PRESENT ONLY on a turn that consumes untrusted data. When cfg.taint is
+  // absent (the default/subscription path), the gate below is skipped entirely and dispatch is byte-identical to
+  // before. cfg.taint = { registry (createRegistry()), policy? (defaults to fail-closed DEFAULT_POLICY),
+  // untrustedTools? ([toolName] whose OUTPUT is untrusted and should be registered as tainted) }.
+  const taintCfg = (cfg.taint && typeof cfg.taint === 'object') ? cfg.taint : null;
+  const untrustedTools = new Set((taintCfg && Array.isArray(taintCfg.untrustedTools)) ? taintCfg.untrustedTools : []);
   // WRITE-deny the CONTROL surface inside the roots. Reads stay allowed (an agent legitimately reads skills/notes),
   // but a WRITE here is a privilege-escalation the allowlist alone would permit: rewriting CLAUDE.md changes the
   // model's own next-turn system prompt; rewriting _urfael/settings.json weakens the CLI ENGINE's hard permissions.deny
@@ -342,11 +349,30 @@ function createToolset(cfg) {
   async function dispatch(name, args) {
     const fn = impl[name];
     if (!fn) return 'unknown tool: ' + name;
-    try { return await fn(args || {}); }
+    // CaMeL-lite capability gate (engine/taint.js). ACTIVE ONLY when cfg.taint is configured; when absent this whole
+    // block is skipped and dispatch is BYTE-IDENTICAL to before (default path unchanged). A PRIVILEGED/mutating tool
+    // refuses a tainted argument (a value derived from untrusted content) unless the policy table explicitly permits
+    // it — fail-closed. The refusal is a normal tool_result string the model can react to, never a throw.
+    if (taintCfg) {
+      const verdict = camel.checkCapability({ name, args: args || {}, registry: taintCfg.registry, policy: taintCfg.policy });
+      if (!verdict.allow) return verdict.reason;
+      args = camel.unwrapDeep(args || {});   // gate passed → hand the impl plain values (any Tainted boxes stripped)
+    }
+    let out;
+    try { out = await fn(args || {}); }
     catch (e) { return 'tool error: ' + String((e && e.message) || e); }   // last-resort net; impls already guard
+    // an UNTRUSTED-source tool's OUTPUT is registered as tainted, so a later privileged tool that echoes it is caught
+    // by the gate above. Only when the gate is active AND this tool was declared untrusted (never on the default path).
+    if (taintCfg && untrustedTools.has(name)) { try { taintCfg.registry && taintCfg.registry.register(String(out == null ? '' : out), name); } catch {} }
+    return out;
   }
 
-  return { defs, dispatch, guardPath, _shellOn: shellOn };
+  // markUntrusted(text, source) — register a span of untrusted content in the turn's taint registry so a later
+  // privileged tool that launders it into an argument is refused by the gate. No-op unless cfg.taint is configured,
+  // so the default/subscription path is byte-identical. Returns undefined; never throws.
+  function markUntrusted(text, source) { if (taintCfg && taintCfg.registry) { try { taintCfg.registry.register(text, source || 'untrusted'); } catch {} } }
+
+  return { defs, dispatch, guardPath, markUntrusted, _shellOn: shellOn, _taintOn: !!taintCfg };
 }
 
 module.exports = { createToolset, isUnder, defaultDenyGlobs };
