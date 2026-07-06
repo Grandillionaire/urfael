@@ -107,6 +107,8 @@ let logWrites = 0;
 // are best-effort + try/catch-wrapped inside logEvent, so a chain hiccup can NEVER break a turn. State is kept
 // warm in memory (seq + last hash), seeded from the chain's tail at boot; `urfael audit --verify` walks it.
 const auditChain = require('./audit-chain');
+const tlog = require('./tlog');              // Transparency Log: RFC 6962 Merkle tree + C2SP signed-note checkpoint over the ledger
+const TLOG_ORIGIN = 'urfael-ledger';         // the checkpoint's log identity (the signer key fingerprint disambiguates the instance)
 const uiPalette = require('./ui-palette');   // presentation-only palette/prefs (closed schema; no security knob)
 const updater = require('./updater');        // self-update: notify + (source-install) fast-forward of the OFFICIAL remote only
 const REPO_ROOT = path.join(__dirname, '..');
@@ -188,6 +190,33 @@ function verifyLatestSeal() {
     headStillInChain = !!(v.ok && v.head === last.chainHead);
   } catch {}
   return { ok: !!sigOk, reason: sigOk ? 'valid' : 'bad_signature', seq: last.seq, t: last.t, fp: last.fp, headStillInChain };
+}
+
+// ---- Transparency Log: publish a signed CHECKPOINT (RFC 6962 root + C2SP signed-note) over the ledger, so a THIRD
+// party can verify inclusion/consistency without re-walking (or even seeing) the chain. The checkpoint is only ever
+// built over a chain that VERIFIES first — a broken chain yields no checkpoint (never a signature over garbage).
+function readVerifiedLedger() {
+  let lines = [];
+  try { lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); } catch {}
+  const v = auditChain.verify(lines);
+  return { v, lines };
+}
+function tlogKeys() { const k = ensureSealKey(); return { privatePem: k.privatePem, publicPem: k.publicPem, keyName: 'urfael-seal-' + k.fp, fp: k.fp }; }
+function buildCheckpoint() {
+  const { v, lines } = readVerifiedLedger();
+  if (!v.ok) return { ok: false, reason: 'ledger_not_intact', brokenSeq: v.brokenSeq, detail: v.reason };
+  const keys = tlogKeys();
+  try {
+    const cp = tlog.checkpointFromLeafHashes(tlog.leafHashesFromLines(lines), TLOG_ORIGIN, keys.privatePem, keys.keyName);
+    return { ok: true, note: cp.note, origin: cp.origin, treeSize: cp.treeSize, root: cp.root.toString('base64'), fp: keys.fp };
+  } catch (e) { return { ok: false, reason: 'checkpoint_failed', detail: String(e && e.message) }; }
+}
+function buildInclusion(seq) {
+  const { v, lines } = readVerifiedLedger();
+  if (!v.ok) return { ok: false, reason: 'ledger_not_intact', brokenSeq: v.brokenSeq };
+  const keys = tlogKeys();
+  try { return tlog.buildInclusionBundle(lines, seq, TLOG_ORIGIN, keys); }
+  catch (e) { return { ok: false, reason: 'proof_failed', detail: String(e && e.message) }; }
 }
 // Brain-session orphan reaper. A crash/force-quit/SIGKILL of the daemon leaks the detached `claude` child; a
 // later boot SIGKILLs it so the ledger never accumulates zombies. Records `pid:marker` (the pid's start-time)
@@ -2374,6 +2403,13 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(mintSeal()));
   } else if (req.url === '/seal/verify') {
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(verifyLatestSeal()));
+  } else if (req.url === '/audit/checkpoint') {
+    // GET /audit/checkpoint — a signed C2SP note over the RFC 6962 Merkle root of the ledger. Third-party-verifiable.
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(buildCheckpoint()));
+  } else if (req.url && req.url.startsWith('/audit/prove')) {
+    // GET /audit/prove?seq=N — an inclusion proof for entry N: proves it is in the log without revealing the others.
+    const seq = Number(new URL(req.url, 'http://x').searchParams.get('seq'));
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(buildInclusion(seq)));
   } else if (req.method === 'POST' && req.url === '/job') {
     // enqueue a detached background job (runs concurrently with voice — NOT in the serialized chain).
     const body = await readBody(req);

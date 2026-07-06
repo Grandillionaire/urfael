@@ -904,6 +904,29 @@ function readStdinAdapter(maxBytes) {
     return;
   }
 
+  if (cmd === 'attest' && rest[0] === 'verify') {
+    // OFFLINE third-party verify — no brain needed, so it runs BEFORE ensureDaemon: an auditor with only the proof
+    // file + the git-published seal.pub can confirm inclusion (or a bare checkpoint's signature) on any machine.
+    const tlog = require('./tlog');
+    const file = rest.find((a, i) => i >= 1 && !a.startsWith('--') && rest[i - 1] !== '--pubkey');
+    if (!file) { console.log('usage: urfael attest verify <proof.json|checkpoint.txt> [--pubkey <seal.pub>]'); return; }
+    let raw = ''; try { raw = fs.readFileSync(file, 'utf8'); } catch { console.error(bad('✗') + ' cannot read ' + file); process.exit(1); }
+    const pubPath = flag(rest, '--pubkey') || path.join(MEMORY_DIR, 'seal.pub');
+    let pub = ''; try { pub = fs.readFileSync(pubPath, 'utf8'); } catch {}
+    let bundle = null; try { bundle = JSON.parse(raw); } catch {}
+    if (bundle && bundle.kind === 'urfael-tlog-inclusion') {
+      if (!pub) { console.log(dim('  no published seal.pub at ' + pubPath + ' — trusting the key embedded in the proof (pass --pubkey for an independent check)')); pub = bundle.publicKey; }
+      const v = tlog.verifyInclusionBundle(bundle, pub);
+      if (v.ok) console.log(gold('✓ inclusion verified') + dim('  · entry ' + bundle.leafIndex + ' is present in the log of ' + v.treeSize + ' entries (origin ' + v.origin + '); the checkpoint signature and the RFC 6962 Merkle path both check out'));
+      else console.log(bad('✗ inclusion NOT verified') + dim('  · ' + v.reason + '  (signature ' + v.sigOk + ' · leaf ' + v.leafOk + ' · root ' + v.rootOk + ')'));
+      process.exit(v.ok ? 0 : 1);
+    }
+    const cv = tlog.verifyCheckpoint(raw, pub); // a bare signed-note checkpoint
+    if (cv.ok) console.log(gold('✓ checkpoint signature verified') + dim('  · origin ' + cv.origin + ' · tree size ' + cv.treeSize));
+    else console.log(bad('✗ checkpoint NOT verified') + dim('  · ' + cv.reason + (pub ? '' : ' (no seal.pub found; pass --pubkey)')));
+    process.exit(cv.ok ? 0 : 1);
+  }
+
   if (!(await ensureDaemon())) { console.error(bad('✗') + ' I could not wake the brain, sir.' + dim('   run  ') + gold('urfael doctor') + dim('  to see why, or check  ~/.claude/urfael/daemon.log')); process.exit(1); }
   // Register this terminal so other Urfael sessions can see it, then heartbeat on an unref'd interval, and disconnect on exit.
   // Fire-and-forget over the existing 0600 socket; every call swallows its error so presence can never break a command.
@@ -1340,10 +1363,35 @@ function readStdinAdapter(maxBytes) {
     return;
   }
   if (cmd === 'attest') {
-    // Attestation Report: bundle the independently-verifiable facts (ledger hash-chain, ed25519 seal, posture in
-    // force) into one human + JSON artifact a reviewer/auditor/client can keep, anchored by the seal. The wording is
-    // scoped honestly in attest.js: it proves integrity + authorship + posture, NOT the truth of any recorded claim
-    // and NOT an absolute no-egress guarantee.
+    const sub = rest[0];
+    if (sub === 'checkpoint') {
+      // publish a signed C2SP checkpoint over the ledger's RFC 6962 Merkle root — third-party-verifiable.
+      const cp = await req('GET', '/audit/checkpoint').catch(() => null);
+      if (!cp || !cp.ok) { console.error(bad('✗') + ' could not build a checkpoint' + dim(cp && cp.reason ? ' (' + cp.reason + (cp.brokenSeq != null ? ' at seq ' + cp.brokenSeq : '') + ')' : '')); process.exit(1); }
+      const out = flag(rest, '--out');
+      if (out) { try { fs.writeFileSync(out, cp.note); console.log(gold('✓ checkpoint written to ' + out)); } catch (e) { console.error('✗ ' + (e && e.message)); } }
+      process.stdout.write(cp.note);
+      console.log(dim('  origin ' + cp.origin + ' · tree size ' + cp.treeSize + ' · signer key ' + cp.fp));
+      console.log(dim('  a third party verifies it against the published key  ') + gold('~/Urfael-memory/seal.pub') + dim('  with  ') + gold('urfael attest verify'));
+      return;
+    }
+    if (sub === 'prove') {
+      // inclusion proof for one entry: proves it is in the log, in order, WITHOUT revealing the other entries.
+      const seq = Number(rest[1]);
+      if (!Number.isInteger(seq) || seq < 0) { console.log('usage: urfael attest prove <seq>   (the entry seq shown by `urfael audit`)'); return; }
+      const pr = await req('GET', '/audit/prove?seq=' + seq).catch(() => null);
+      if (!pr || !pr.ok) { console.error(bad('✗') + ' no inclusion proof for seq ' + seq + dim(pr && pr.reason ? ' (' + pr.reason + ')' : '')); process.exit(1); }
+      const json = JSON.stringify(pr, null, 2);
+      const out = flag(rest, '--out');
+      if (out) { try { fs.writeFileSync(out, json); console.log(gold('✓ inclusion proof written to ' + out)); } catch (e) { console.error('✗ ' + (e && e.message)); } }
+      else console.log(json);
+      console.log(dim('  verify it on any machine:  ') + gold('urfael attest verify ' + (out || '<proof.json>')));
+      return;
+    }
+    // Attestation Report: bundle the independently-verifiable facts (ledger hash-chain, ed25519 seal, the signed
+    // transparency-log checkpoint, and posture in force) into one human + JSON artifact a reviewer/auditor/client can
+    // keep, anchored by the seal. The wording is scoped honestly in attest.js: it proves integrity + authorship +
+    // posture, NOT the truth of any recorded claim and NOT an absolute no-egress guarantee.
     const at = require('./attest');
     const lv = await req('GET', '/audit/verify').catch(() => null);
     const sv = await req('GET', '/seal/verify').catch(() => null);
@@ -1355,7 +1403,10 @@ function readStdinAdapter(maxBytes) {
     const fortressStat = (() => { try { return fs.statSync(SOCK); } catch { return null; } })();
     const fortressHealth = await req('GET', '/health').catch(() => null);
     const posture = { noInboundPort: require('./fortress').auditFortress({ stat: fortressStat, health: fortressHealth }).noInboundPort, untrustedProfile: 'read-only, no shell, no write, no egress, credential-deny', mode: process.env.URFAEL_YOLO === '1' ? 'Full' : 'Fortress' };
-    const report = at.buildReport({ subject: os.hostname() + ' (Urfael)', ledger, seal, posture }, new Date().toISOString());
+    // fold in the signed transparency-log checkpoint so the bundle carries a third-party-verifiable Merkle root.
+    const cpr = await req('GET', '/audit/checkpoint').catch(() => null);
+    const checkpoint = (cpr && cpr.ok) ? { origin: cpr.origin, treeSize: cpr.treeSize, root: cpr.root, fp: cpr.fp, note: cpr.note } : null;
+    const report = at.buildReport({ subject: os.hostname() + ' (Urfael)', ledger, seal, posture, checkpoint }, new Date().toISOString());
     const v = at.verdict(report);
     const bundle = JSON.stringify({ verdict: v, id: at.fingerprint(report), ...report }, null, 2);
     const out = flag(rest, '--out');
@@ -1369,6 +1420,7 @@ function readStdinAdapter(maxBytes) {
     console.log(dim(lines.slice(1).join('\n')));
     if (out) { try { fs.writeFileSync(out, bundle); console.log(dim('\n  bundle written to ' + out + ' (anchored by the Sovereign Seal)')); } catch (e) { console.error('✗ ' + (e && e.message)); } }
     console.log(dim('\n  machine-readable:  ') + gold('urfael attest --json --out attestation.json') + dim('   ·   re-verify the anchor:  ') + gold('urfael seal --verify'));
+    console.log(dim('  third-party proof:  ') + gold('urfael attest checkpoint') + dim(' (signed root)  ·  ') + gold('urfael attest prove <seq>') + dim(' (inclusion)  ·  ') + gold('urfael attest verify <proof>'));
     return;
   }
   if (cmd === 'forget') {
