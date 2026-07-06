@@ -35,3 +35,4 @@ vault-template/**/03_Resources/visuals/*.html
 *.swp
 .idea/
 .vscode/
+.claude/worktrees/

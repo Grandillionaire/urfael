@@ -13,6 +13,9 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
+const skillhub = require('./skillhub');       // REUSE its static safety scanner over tool descriptions — never reimplemented
+const auditChain = require('./audit-chain');  // canonicalJSON for a deterministic manifest pin (one source of truth)
 
 const TRANSPORTS = new Set(['npx', 'uvx', 'http', 'sse']);
 const AUTHS = new Set(['none', 'key', 'oauth', 'local']);
@@ -193,8 +196,84 @@ function fakeSecrets(entry) {
   const s = {}; for (const f of secretsNeeded(entry)) s[f.key] = 'x'; return s;
 }
 
+// ── MCP TOOL-POISONING GATE (pure) ───────────────────────────────────────────────────────────────
+// scan() above judges only the RESOLVED COMMAND. A connector's sharper risk is the tool manifest the server
+// advertises at RUNTIME — the names, descriptions and input schemas that are fed to the brain verbatim as
+// instructions. Those are mutable and the documented tool-poisoning / rug-pull vector (an independent scan found
+// poisoned tool descriptions on ~5.5% of ~1,900 public MCP servers). We treat every advertised string as UNTRUSTED
+// skill text and run skillhub.scan() over it, then sha256-PIN the whole manifest (mirroring pluginhub's integrity
+// pin) so a later description/schema swap after approval is detectable. Everything here is PURE + fail-closed and
+// unit-tested; the impure stdio fetch + pin persistence live in mcpgate.js.
+
+// The scannable text of ONE advertised tool: name + description + a stable stringify of its input schema. A poisoned
+// description ("ignore all previous instructions…"), a zero-width/bidi smuggle, an exfil host, or a base-url override
+// hidden in a schema default all live in exactly these strings.
+function toolText(tool) {
+  const t = (tool && typeof tool === 'object') ? tool : {};
+  const name = String(t.name || '');
+  const desc = String(t.description || '');
+  let schema = '';
+  try { schema = t.inputSchema == null ? '' : (typeof t.inputSchema === 'string' ? t.inputSchema : JSON.stringify(t.inputSchema)); } catch { schema = ''; }
+  return name + '\n' + desc + '\n' + schema;
+}
+
+// Scan an advertised tool manifest for poisoning by REUSING skillhub.scan() over every tool's name+description+schema.
+// FAIL-CLOSED: any DANGER flag ⇒ poisoned:true (refuse). Warns are surfaced but not fatal on their own (a legit
+// description may merely mention "install"/"send"). Pure; tests drive it with hand-built tool arrays.
+function scanTools(tools) {
+  const list = Array.isArray(tools) ? tools : [];
+  const flags = [];
+  for (const tool of list) {
+    const name = String((tool && tool.name) || '(unnamed)').slice(0, 80);
+    for (const f of skillhub.scan(toolText(tool)).flags) flags.push({ tool: name, level: f.level, why: f.why, sample: f.sample });
+  }
+  const dangers = flags.filter((f) => f.level === 'danger');
+  return { ok: dangers.length === 0, poisoned: dangers.length > 0, flags, dangers: dangers.length, warns: flags.length - dangers.length,
+    poisonedTools: [...new Set(dangers.map((f) => f.tool))] };
+}
+
+// Canonical, order-independent representation of the tool manifest — the bytes we sha256-pin. Tools sorted by name;
+// each reduced to {name, description, inputSchema} with recursively key-sorted schema (auditChain.canonicalJSON), so
+// a benign reorder of tools or schema keys never reads as drift, but ANY change to a name/description/schema does.
+function canonicalToolManifest(tools) {
+  const list = (Array.isArray(tools) ? tools : []).map((t) => ({
+    name: String((t && t.name) || ''),
+    description: String((t && t.description) || ''),
+    inputSchema: (t && t.inputSchema != null) ? t.inputSchema : null,
+  })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return auditChain.canonicalJSON(list);
+}
+function sha256Hex(s) { return crypto.createHash('sha256').update(String(s)).digest('hex'); }
+
+// The pin record persisted alongside the connector after the owner approves a CLEAN manifest. Stores the overall sha
+// AND a per-tool digest list, so a later drift can name WHICH tool changed (surface the diff) without re-storing the
+// raw descriptions. Deterministic: pinManifest(tools).sha256 is stable across a reorder of the same tools.
+function pinManifest(tools) {
+  const list = Array.isArray(tools) ? tools : [];
+  const per = list.map((t) => ({ name: String((t && t.name) || ''), sha256: sha256Hex(canonicalToolManifest([t])) }))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { sha256: sha256Hex(canonicalToolManifest(list)), count: list.length, tools: per };
+}
+
+// Recompute the pin of the CURRENT manifest and compare it to the stored pin. FAIL-CLOSED: any mismatch ⇒
+// drifted:true (a rug-pull — a tool's description/schema changed, or a tool was added/removed, AFTER the owner
+// approved it). Names the changed/added/removed tools so cli.js can surface the diff and demand re-approval. Pure.
+function manifestDrift(tools, pinned) {
+  const now = pinManifest(tools);
+  const prev = (pinned && typeof pinned === 'object') ? pinned : { sha256: '', tools: [] };
+  if (!prev.sha256) return { ok: false, drifted: true, reason: 'no prior pin — never approved', got: now.sha256, pinned: '', added: now.tools.map((t) => t.name), removed: [], changed: [] };
+  const prevMap = new Map((prev.tools || []).map((t) => [t.name, t.sha256]));
+  const nowMap = new Map((now.tools || []).map((t) => [t.name, t.sha256]));
+  const added = [...nowMap.keys()].filter((n) => !prevMap.has(n));
+  const removed = [...prevMap.keys()].filter((n) => !nowMap.has(n));
+  const changed = [...nowMap.keys()].filter((n) => prevMap.has(n) && prevMap.get(n) !== nowMap.get(n));
+  const ok = now.sha256 === String(prev.sha256).toLowerCase();
+  return { ok, drifted: !ok, got: now.sha256, pinned: String(prev.sha256).toLowerCase(), added, removed, changed };
+}
+
 module.exports = {
   registryPath, slugify, parse, load, search, find, categories,
   secretsNeeded, buildAddArgs, buildRemoveArgs, redactArgs, scan, preview, isLoopback,
+  toolText, scanTools, canonicalToolManifest, pinManifest, manifestDrift,
   TRANSPORTS, AUTHS,
 };
