@@ -50,6 +50,7 @@ const memctx = require('./memctx');             // ACTIVE RECALL: per-turn relev
 const calendar = require('./calendar');         // LOCAL-FIRST calendar event store (MEMORY_DIR/calendar.json; pure helpers + fail-soft I/O)
 const schedchan = require('./schedule-channel'); // the dedicated Reminders & Calendar channel: parse+validate+assemble (pure; the gate is the daemon's)
 const consolidate = require('./consolidate');   // masterful compaction: dedupe + evidence-retire the ledger, right-size recall
+const reflect = require('./reflect');           // SLEEP-TIME REFLECTION: idle-cadence, offline consolidation of the day into an inspectable vault note (notify-not-act)
 const engine = require('./engine');             // NATIVE ENGINE: in-process agentic loop for API-key/local (Ollama) providers — the "run on its own" path, additive to the CLI engine
 const defaultBrain = require('./engine/default-brain');   // NATIVE DEFAULT BRAIN: pure decision + shape-mapper for the opt-in "run the local turn on a pinned native provider" path
 const jobstore = require('./jobstore');
@@ -1850,6 +1851,58 @@ function curate() {
   p.unref();
 }
 
+// ---- SLEEP-TIME REFLECTION (opt-in via URFAEL_REFLECT=1; OFF by default — conservative, never nags) ----------
+// While the owner is idle, on a daily/accumulated-activity cadence (NOT every tick), run an OFFLINE, DETERMINISTIC,
+// NO-LLM pass that: (1) re-consolidates the evidence ledger with the SAME machinery the curator uses (reflect.js
+// wraps learn.consolidate + consolidate.dedupeLessons/selectRetirable); (2) mines the day's session archive for
+// higher-level patterns (recurring deferrals + themes); (3) writes a dated, inspectable, REVERSIBLE vault note
+// (`Daily Reflection YYYY-MM-DD.md`, [[wikilinks]]) — it only ever creates/append its OWN note, never mutates any
+// other; (4) QUEUES any proactive nudge to a review inbox (notify/accept/edit/ignore) and NEVER acts on it; (5)
+// pre-warms the recall index. Fail-CLOSED: the whole body is wrapped so a bad ledger/day can never throw into the
+// heartbeat — it logs `reflect_error` and skips. A single quiet "reflection ready" notice is itself opt-in
+// (URFAEL_REFLECT_NOTIFY=1), default silent, so the note simply waits for the owner to look — no over-reliance.
+const REFLECT_ON = process.env.URFAEL_REFLECT === '1';
+const REFLECT_NOTIFY = process.env.URFAEL_REFLECT_NOTIFY === '1';
+const REFLECT_STATE_FILE = path.join(JDIR, 'reflect.json');            // { lastReflectAt } — private daemon state
+const REFLECT_INBOX_FILE = path.join(MEMORY_DIR, 'reflections-inbox.json'); // the notify-not-act queue (git-tracked, inspectable)
+let reflecting = false;
+function reflectPass() {
+  if (!REFLECT_ON || reflecting) return;
+  try {
+    const now = Date.now();
+    if (!hoursOk()) return;                                            // stay quiet outside active hours
+    if (now - lastLocalTurn < 10 * 60000) return;                      // owner active recently — reflect only while idle
+    if (distilling || reviewing || curating || verifying || modelingUser) return; // shared memory repo: one pass at a time
+    const s = sessions.get(providerSessions.sessionKey(MODELS.sonnet, ''));
+    if (s && (s.current || s.queue.length)) return;                    // warm session busy — try next tick
+    const state = reflect.loadState(REFLECT_STATE_FILE);
+    const windowEntries = reflect.turnsSince(loadSessions(), Number(state.lastReflectAt) || 0, now); // archived entries since the last reflection
+    const decision = reflect.shouldReflect(state, windowEntries.length, now);
+    if (!decision.fire) return;                                        // cadence/threshold gate — NOT every idle tick
+    reflecting = true;
+    // 1) re-consolidate the ledger (reuse the trust machinery; persist only if something changed)
+    const cons = reflect.consolidatePass(learn.load(MEMORY_DIR), now);
+    if (cons.changed) learn.save(MEMORY_DIR, cons.items);
+    // 2) synthesize higher-level reflections (pure, deterministic)
+    const syn = reflect.synthesize(windowEntries, cons, now, {});
+    // 3) NOTIFY-NOT-ACT: queue every nudge for owner review — nothing is acted on
+    let inbox = reflect.loadInbox(REFLECT_INBOX_FILE);
+    for (const n of syn.nudges) inbox = reflect.queueNudge(inbox, n);
+    if (syn.nudges.length) reflect.saveInbox(REFLECT_INBOX_FILE, inbox);
+    // 4) write the dated vault note (creates/append its OWN note only — never mutates existing notes)
+    const date = new Date(now).toISOString().slice(0, 10);
+    const note = reflect.buildNote({ date, now, synthesis: syn, prevDate: reflect.prevReflectionDate(VAULT, date) });
+    const w = reflect.writeNote(VAULT, date, note, { now });
+    // 5) pre-warm the recall index off the same idle beat
+    try { refreshRecallIndex(); persistRecallIndex(); } catch {}
+    // 6) persist state + log honestly (telemetry only — NOT chained; this pass mutates only its own note + the ledger it owns)
+    reflect.saveState(REFLECT_STATE_FILE, { lastReflectAt: now });
+    logEvent({ ev: 'reflect', reason: decision.reason, turns: windowEntries.length, merged: cons.merged, retired: cons.retired, nudges: syn.nudges.length, note: w.ok ? reflect.noteFilename(date) : '', created: !!w.created });
+    if (REFLECT_NOTIFY && reflect.pendingNudges(inbox).length) notifyOwner('Daily reflection ready, sir — ' + reflect.pendingNudges(inbox).length + ' note(s) queued for your review.', { speak: false });
+  } catch (e) { try { logEvent({ ev: 'reflect_error', err: String((e && e.message) || e) }); } catch {} }
+  finally { reflecting = false; }
+}
+
 // --- HTTP API over a Unix socket (serialized: one /ask at a time so the event stream can't cross turns)
 function readBody(req) { // capped to MAX_BODY so an oversized body can't exhaust memory
   return new Promise((resolve) => {
@@ -2723,7 +2776,7 @@ function listen() {
   } catch {}
   server.listen(SOCK, () => {
     try { fs.chmodSync(SOCK, 0o600); } catch {} // 0600: only the owner can POST to the brain
-    logEvent({ ev: 'daemon_start', heartbeatMins: HB_MINS || 0, review: REVIEW_ON ? REVIEW_EVERY : 0, curatorDays: CURATOR_DAYS, usermodel: MODEL_USER_ON ? MODEL_USER_EVERY : 0 });
+    logEvent({ ev: 'daemon_start', heartbeatMins: HB_MINS || 0, review: REVIEW_ON ? REVIEW_EVERY : 0, curatorDays: CURATOR_DAYS, usermodel: MODEL_USER_ON ? MODEL_USER_EVERY : 0, reflect: REFLECT_ON ? 1 : 0 });
     loadEnabledPlugins();   // re-arm enabled (brain-tools-tier) plugins before the warm session spawns, so --mcp-config is set
     brain.warmUp();
     scheduler.start(deliverReminder);
@@ -2742,6 +2795,7 @@ function listen() {
     } catch {}
     if (HB_MINS) { lastBeat = Date.now(); const t = setInterval(heartbeat, 60000); if (t.unref) t.unref(); } // first beat ~HB_MINS after boot
     if (CURATOR_DAYS) { const t = setInterval(curate, 30 * 60000); if (t.unref) t.unref(); } // every 30min the curator re-checks its N-day cadence + busy state
+    if (REFLECT_ON) { const t = setInterval(reflectPass, 30 * 60000); if (t.unref) t.unref(); } // idle-time reflection; reflectPass() self-gates on cadence/threshold + idle + busy (never fires every tick)
     // recall index: build/catch-up off the hot path (a first build over a huge archive shouldn't block serving),
     // then persist dirty state every 60s so a restart loads it instead of re-tokenizing the whole archive.
     setTimeout(() => { try { refreshRecallIndex(); persistRecallIndex(); } catch {} }, 1500);
