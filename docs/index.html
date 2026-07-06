@@ -44,7 +44,7 @@
       "url":"https://urfael.com/","downloadUrl":"https://github.com/Grandillionaire/urfael","license":"https://opensource.org/licenses/MIT",
       "image":"https://urfael.com/media/og.png",
       "description":"A personal, voice-capable AI you run on your own machine. Security-first, on the flat-rate Claude subscription you already pay for. No inbound port; it resists the attacks that compromised other self-hosted agents (11/11 attack classes, 119/119 checks). A more secure, honest alternative to OpenClaw and Hermes Agent.",
-      "featureList":["No inbound network port (unix-socket only)","Runs on a flat-rate Claude subscription, no per-token meter","Local voice in and out (whisper.cpp + local TTS)","Tamper-evident Ledger of Record with an ed25519 seal","Nineteen hardened chat channels with a fail-closed allowlist","Multi-agent Council","Runnable security benchmark (npm run security)","urfael code: Claude Code in your repo with checkpoint and rewind"],
+      "featureList":["No inbound network port (unix-socket only)","Runs on a flat-rate Claude subscription, no per-token meter","Local voice in and out (whisper.cpp + local TTS)","Tamper-evident Ledger of Record with an ed25519 seal","Nineteen hardened chat channels with a fail-closed allowlist","Multi-agent Council","Runnable security benchmark (npm run security)","urfael code: Claude Code in your repo with checkpoint and rewind","urfael scan: a read-only, verified security audit of any repo"],
       "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},
       "publisher":{"@id":"https://urfael.com/#org"}
     },
@@ -272,7 +272,7 @@
   <a class="nmark" href="#top" aria-label="Urfael">ᚢ</a>
   <div class="nlinks">
     <a href="#proof">Proof</a><a href="#council">Council</a><a href="#cockpit">Cockpit</a>
-    <a href="#coding">Coding</a><a href="#personas">Personas</a><a href="#trust">Trust</a><a href="#wheel">Connects</a>
+    <a href="#coding">Coding</a><a href="#scan">Scan</a><a href="#personas">Personas</a><a href="#trust">Trust</a><a href="#wheel">Connects</a>
     <a href="#compare">Honesty</a><a href="#editions">Editions</a><a href="#install">Install</a><a href="manual/">Manual</a>
   </div>
   <span class="nseal" id="navSeal">ᚢ 11/11</span>
@@ -390,6 +390,24 @@ This restores your tracked files to that snapshot. The current state is checkpoi
     </div>
     <p class="cap">faithful re-creation of real urfael output</p>
     <p class="gnote"><b>Per-repo memory</b> (a <span class="mono">CONVENTIONS.md</span> and <span class="mono">HISTORY.md</span> keyed to the git remote, loaded every turn) keeps your conventions across sessions. <b>Auto-checkpoint</b> snapshots your tracked and untracked files to a private git shadow ref before the brain runs, gitignored files like <span class="mono">.env</span> stay out, and your branch and index are never touched. <b>Rewind</b> restores them, checkpoints the current state first so the undo is itself undoable, and keeps anything you made since. The bare CLI has none of this.</p>
+  </section>
+
+  <section id="scan">
+    <h2>It audits code, its own and yours</h2>
+    <p class="lede"><span class="mono">urfael scan</span> runs a read-only security audit of any repo. A sandboxed agent (read and grep only: no write, no shell, no network) sweeps the source, then an independent skeptic re-checks every finding and drops the false positives, so you get verified issues, not a wall of noise.</p>
+    <div class="term codeterm">
+      <div class="term-bar"><i></i><i></i><i></i><span>urfael scan</span></div>
+      <div class="term-body"><span class="g">$ urfael scan ~/work/app --report audit.md</span>
+<span class="g">●</span> urfael scan  app  <span class="b">·</span>  read-only, verified
+  3 candidate(s); verifying each…
+  verify 1/3  SSRF via unvalidated Host header
+  verify 2/3  open redirect in the login next param
+  verify 3/3  missing rate limit on the public form
+  <span class="ok">2 verified · 1 refuted · 0 unverified</span>
+  <span class="ok">✓ report written: audit.md</span></div>
+    </div>
+    <p class="cap">faithful re-creation of real urfael output</p>
+    <p class="gnote"><b>The verifier is the point.</b> The AI finds fast; a second, independent skeptic re-checks every candidate and throws out the false ones, so the report carries verified findings, a "checked and cleared" list, and a scope-and-limits note, never a claim that it found everything. <b>The repo is untrusted input:</b> the read-only floor holds even if the code it reads tries to hijack the auditor.</p>
   </section>
 
   <section id="personas">
