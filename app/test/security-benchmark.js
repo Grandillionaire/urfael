@@ -61,6 +61,7 @@ async function main() {
   const imp = require(path.join(APP, 'import.js'));
   const auditChain = require(path.join(APP, 'audit-chain.js'));
   const sealMod = require(path.join(APP, 'seal.js'));
+  const tlogMod = require(path.join(APP, 'tlog.js'));
 
   // ── 1. NETWORK EXPOSURE ───────────────────────────────────────────────────
   attackClass('Network exposure — the agent listens where attackers can reach it',
@@ -162,6 +163,35 @@ async function main() {
     return sealMod.verify(kp.publicPem, msg, sig) === true && sealMod.verify(forged.publicPem, msg, sig) === false && sealMod.verify(kp.publicPem, msg + 'x', sig) === false
       && /fs\.writeFileSync\(SEAL_KEY, [^)]*\{ mode: 0o600 \}/.test(dsrc);
   })(), 'ed25519 attestation; private key 0600 + credential-denied from the brain');
+  // TRANSPARENCY LOG: the ledger's private hash-chain, republished as an RFC 6962 Merkle tree under a C2SP signed-note
+  // checkpoint (the Rekor v2 / tlog-tiles pattern), so a THIRD PARTY verifies "these N actions happened, in order,
+  // none deleted" WITHOUT seeing the contents — and a deleted or rewritten entry is PROVABLY detected against the
+  // signed root. This is the flagship upgrade over the private, owner-only chain-rewalk that OpenClaw/Hermes can't match.
+  check('a deleted or rewritten ledger entry is provably detected by an inclusion/consistency proof against the signed transparency-log checkpoint', (() => {
+    const kp = sealMod.generateKeypair();
+    const keys = { privatePem: kp.privatePem, publicPem: kp.publicPem, keyName: 'urfael-seal-' + sealMod.fingerprint(kp.publicPem) };
+    let prevH = auditChain.GENESIS; const lines = [];   // an 8-entry ledger written exactly like the daemon does
+    for (let i = 0; i < 8; i++) { const e = auditChain.makeEntry({ seq: i, t: 't' + i, kind: 'turn', payload: { i } }, prevH); lines.push(JSON.stringify(e)); prevH = e.h; }
+    const leaves = tlogMod.leafHashesFromLines(lines);
+    const cp = tlogMod.checkpointFromLeafHashes(leaves, 'urfael-ledger', keys.privatePem, keys.keyName);
+    // (1) the signed checkpoint verifies under the owner key; a DIFFERENT signer can NOT forge it
+    const sigOk = tlogMod.verifyCheckpoint(cp.note, keys.publicPem).ok === true && tlogMod.verifyCheckpoint(cp.note, sealMod.generateKeypair().publicPem).ok === false;
+    // (2) an inclusion proof for EVERY entry reproduces the signed root (the self-contained bundle verifies offline)
+    let inclusionOk = true;
+    for (let m = 0; m < leaves.length; m++) if (!tlogMod.verifyInclusionBundle(tlogMod.buildInclusionBundle(lines, m, 'urfael-ledger', keys), keys.publicPem).ok) inclusionOk = false;
+    // (3) append-only: a consistency proof between an older (size 5) and the current (size 8) tree holds
+    const older = tlogMod.rootFromLeafHashes(leaves.slice(0, 5));
+    const consistOk = tlogMod.verifyConsistency(5, 8, tlogMod.consistencyProof(leaves, 5), older, cp.root) === true;
+    // (4) TAMPER — a REWRITTEN entry can NOT reproduce the signed root, even if the forger also fixes its leaf hash
+    const rw = tlogMod.buildInclusionBundle(lines, 3, 'urfael-ledger', keys);
+    rw.entry = { ...rw.entry, payloadDigest: 'deadbeef' + String(rw.entry.payloadDigest).slice(8) };
+    rw.leafHash = tlogMod.entryLeafHash(rw.entry).toString('base64');
+    const rewriteDetected = tlogMod.verifyInclusionBundle(rw, keys.publicPem).ok === false;
+    // (5) TAMPER — a DELETED prefix entry breaks the consistency proof (append-only violation is detectable)
+    const del = leaves.slice(); del.splice(1, 1);
+    const deleteDetected = tlogMod.verifyConsistency(5, del.length, tlogMod.consistencyProof(del, 5), older, tlogMod.rootFromLeafHashes(del)) === false;
+    return sigOk && inclusionOk && consistOk && rewriteDetected && deleteDetected;
+  })(), 'RFC 6962 Merkle tree + C2SP signed-note checkpoint (reuses the seal key + audit-chain entries); inclusion proves one action is logged without revealing the rest, consistency proves append-only, and a rewritten/deleted entry can not reproduce the signed root');
   // VERIFIED MULTI-PROVIDER: safety is enforced by the HARNESS, not the model. A remote turn's no-egress
   // read-only profile is identical whether the brain is Claude or a 3rd-party/local model behind a proxy —
   // configuring a provider can't relax the sandbox, so the guarantees hold whatever model answers.

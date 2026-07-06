@@ -46,6 +46,23 @@ test('render states what it proves AND what it does not, and never overclaims', 
   }
 });
 
+test('render folds in the signed transparency-log checkpoint when present, and stays honestly scoped', () => {
+  const r = at.buildReport({ subject: 'host (Urfael)', ledger: { verified: true, count: 5, through: 4, head: 'deadbeefcafef00d' },
+    seal: { present: true, valid: true, fp: 'k9', seq: 4, headStillInChain: true },
+    checkpoint: { origin: 'urfael-ledger', treeSize: 5, root: 'YWJjZGVmZ2hpamtsbW5vcA==', fp: '00112233aabbccdd' },
+    posture: { noInboundPort: true, mode: 'Fortress' } }, '2026-07-06T10:00:00Z');
+  assert.equal(r.checkpoint.treeSize, 5);
+  const txt = at.render(r);
+  assert.match(txt, /Transparency Log/);
+  assert.match(txt, /signed checkpoint: 5 entries/);
+  assert.match(txt, /RFC 6962 root/);
+  for (const banned of [/\bimpossible\b/i, /guarantee that nothing/i, /can never leave/i, /cannot be hacked/i, /100% secure/i, /unhackable/i]) {
+    assert.ok(!banned.test(txt), 'attestation must not overclaim: matched ' + banned);
+  }
+  // absent a checkpoint (daemon down), it says so rather than implying one exists
+  assert.match(at.render(at.buildReport({ ledger: { verified: true } }, '2026-07-06T10:00:00Z')), /Transparency Log[\s\S]*none \(start the brain/);
+});
+
 test('render does not claim the chain re-check passed when it could not run', () => {
   const r = at.buildReport({ ledger: { verified: true }, seal: { present: true, valid: true, fp: 'k', seq: 1, headStillInChain: null } }, '2026-06-22T10:00:00Z');
   const txt = at.render(r);
