@@ -19,9 +19,9 @@ It listens and speaks locally, sandboxes every autonomous action fail-closed, al
 
 <br/>
 
-<img src="docs/media/demo.gif" width="820" alt="Urfael resisting the attack classes that compromised other agents: npm run security boots the real daemon and prints 11/11 attack classes, 117/117 checks passed" />
+<img src="docs/media/demo.gif" width="820" alt="Urfael resisting the attack classes that compromised other agents: npm run security boots the real daemon and prints 11/11 attack classes, 118/118 checks passed" />
 
-<sub><code>npm run security</code> boots the real daemon and runs the actual attack classes that owned other agents in the wild. It lands on 11/11 classes, 117/117 checks. The proof is a command you run, not a claim you read.</sub>
+<sub><code>npm run security</code> boots the real daemon and runs the actual attack classes that owned other agents in the wild. It lands on 11/11 classes, 118/118 checks. The proof is a command you run, not a claim you read.</sub>
 
 <br/><br/>
 
@@ -108,7 +108,7 @@ The brain is a local daemon reachable only through a `0600` unix socket, and **i
 - **Fail-closed everything.** An unknown channel resolves to the most-restricted profile, not the least. A malformed request is rejected, not guessed.
 - **Sandboxed autonomy.** The `/goal` loop runs on the host, in a throwaway `--network none` Docker container (only the `claude` auth files are staged in, never your `bridge.env`/API keys), or on a remote box over SSH.
 
-**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (a one-click token-leak RCE in a widely used agent, exposed gateways in the tens of thousands, a poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **11/11 attack classes resisted, 117/117 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md); multi-user is in [Team mode](docs/TEAM-MODE.md).
+**Proof, not adjectives.** `npm run security` boots the real daemon + dashboard and attacks them the way self-hosted agents were attacked in the wild in 2026 (a one-click token-leak RCE in a widely used agent, exposed gateways in the tens of thousands, a poisoned skill registry, prompt-injection key exfil, DoS). Latest run: **11/11 attack classes resisted, 118/118 checks**. See the [Security Benchmark](docs/SECURITY-BENCHMARK.md) and the formal [Threat Model](docs/THREAT-MODEL.md). The roadmap is in the [Improvement Plan](docs/IMPROVEMENT-PLAN.md); multi-user is in [Team mode](docs/TEAM-MODE.md).
 
 > [!WARNING]
 > Full capability (`URFAEL_YOLO=1`) gives the agent an unrestricted shell that also reads untrusted email and web. Run that mode **only** in a VM, container, or throwaway account.
@@ -275,7 +275,7 @@ It runs on a flat-rate subscription, so there's nothing to meter, but you can st
 
 Honesty is a feature here, so this section exists. As of now:
 
-- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, the 8 core chat bridges degrading cleanly, and the skill-hub SSRF refusal + scanner, plus 1014 unit tests, several of them adversarial security regressions.
+- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, the 8 core chat bridges degrading cleanly, and the skill-hub SSRF refusal + scanner, plus 1040 unit tests, several of them adversarial security regressions.
 - **Code-complete, not yet certified against live accounts:** the Matrix, Signal, and WhatsApp bridges, the QQ, SimpleX, and PSTN phone bridges, and the eight native webhook channels (Mattermost, Google Chat, SMS, DingTalk, Home Assistant, BlueBubbles, Feishu, WeCom). Their parsing, signature verification, and fail-closed allowlist logic *is* unit-tested and frozen as benchmark checks; the live relay is not yet battle-hardened. The certified core, exercised against real accounts, is Telegram, Discord, Slack, iMessage, and Email. Treat them accordingly.
 - **Linux is newer than macOS.** The headless core, voice, and GUI run there, but it has far less mileage.
 - **Real-world scale is small.** This is a personal tool, honestly stated, not a 100k-deployment veteran. That's the one thing only time and users add.
