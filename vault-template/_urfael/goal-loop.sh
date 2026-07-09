@@ -32,11 +32,18 @@ GOAL=""; REPO=""; MAX_ITERS=15; MAX_MINS=120; TURN_TIMEOUT=900; CHECK=""; MODEL=
 SANDBOX="${URFAEL_SANDBOX:-}"   # ''=host (default), 'docker'=isolated no-net, 'docker-net'=isolated w/ network, 'ssh'=remote host
 SSH_HOST="${URFAEL_SSH_HOST:-}"   # user@host for --sandbox ssh
 SSH_DIR="${URFAEL_SSH_DIR:-}"     # optional remote repo dir (cd here before each remote turn)
-usage(){ echo 'Usage: goal-loop.sh "<goal>" [--repo DIR] [--max-iters N] [--max-mins M] [--turn-timeout S] [--check "cmd"] [--model NAME] [--sandbox docker|docker-net|ssh] [--ssh-host user@host] [--ssh-dir REMOTE_REPO_DIR]'; }
+# OPT-IN independent-verifier completion gate (default OFF → the loop below is byte-identical without it). --verify
+# (env URFAEL_GOAL_VERIFY=1) makes a candidate-done adjudicated by a SECOND, FRESH read-only claude that tries to
+# REFUTE completion; it is MANDATORY-paired with --criteria <file> (env URFAEL_GOAL_CRITERIA) — the machine-checkable
+# bar, stated up front — and FAILS CLOSED without it. REFUTATION carries a refuter's reason into the next turn.
+VERIFY=""; [ "${URFAEL_GOAL_VERIFY:-}" = "1" ] && VERIFY=1
+CRITERIA="${URFAEL_GOAL_CRITERIA:-}"; REFUTATION=""
+usage(){ echo 'Usage: goal-loop.sh "<goal>" [--repo DIR] [--max-iters N] [--max-mins M] [--turn-timeout S] [--check "cmd"] [--model NAME] [--sandbox docker|docker-net|ssh] [--ssh-host user@host] [--ssh-dir REMOTE_REPO_DIR] [--verify] [--criteria FILE]'; }
 while [ $# -gt 0 ]; do case "$1" in
   --repo) REPO="$2"; shift 2;; --max-iters) MAX_ITERS="$2"; shift 2;; --max-mins) MAX_MINS="$2"; shift 2;;
   --turn-timeout) TURN_TIMEOUT="$2"; shift 2;; --check) CHECK="$2"; shift 2;; --model) MODEL="$2"; shift 2;;
   --sandbox) SANDBOX="$2"; shift 2;; --ssh-host) SSH_HOST="$2"; shift 2;; --ssh-dir) SSH_DIR="$2"; shift 2;;
+  --verify) VERIFY=1; shift;; --criteria) CRITERIA="$2"; shift 2;;
   -h|--help) usage; exit 0;; *) if [ -z "$GOAL" ]; then GOAL="$1"; else echo "unknown arg: $1"; usage; exit 1; fi; shift;; esac; done
 
 [ -n "$GOAL" ] || { echo "✗ no goal given."; usage; exit 1; }
@@ -44,10 +51,22 @@ while [ $# -gt 0 ]; do case "$1" in
 # worktree/container so a runaway loop can't touch your real work. Bypass mode is opt-in (URFAEL_YOLO=1).
 [ -n "$REPO" ] || { echo "✗ no --repo given. Point this at an ISOLATED git worktree/container, not your live checkout."; usage; exit 1; }
 [ -d "$REPO/.git" ] || { echo "✗ $REPO is not a git repo (need one so you can reset). Aborting."; exit 1; }
+# OPT-IN gate: state the machine-checkable bar UP FRONT. --verify without --criteria is a fail-closed hard error, so
+# the completion bar can never be invented after the work. Everything below is inside `[ -n "$VERIFY" ]`; off = no-op.
+if [ -n "$VERIFY" ]; then
+  [ -n "$CRITERIA" ] || { echo "✗ --verify requires --criteria <file> (env URFAEL_GOAL_CRITERIA): the machine-checkable completion bar must be stated up front. Aborting."; exit 1; }
+  [ -f "$CRITERIA" ] || { echo "✗ --criteria file not found: $CRITERIA. Aborting."; exit 1; }
+  command -v node >/dev/null 2>&1 || { echo "✗ --verify needs node for the independent-verifier gate. Aborting."; exit 1; }
+fi
 command -v claude >/dev/null || { echo "✗ claude not found."; exit 1; }
 TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"   # macOS coreutils installs as gtimeout
 [ -n "$TIMEOUT_BIN" ] || { echo "✗ no 'timeout'/'gtimeout' (brew install coreutils) — needed for the hung-turn watchdog. Aborting."; exit 1; }
 CLAUDE_BIN="$(command -v claude)"; LOG="$REPO/.urfael-goal.log"; : > "$LOG"
+# Where the Urfael app lives (for the path-invoked goal-verify.js + bridge/ledger-log.js helpers, and the bottom
+# phone-notify). Hoisted from the old NOTIFY block so APP is known early; a pure move (same value), used only by
+# the opt-in verify gate + the unchanged final notify.
+REPO_DIR="$(cat "$HOME/.claude/urfael/repo" 2>/dev/null || echo "$HOME/urfael-src")"; APP="$REPO_DIR/app"
+DIFF_SENTINEL="-----URFAEL-DIFF-STAT-----"   # splits the verifier stdin (claim | git diff --stat); matches goal-verify.js
 
 # SANDBOX: validate (whitelist only), and if docker mode require docker present. Each turn runs in a throwaway
 # container with the host repo bind-mounted rw; --network none unless docker-net. We build the prefix once.
@@ -124,8 +143,23 @@ cat <<BANNER
       *) echo "$SANDBOX — claude turns run in docker run --rm (net: ${DOCKER_NET}, mem 2g, pids 512)";; esac)
 ──────────────────────────────────────────────────────
 BANNER
+# One conditional banner line for the opt-in gate (nothing prints when it is off → default banner byte-identical).
+[ -n "$VERIFY" ] && echo "  verify:     ON (experimental) — a candidate-done is adjudicated by a fresh INDEPENDENT read-only refuter against $CRITERIA"
 
 START=$(date +%s); cd "$REPO" || exit 1; prev=""; stale=0; errs=0; sid=""; DONE=""; MARKER="URFAEL-GOAL-DONE"
+
+# Opt-in gate setup + up-front CONTRACT (committed BEFORE iteration 1, so the bar provably can't move afterward). All
+# guarded by `[ -n "$VERIFY" ]`; when off, none of this runs and the loop is byte-identical to before.
+GOAL_ID=""; CRIT_DIGEST=""; VERIFY_UNVERIFIABLE=""
+jsan(){ printf '%s' "$1" | tr -d '"\\' | tr '\t\r\n' '   ' | cut -c1-"${2:-480}"; }   # best-effort JSON-string sanitizer for the LOG record (the criteriaDigest is the exact cryptographic anchor)
+if [ -n "$VERIFY" ]; then
+  GOAL_ID="goal_${START}_$$"
+  CRIT_DIGEST="$(node "$APP/goal-verify.js" digest --criteria "$CRITERIA" 2>>"$LOG")"
+  CAPS_STR="${MAX_ITERS} iters, ${MAX_MINS}m, ${TURN_TIMEOUT}s/turn, stop after ${STALE_LIMIT} stale"
+  # goal_contract → the tamper-evident Ledger of Record via the daemon's single-writer logEvent (best-effort; a no-op
+  # if the socket is unreachable). The daemon owns seq/prevH/hash; this is a LOG RECORD, never the control signal.
+  node "$APP/bridge/ledger-log.js" "{\"ev\":\"goal_contract\",\"goalId\":\"$GOAL_ID\",\"goal\":\"$(jsan "$GOAL" 2000)\",\"criteria\":\"$(jsan "$(cat "$CRITERIA" 2>/dev/null)" 8000)\",\"criteriaDigest\":\"$CRIT_DIGEST\",\"check\":\"$(jsan "$CHECK" 1000)\",\"caps\":\"$(jsan "$CAPS_STR" 256)\"}" >/dev/null 2>&1 || true
+fi
 parse_field(){ printf '%s' "$1" | python3 -c "import sys,json
 try: print(json.load(sys.stdin).get('$2',''))
 except Exception: print('')"; }
@@ -134,14 +168,27 @@ except Exception: print('')"; }
 # multi-word command like "npm test && ./verify.sh" runs intact and the goal text never reaches the remote shell.
 run_check(){ if [ "$SANDBOX" = ssh ]; then printf '%s\n' "$CHECK" | "${SSH_PREFIX[@]}" "cd ${SSH_DIR_Q:-.} && bash -s" >>"$LOG" 2>&1; else bash -c "$CHECK" >>"$LOG" 2>&1; fi; }
 
-# Pre-flight: if a verify command is given and already passes, the goal's done — don't burn a turn.
-if [ -n "$CHECK" ] && run_check; then echo "✅ goal already satisfied (verify passes)."; exit 0; fi
+# Pre-flight: if a verify command is given and already passes, the goal's done — don't burn a turn. Under --verify
+# the `[ -z "$VERIFY" ]` guard SUPPRESSES this early-exit so even a green check is still independently adjudicated
+# (a green check declares only CANDIDATE-done; the refuter, not the check alone, ends the loop). Off → unchanged.
+if [ -z "$VERIFY" ] && [ -n "$CHECK" ] && run_check; then echo "✅ goal already satisfied (verify passes)."; exit 0; fi
 
 for (( i=1; i<=MAX_ITERS; i++ )); do
   now=$(date +%s); (( (now-START)/60 >= MAX_MINS )) && { echo "⏰ wall-clock cap (${MAX_MINS}m) hit. Stopping."; break; }
   echo "── iteration $i/$MAX_ITERS · $(( (now-START)/60 ))m elapsed ──"
   PROMPT="Work toward this goal in this repo: ${GOAL}
 Make concrete, committed progress this turn. When the goal is fully achieved and verified${CHECK:+ (so '$CHECK' passes)}, end your reply with a line containing only: ${MARKER}. If you are blocked or it is unsafe to proceed, explain why and stop."
+  # Opt-in: PREPEND the up-front contract (so the worker always sees the bar) + APPEND any prior refutation reason
+  # as the new instruction. Guarded; when verify is off the PROMPT above is used unchanged (byte-identical).
+  if [ -n "$VERIFY" ]; then
+    CONTRACT_TEXT="$(node "$APP/goal-verify.js" contract --goal "$GOAL" --criteria "$CRITERIA" 2>>"$LOG")"
+    PROMPT="${CONTRACT_TEXT}
+
+${PROMPT}"
+    [ -n "$REFUTATION" ] && PROMPT="${PROMPT}
+
+NOTE: a prior INDEPENDENT read-only review REFUTED completion; unmet: ${REFUTATION}; fix these, do not claim done."
+  fi
   PERM="${URFAEL_YOLO:+bypassPermissions}"; PERM="${PERM:-acceptEdits}"; FLAGS=(--model "$MODEL" --permission-mode "$PERM" --output-format json)
   [ -n "$sid" ] && FLAGS+=(--resume "$sid")     # pin OUR session so a stray claude in this dir can't be hijacked
   # host: run the claude binary directly. docker: same args, but inside a throwaway container (claude on its PATH).
@@ -169,6 +216,58 @@ Make concrete, committed progress this turn. When the goal is fully achieved and
   printf '\n===== iter %s =====\n%s\n' "$i" "$text" >> "$LOG"
   printf '%s\n' "$text" | tail -4
 
+  # OPT-IN two-key gate (all inside `[ -n "$VERIFY" ]`): a candidate-done is INTERCEPTED before the untouched
+  # completion block below. Layer 1 (the deterministic --check, or the marker when no check) makes it only a
+  # CANDIDATE; Layer 2 spawns a SECOND, FRESH read-only claude to REFUTE it. On a well-formed PASS we fall through
+  # to the byte-identical block (which then sets DONE); on refute/error we feed the reason back and `continue`, so a
+  # red check or an unrefuted claim can NEVER reach DONE. ssh (v1) is treated as not-verifiable → never auto-DONE.
+  if [ -n "$VERIFY" ]; then
+    CANDIDATE=""; CHECKPASSED=false
+    if [ -n "$CHECK" ]; then
+      if run_check; then CANDIDATE=1; CHECKPASSED=true; fi   # Layer 1: a RED check never even spawns the verifier
+    else
+      vlast=$(printf '%s' "$text" | grep -v '^[[:space:]]*$' | tail -1)
+      [ "$vlast" = "$MARKER" ] && CANDIDATE=1
+    fi
+    if [ -n "$CANDIDATE" ]; then
+      VVERDICT="error"; VREASON="not independently verified"
+      if [ "$SANDBOX" = ssh ]; then
+        VERIFY_UNVERIFIABLE=1; VVERDICT="error"; VREASON="ssh backend v1 does not run the independent read-only verifier"
+        echo "🔒 candidate-done reached but the ssh backend (v1) cannot run the read-only verifier — treating as NOT independently verified."
+      else
+        # Build the refutation prompt via the SHARED tested module (claim = this turn's text; git diff --stat piped
+        # after a sentinel line). Then spawn a FRESH read-only claude on the SAME backend — NO --resume, no bypass,
+        # only Read/Grep/Glob — that never saw the builder and can only VETO, never edit code to pass itself.
+        VPROMPT="$( { printf '%s\n' "$text"; printf '%s\n' "$DIFF_SENTINEL"; git diff --stat 2>>"$LOG"; } | node "$APP/goal-verify.js" prompt --goal "$GOAL" --criteria "$CRITERIA" 2>>"$LOG")"
+        VFLAGS=(--permission-mode acceptEdits --strict-mcp-config --allowedTools Read,Grep,Glob --output-format json --model "$MODEL")
+        if [ -n "$SANDBOX" ]; then VTURN=("${DOCKER_PREFIX[@]}" claude); else VTURN=("$CLAUDE_BIN"); fi
+        echo "🔎 candidate-done — spawning an INDEPENDENT read-only refuter (fresh session, Read/Grep/Glob only)…"
+        vout=$("$TIMEOUT_BIN" -k 10 "$TURN_TIMEOUT" "${VTURN[@]}" -p "$VPROMPT" "${VFLAGS[@]}" 2>>"$LOG"); vrc=$?
+        if [ $vrc -ne 0 ]; then
+          VVERDICT="error"; VREASON="verifier spawn failed/timeout (rc=$vrc) — fail-closed, not independently verified"
+        else
+          vres=$(printf '%s' "$vout" | node "$APP/goal-verify.js" parse --criteria "$CRITERIA" 2>>"$LOG")
+          if [ "$(printf '%s' "$vres" | cut -f1)" = "PASS" ]; then VVERDICT="pass"; VREASON="independently verified"
+          else VVERDICT="refute"; VREASON="$(printf '%s' "$vres" | cut -f2-)"; fi
+        fi
+      fi
+      # LOG RECORD (best-effort, never gates): the verdict enters the tamper-evident ledger via the daemon's
+      # single-writer logEvent (POST /goal/ledger); the daemon owns seq/prevH/hash so a child can't forge position.
+      node "$APP/bridge/ledger-log.js" "{\"ev\":\"goal_verify\",\"goalId\":\"$GOAL_ID\",\"iter\":$i,\"verdict\":\"$VVERDICT\",\"reason\":\"$(jsan "$VREASON" 480)\",\"criteriaDigest\":\"$CRIT_DIGEST\",\"checkPassed\":$CHECKPASSED}" >/dev/null 2>&1 || true
+      if [ "$VVERDICT" = "pass" ]; then
+        echo "✅ independent read-only verifier could NOT refute completion — falling through to done."
+        REFUTATION=""   # cleared; the byte-identical block below now confirms + sets DONE
+      else
+        REFUTATION="$VREASON"
+        echo "↩︎ NOT independently verified (verdict=$VVERDICT): $VREASON — feeding it back, continuing."
+        # Honor the stale circuit-breaker on a refuted candidate too (we `continue` past the shared block below).
+        state="$(git_state)"; if [ "$state" = "$prev" ]; then stale=$((stale+1)); else stale=0; fi; prev="$state"
+        (( stale >= STALE_LIMIT )) && { echo "🛑 no git progress for $STALE_LIMIT turns — circuit breaker. Stopping."; break; }
+        continue
+      fi
+    fi
+  fi
+
   # Completion: the verify command is the source of truth; the marker only counts (as last line) if no check given.
   if [ -n "$CHECK" ]; then
     if run_check; then echo "✅ verify command passes — done."; DONE=1; break; fi
@@ -185,8 +284,9 @@ done
 echo "──────────────────────────────────────────────────────"
 if [ -n "$DONE" ]; then echo "Result: COMPLETED after $i iters. Review:  git -C \"$REPO\" diff"; OUTCOME="completed ✅"
 else echo "Result: STOPPED (not confirmed complete) after $i iters. Review $LOG and:  git -C \"$REPO\" diff"; OUTCOME="stopped (needs you) ⚠️"; fi
+# Opt-in gate: one honest note on WHY this is (or isn't) an independently-verified result. Guarded; off = no line.
+[ -n "$VERIFY" ] && { if [ -n "$DONE" ]; then echo "  ↳ independently verified: a fresh read-only refuter could not refute completion against the stated criteria."; elif [ "$SANDBOX" = ssh ]; then echo "  ↳ stopped, not independently verified (ssh, v1): the read-only verifier does not run on the ssh backend."; else echo "  ↳ stopped, not independently verified: the adversarial refuter never passed within the caps."; fi; }
 echo "Nothing was pushed or merged — that's yours to do."
-# phone push (best-effort; silent no-op if no bridge.env / node)
-REPO_DIR="$(cat "$HOME/.claude/urfael/repo" 2>/dev/null || echo "$HOME/urfael-src")"
-NOTIFY="$REPO_DIR/app/bridge/notify.js"
+# phone push (best-effort; silent no-op if no bridge.env / node). REPO_DIR was hoisted to the top of the script.
+NOTIFY="$APP/bridge/notify.js"
 [ -f "$NOTIFY" ] && command -v node >/dev/null 2>&1 && node "$NOTIFY" "Goal $OUTCOME after $i iters: $GOAL" >/dev/null 2>&1 || true
