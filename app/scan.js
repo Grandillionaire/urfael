@@ -105,17 +105,22 @@ function runAgent(promptText, deps, cwd, model) {
     if (model) args.push('--model', String(model));
     let child;
     try { child = spawn(CLAUDE_BIN, args, { cwd, env: scopedEnv(), stdio: ['ignore', 'pipe', 'pipe'] }); }
-    catch { return resolve(''); }
-    let out = '', done = false;
+    catch { return resolve({ text: '', ok: false }); }
+    let out = '', done = false, exitCode = null;
     const finish = () => {
       if (done) return; done = true; clearTimeout(timer);
-      let r = out; try { const j = JSON.parse(out); if (typeof j.result === 'string') r = j.result; } catch { /* raw */ }
-      resolve(r);
+      // Parse the --output-format json envelope: keep the result text, but HONOUR is_error and the exit code.
+      // A usage-limit / overloaded / 5xx turn returns is_error:true (often with a non-findings result string),
+      // and a timeout leaves exitCode null — none of those may be mistaken for a clean audit. ok is true ONLY on
+      // a real, non-error completion.
+      let text = out, isErr = false;
+      try { const j = JSON.parse(out); if (typeof j.result === 'string') text = j.result; if (j.is_error === true) isErr = true; } catch { /* raw / unparseable */ }
+      resolve({ text, ok: !isErr && exitCode === 0 });
     };
     const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} finish(); }, SCAN_TIMEOUT_MS);
     if (child.stdout) child.stdout.on('data', (d) => { out += d.toString(); });
-    child.on('exit', finish);
-    child.on('error', () => { if (!done) { done = true; clearTimeout(timer); resolve(''); } });
+    child.on('exit', (code) => { exitCode = code; finish(); });
+    child.on('error', () => { if (!done) { done = true; clearTimeout(timer); resolve({ text: '', ok: false }); } });
   });
 }
 
@@ -130,27 +135,36 @@ async function runScan(repoPath, opts, emit, deps) {
 
   // PASS 1 — finder
   say({ ev: 'scan.finding' });
-  const finderRaw = await runAgent(finderPrompt(), deps, repoPath, model);
-  const findings = extractFindings(finderRaw);
-  // Distinguish a genuinely clean repo (the finder returned "[]") from a brain that never ran (empty output or an
-  // auth error). Reporting "clean" when the auditor could not even start would be a dangerous false negative.
-  const brainDown = !String(finderRaw).trim() || /not logged in|please run \/login|invalid api key|unauthorized|authentication (failed|error)/i.test(finderRaw);
+  const MAX_FINDINGS = 30;
+  const finder = await runAgent(finderPrompt(), deps, repoPath, model);
+  const findings = extractFindings(finder.text);
+  // Distinguish a genuinely clean repo (the finder returned "[]") from a brain that ERRORED. A usage-limit,
+  // overloaded/529, 5xx, timeout, non-zero exit, auth failure, or empty reply must never be reported as clean:
+  // runAgent.ok is false on any of those, and the auth-text check is a belt-and-suspenders extra.
+  const hasArray = /\[[\s\S]*?\]/.test(finder.text); // did the model actually emit a result array (even "[]")?
+  const brainDown = !finder.ok || !String(finder.text).trim() ||
+    /not logged in|please run \/login|invalid api key|unauthorized|authentication (failed|error)/i.test(finder.text) ||
+    (!findings.length && !hasArray); // a successful turn that produced NO result array is inconclusive, never "clean"
   if (brainDown && !findings.length) {
     say({ ev: 'scan.error', reason: 'brain_unreachable' });
     return { confirmed: [], refuted: [], unverified: [], findings: [],
       meta: { repo: repoPath, ts: (deps && deps.now ? deps.now() : Date.now()), model: model || 'default',
         error: 'brain_unreachable', found: 0, confirmed: 0, refuted: 0, unverified: 0 } };
   }
-  say({ ev: 'scan.found', count: findings.length });
+  // Cap how many findings we verify: a prompt-injecting target repo could coerce a huge finder array and fan out
+  // one verifier subprocess per finding. Verify the first MAX_FINDINGS; the report notes any that were dropped.
+  const dropped = findings.length > MAX_FINDINGS ? findings.length - MAX_FINDINGS : 0;
+  const toVerify = dropped ? findings.slice(0, MAX_FINDINGS) : findings;
+  say({ ev: 'scan.found', count: findings.length, verifying: toVerify.length });
 
   // PASS 2 — verify each finding (bounded concurrency). A confirmed finding ships; a refuted one is listed as
   // checked-and-cleared; an unparseable verdict is kept as UNVERIFIED (we never silently drop a real finding).
   const confirmed = [], refuted = [], unverified = [];
   const WAVE = O.concurrency || 3;
-  for (let i = 0; i < findings.length; i += WAVE) {
-    const wave = findings.slice(i, i + WAVE).map((f, k) => (async () => {
-      say({ ev: 'scan.verify', title: f.title, idx: i + k + 1, total: findings.length });
-      const v = extractVerdict(await runAgent(verifierPrompt(f), deps, repoPath, model));
+  for (let i = 0; i < toVerify.length; i += WAVE) {
+    const wave = toVerify.slice(i, i + WAVE).map((f, k) => (async () => {
+      say({ ev: 'scan.verify', title: f.title, idx: i + k + 1, total: toVerify.length });
+      const v = extractVerdict((await runAgent(verifierPrompt(f), deps, repoPath, model)).text);
       const out = Object.assign({}, f, { verdict: v });
       if (!v) unverified.push(out);
       else if (v.verdict === 'refuted') refuted.push(out);
@@ -160,7 +174,7 @@ async function runScan(repoPath, opts, emit, deps) {
   }
   confirmed.sort(bySeverity); unverified.sort(bySeverity);
   const meta = { repo: repoPath, ts: (deps && deps.now ? deps.now() : Date.now()), model: model || 'default',
-    found: findings.length, confirmed: confirmed.length, refuted: refuted.length, unverified: unverified.length };
+    found: findings.length, verified: toVerify.length, dropped, confirmed: confirmed.length, refuted: refuted.length, unverified: unverified.length };
   say(Object.assign({ ev: 'scan.done' }, meta));
   return { confirmed, refuted, unverified, findings, meta };
 }
@@ -182,6 +196,7 @@ function formatReport(result, opts) {
   L.push('');
   L.push('Read-only, verified source audit by Urfael (`urfael scan`). Every finding was surfaced by an AI finder and');
   L.push('then independently re-checked by a skeptical verifier. Refuted candidates are listed, not hidden.');
+  if (m.dropped) L.push('\n> Note: the finder returned ' + m.found + ' candidates; the first ' + (m.verified || 0) + ' were verified (a safety cap against a hostile repo). ' + m.dropped + ' were not checked, re-run scoped to a subtree for full coverage.');
   L.push('');
   if (!conf.length && !unv.length) {
     L.push('**Result: no exploitable vulnerability found.** ' + (m.found || 0) + ' candidate(s) checked, ' + ref.length + ' refuted on review.');

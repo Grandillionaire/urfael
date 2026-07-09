@@ -18,12 +18,16 @@ function fakeSpawn(script) {
     const joined = args.join(' ');
     const isVerifier = /REFUTE it/.test(joined);
     const reply = isVerifier ? script.verify(joined) : script.find();
+    // reply is a plain string (result text, exit 0) OR { result, is_error, exitCode } to simulate a failed turn.
+    const spec = (reply && typeof reply === 'object') ? reply : { result: String(reply) };
+    const envelope = { type: 'result', result: String(spec.result == null ? '' : spec.result) };
+    if (spec.is_error) envelope.is_error = true;
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.kill = () => {};
     setImmediate(() => {
-      child.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', result: String(reply) })));
-      child.emit('exit', 0);
+      child.stdout.emit('data', Buffer.from(JSON.stringify(envelope)));
+      child.emit('exit', spec.exitCode == null ? 0 : spec.exitCode);
     });
     return child;
   };
@@ -91,12 +95,14 @@ test('runScan: a clean finder result ([]) ships zero findings and spawns NO veri
   assert.equal(f.calls.length, 1, 'only the finder ran');
 });
 
-// ── a rambling / non-JSON finder output must fail closed, never crash ──
-test('runScan: malformed finder output fails closed (no crash, no phantom findings)', async () => {
-  const f = fakeSpawn({ find: () => 'I looked around and could not decide on a format.', verify: () => '{}' });
+// ── a rambling / no-array finder output is INCONCLUSIVE (error), never a false clean ──
+test('runScan: a successful turn with no result array is inconclusive (error), never a false clean', async () => {
+  const f = fakeSpawn({ find: () => 'I looked around and could not decide on a format.', verify: () => { throw new Error('no verifier when the finder produced no array'); } });
   const r = await scan.runScan('/repo', {}, null, deps(f.spawn));
+  assert.equal(r.meta.error, 'brain_unreachable');
   assert.equal(r.findings.length, 0);
   assert.equal(r.confirmed.length, 0);
+  assert.equal(f.calls.length, 1);
 });
 
 // ── an unparseable verdict keeps the finding as UNVERIFIED (never a silent drop) ──
@@ -118,6 +124,39 @@ test('runScan: an auth error / empty finder output reports an ERROR, not a false
   assert.equal(r.meta.error, 'brain_unreachable');
   assert.equal(r.findings.length, 0);
   assert.equal(f.calls.length, 1, 'only the finder ran');
+});
+
+// ── THE RELEASE-BLOCKER: a NON-auth brain error (usage-limit / overloaded / 5xx) must never read as clean ──
+test('runScan: is_error:true (usage-limit / overloaded / 5xx) reports an ERROR, never a false clean', async () => {
+  const f = fakeSpawn({
+    find: () => ({ result: 'Claude usage limit reached. Please try again later.', is_error: true }),
+    verify: () => { throw new Error('no verifier on a dead brain'); },
+  });
+  const r = await scan.runScan('/repo', {}, null, deps(f.spawn));
+  assert.equal(r.meta.error, 'brain_unreachable');
+  assert.equal(r.confirmed.length, 0);
+  assert.equal(f.calls.length, 1, 'only the finder ran');
+  assert.doesNotMatch(scan.formatReport(r), /no exploitable vulnerability found/i);
+});
+
+test('runScan: a non-zero exit (crash mid-audit) reports an ERROR, not a clean', async () => {
+  const f = fakeSpawn({ find: () => ({ result: 'the audit process crashed', exitCode: 1 }), verify: () => { throw new Error('x'); } });
+  const r = await scan.runScan('/repo', {}, null, deps(f.spawn));
+  assert.equal(r.meta.error, 'brain_unreachable');
+});
+
+// ── hardening: a hostile repo cannot amplify subprocesses by coercing a huge finder array ──
+test('runScan: caps how many findings it verifies, and reports the true count + the drop honestly', async () => {
+  const many = Array.from({ length: 35 }, (_, i) => ({ title: 'f' + i, file: 'a' + i + '.js', line: 1, severity: 'low' }));
+  const f = fakeSpawn({ find: () => JSON.stringify(many), verify: () => '{"verdict":"confirmed","reason":"r"}' });
+  const r = await scan.runScan('/repo', {}, null, deps(f.spawn));
+  assert.equal(r.meta.found, 35, 'the true finder count is reported');
+  assert.equal(r.meta.verified, 30, 'only the first 30 were verified');
+  assert.equal(r.meta.dropped, 5, '5 beyond the cap were dropped');
+  assert.equal(f.calls.length, 31, '1 finder + exactly 30 verifiers, not 35');
+  const md = scan.formatReport(r);
+  assert.match(md, /35 candidates/);
+  assert.match(md, /5 were not checked/);
 });
 
 test('formatReport: an errored scan says the audit could not run, never "clean"', () => {
