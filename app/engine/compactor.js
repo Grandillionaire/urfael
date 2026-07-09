@@ -88,11 +88,13 @@ function toolResultStub(tool, raw) {
   return '[' + tool + '] ' + outcome + ' · ' + lines + ' lines, ' + bytes + ' bytes (elided)';
 }
 
-// pruneMiddle(middle) — the deterministic pre-pass over the MIDDLE window only (head + live tail are never touched).
-// Returns a NEW array; input is never mutated. Bulky tool_results → 1-line stubs; exact repeats (same tool + content)
-// → an identical-elided marker; oversized tool_call args → capped valid JSON; base64 image blobs → [image elided].
-// Plain user/assistant text passes through unchanged, so a tool-free window is a no-op.
-function pruneMiddle(middle) {
+// pruneMiddle(middle, opts) — the deterministic pre-pass over the MIDDLE window only (head + live tail are never
+// touched). Returns a NEW array; input is never mutated. Bulky tool_results → 1-line stubs; exact repeats (same tool +
+// content) → an identical-elided marker; oversized tool_call args → capped valid JSON; base64 image blobs → [image
+// elided]. Plain user/assistant text passes through unchanged, so a tool-free window is a no-op. opts.stubMin overrides
+// the stub threshold (createCompactor passes cfg.pruneStubMin; undefined ⇒ TOOL_STUB_MIN ⇒ native byte-identical).
+function pruneMiddle(middle, opts = {}) {
+  const stubMin = opts.stubMin ?? TOOL_STUB_MIN;
   const list = Array.isArray(middle) ? middle : [];
   const nameById = new Map();      // resolve a tool_result's tool name from the assistant tool_use that produced it
   for (const m of list) if (m && Array.isArray(m.toolCalls)) for (const c of m.toolCalls) if (c && c.id != null) nameById.set(String(c.id), String(c.name || 'tool'));
@@ -110,7 +112,7 @@ function pruneMiddle(middle) {
       const tool = nameById.get(String(m.toolCallId)) || 'tool';
       const original = String(m.content == null ? '' : m.content);
       const raw = original.replace(IMG_DATA_URI, '[image elided]');   // A4
-      if (Buffer.byteLength(raw, 'utf8') > TOOL_STUB_MIN) {
+      if (Buffer.byteLength(raw, 'utf8') > stubMin) {
         const key = md5(tool + '\u0000' + raw.trim());
         if (seen.has(key)) { out.push({ ...m, content: '[' + tool + '] (identical to earlier result, elided)' }); continue; }   // A2
         seen.add(key);
@@ -189,6 +191,10 @@ function createCompactor(cfg) {
       if (acc > tailBudget) { rawBoundary = i + 1; break; }
       rawBoundary = i;
     }
+    // optional pinTail (default 0 ⇒ no-op, byte-identical): force the last pinTail messages to survive verbatim by
+    // pulling the boundary back so they can never fall into the summarized middle. Applied BEFORE alignTailStart.
+    const pinTail = opts.pinTail != null ? opts.pinTail : 0;
+    rawBoundary = Math.min(rawBoundary, Math.max(pinHead, msgs.length - pinTail));
     const boundary = alignTailStart(msgs, rawBoundary);
     // need a non-empty middle (something to summarize) AND a non-empty tail (something recent to keep)
     if (boundary <= pinHead || boundary >= msgs.length) return done('nothing_to_compact');
@@ -203,7 +209,7 @@ function createCompactor(cfg) {
     // model call. If pruning ALONE brings the window under budget, SKIP the aux summary entirely (the doctrine-positive
     // property: space reclaimed for free). We only take the skip when pruning actually freed space AND the pruned
     // window fits — a tool-free window (nothing to prune) falls through to the summarizer unchanged.
-    const prunedMiddle = pruneMiddle(middle);
+    const prunedMiddle = pruneMiddle(middle, { stubMin: cfg.pruneStubMin });
     const prunedWindow = [...head, ...prunedMiddle, ...tail];
     const tokensAfterPrune = total(prunedWindow);
     if (tokensAfterPrune < tokensBefore && tokensAfterPrune <= budget) {
