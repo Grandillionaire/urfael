@@ -1168,6 +1168,57 @@ function parsePersonaDirective(text, knownIds) {
   return null;
 }
 
+// Truthy-env test shared by moaGate + the daemon's boot flags. Accepts 1|on|true (any case, trimmed); everything
+// else (unset, '0', 'off', 'false', junk) is OFF. Pure — the single source of "is this opt-in flag enabled".
+function envOn(v) { return /^(1|on|true)$/i.test(String(v == null ? '' : v).trim()); }
+
+// moaGate(env, brainMode): the ONE predicate that decides whether a turn may enter the Mixture-of-Agents (council)
+// brain path. True ONLY when the owner has BOTH flipped the boot flag (URFAEL_MOA_BRAIN on) AND pinned brain mode
+// to 'council'. Pure + total, so the flag-off / unpinned default path is provably never routed into the ensemble.
+// idea from NousResearch/hermes-agent (MIT), patterns only.
+function moaGate(env, brainMode) { return envOn((env || {}).URFAEL_MOA_BRAIN) && brainMode === 'council'; }
+
+// Natural-language SYNTHETIC-BRAIN switching: catch a request to convene the read-only Council as the answering
+// brain ("council mode", "convene the council", "use mixture of agents", "switch to moa"), to dismiss it back to
+// the solo brain ("single brain", "solo", "just you", "leave the council"), or to report which brain is active
+// ("which brain am i on"). Mirrors parseModelDirective/parsePersonaDirective discipline (<=64 chars, filler-
+// stripped, WHOLE-message anchored) so a real task that merely mentions a council/ensemble/moa ("summarize the
+// council meeting notes", "what is a mixture of agents", "the town council voted") is NEVER hijacked. Returns
+// {action:'brain',mode:'council'|'default'} | {action:'brain-status'} | null. Pure. This directive is consulted
+// ONLY on a MoA-enabled install (URFAEL_MOA_BRAIN on); a default install never calls it.
+// idea from NousResearch/hermes-agent (MIT), patterns only.
+function parseCouncilDirective(text) {
+  let t = String(text == null ? '' : text).trim().toLowerCase();
+  if (!t || t.length > 64) return null;                                  // directives are short; long → a real task
+  t = t.replace(/^[\s,]*(hey|ok|okay|yo|so|now|please|um|uh|and|could you|can you|would you|urfael|jarvis)[\s,]+/g, '');
+  t = t.replace(/[\s,]*(please|now|thanks|thank you|mate|sir|for me|from now on|going forward)[\s.!?]*$/g, '');
+  t = t.replace(/[.!?]+$/g, '').trim();
+  if (!t) return null;
+  const test = (re) => new RegExp('^(?:' + re + ')$', 'i').test(t);
+
+  // the ensemble noun — "moa" is matched as a WHOLE word by the anchor, so "moabite"/"moat" never trip it.
+  const COUNCIL = '(?:the )?(?:council|moa|mixture[- ]of[- ]agents|ensemble)';
+  const TAIL = '(?: as (?:my|the) brain| brain| mode)?';                 // "use the council as my brain", "council mode"
+
+  // STATUS — tight (requires the word "brain"), so a real question isn't swallowed.
+  if (/\bbrain\b/.test(t) && (test('(?:which|what) brain(?: am i| are you| are we| is this)?(?: on| using| in| running| set to)?')
+      || test('(?:what\'?s|which is)(?: the| your| our)?(?: current)? brain'))) return { action: 'brain-status' };
+
+  // ENABLE — convene the council as the brain.
+  if (test('(?:convene|assemble|summon|gather|open|start)(?: the)? council' + TAIL)
+   || test(COUNCIL + ' (?:mode|brain)')
+   || test('(?:use|switch to|enable|activate|turn on|go|go to|run on|answer with) ' + COUNCIL + TAIL)) return { action: 'brain', mode: 'council' };
+
+  // DISABLE — back to the solo subscription brain.
+  if (test('solo(?: mode| brain)?')
+   || test('just (?:you|yourself)')
+   || test('(?:default|single|one|solo|direct) brain')
+   || test('(?:be|go|back to|use|switch to)(?: the)? (?:default|single|solo|direct|one)(?: brain)?')
+   || test('(?:leave|dismiss|disband|dissolve|end|close|stop|adjourn)(?: the)? council')) return { action: 'brain', mode: 'default' };
+
+  return null;
+}
+
 // --- terminal craft helpers (pure) ---------------------------------------------------------------
 // Optimal-string-alignment edit distance (Levenshtein + adjacent transposition). The transposition
 // rule is what lets did-you-mean treat `stauts`→`status` as ONE mistake, the way a human reads it.
@@ -1279,4 +1330,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { atomicWriteJSON, resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, pidStartMarkerAsync, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseSimplexEvent };
+module.exports = { atomicWriteJSON, resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, pidStartMarkerAsync, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseCouncilDirective, moaGate, envOn, parseSimplexEvent };

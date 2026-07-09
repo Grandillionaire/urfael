@@ -40,7 +40,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv: libScopedEnv, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, watchFireArgs, makeCronGate, dedupePending, makePidLedger } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv: libScopedEnv, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, parseCouncilDirective, moaGate, envOn, watchFireArgs, makeCronGate, dedupePending, makePidLedger } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -298,6 +298,14 @@ function councilStreamOne({ prompt, model, allowedTools, onDelta, onTool }) {
     child.on('exit', done); child.on('error', done);
   });
 }
+// SINGLE-SOURCED council deps — the /council endpoint AND the MoA brain path both build the runCouncil deps HERE,
+// so the crown-jewel read-only floor + the spawners can never diverge between the two surfaces (a sandbox one can't
+// silently widen). jobId ties the jobstore update; everything else is the same read-only, budget-gated wiring.
+function councilDeps(jobId) {
+  return { spawn, CLAUDE_BIN, VAULT, scopedEnv: councilEnv, classifyModel, OPUS: MODELS.opus,
+    budgetWindow, inflightScoped, store: jobstore, jobId,
+    oneShot: councilOneShot, streamOne: councilStreamOne, _children: councilChildren };
+}
 // FORTRESS (default) vs FULL. The OWNER opts into Full via URFAEL_MODE=full; it widens owner/member REMOTE turns
 // to web+write+search (Hermes-level reach) while still keeping no-shell, no-bypass, framing, and the credential
 // deny. It is the daemon's env — a remote sender can NEVER select it. Anything but 'full' is Fortress.
@@ -307,6 +315,13 @@ const FALLBACK_ON = process.env.URFAEL_FALLBACK !== '0';   // owner local turns 
 // OFF (URFAEL_SELF_REVIEW=1 to enable), so the default native/subscription paths stay byte-identical. Fail-soft and
 // bounded to one pass in the loop; a reviewer error/timeout keeps the original answer.
 const NATIVE_SELF_REVIEW = process.env.URFAEL_SELF_REVIEW === '1';
+// OPT-IN (default OFF): expose the read-only Council (app/council.js) as a selectable synthetic 'council' brain
+// mode (a.k.a. Mixture-of-Agents / MoA / ensemble). When OFF, parseCouncilDirective is never consulted, the MoA
+// routing branch and the brain-pin load are skipped, and POST /brain fails closed — so the ask path is BYTE-
+// IDENTICAL to today. Runtime use ALSO requires the owner to pin brain mode ('urfael brain council' / NL
+// "council mode"). LOCAL-ONLY, costlier + slower, read-only workers, ledger-logged.
+// idea from NousResearch/hermes-agent (MIT), patterns only.
+const MOA_BRAIN_ON = envOn(process.env.URFAEL_MOA_BRAIN);
 if (AGENT_MODE === 'full') { try { logEvent({ ev: 'WARN', msg: 'URFAEL_MODE=full — remote owner/member turns can browse the web (still sandboxed: no write, no shell, no bypass, credential-deny holds).' }); } catch {} }
 
 // the in-flight /ask response stream — brain events are written to it as NDJSON
@@ -359,6 +374,19 @@ function setNativeDefault(id) {
   nativeDefault = defaultBrain.sanitizeBrainId(id);
   try { fs.mkdirSync(JDIR, { recursive: true }); if (nativeDefault) fs.writeFileSync(NATIVEBRAIN, nativeDefault + '\n', { mode: 0o600 }); else fs.rmSync(NATIVEBRAIN, { force: true }); } catch {}
   return nativeDefault;
+}
+// MIXTURE-OF-AGENTS BRAIN (opt-in, experimental, LOCAL-ONLY): when MOA_BRAIN_ON and the owner has pinned brain
+// mode to 'council', a local turn convenes the read-only Council instead of the solo subscription, and returns
+// its synthesis. The pin persists (0600) like the model/persona pins, but is LOADED ONLY when the flag is on —
+// so a default install ignores it entirely and the ask path stays byte-identical. null = the solo default.
+// idea from NousResearch/hermes-agent (MIT), patterns only.
+const BRAINPIN = path.join(JDIR, 'brain.mode');
+function loadBrainPin() { try { return fs.readFileSync(BRAINPIN, 'utf8').trim().toLowerCase() === 'council' ? 'council' : null; } catch { return null; } }
+let brainMode = MOA_BRAIN_ON ? loadBrainPin() : null;   // when the flag is off this is ALWAYS null (pin never read)
+function setBrainMode(mode) {
+  brainMode = (mode === 'council') ? 'council' : null;
+  try { fs.mkdirSync(JDIR, { recursive: true }); if (brainMode) fs.writeFileSync(BRAINPIN, brainMode + '\n', { mode: 0o600 }); else fs.rmSync(BRAINPIN, { force: true }); } catch {}
+  return brainMode;
 }
 const tierName = (m) => (m === MODELS.opus ? 'Opus' : 'Sonnet');
 
@@ -537,6 +565,82 @@ function applyModelDirective(dir) {
   }
   return { text, model: convoModel, ms: 0, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 } };
 }
+// Apply a parsed BRAIN directive WITHOUT an LLM turn — a no-spend control command (mirrors applyModelDirective).
+// Refuses with the URFAEL_MOA_BRAIN=1 enable hint when the flag is off, so the owner is told exactly how to turn
+// the mode on. Returns a normal ask result so every channel renders/speaks the confirmation.
+// idea from NousResearch/hermes-agent (MIT), patterns only.
+function applyBrainDirective(dir) {
+  const r = (text) => ({ text, model: convoModel, ms: 0, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 } });
+  if (dir.action === 'brain-status') {
+    return r(brainMode === 'council'
+      ? 'The council is convened, sir — I answer as a read-only ensemble until you say "single brain". (Opt-in and experimental; a costlier, slower fan-out.)'
+      : 'Just myself, sir — the solo brain.');
+  }
+  if (!MOA_BRAIN_ON) return r('The Mixture-of-Agents brain is off, sir. Start me with URFAEL_MOA_BRAIN=1 to enable it, then say "council mode".');
+  if (dir.mode === 'council') {
+    if (brainMode === 'council') return r('Already convened, sir.');
+    setBrainMode('council'); logEvent({ ev: 'brain_mode', mode: 'council' });
+    return r('The council is convened, sir. I will answer as a read-only ensemble until you say "single brain". This is opt-in and experimental, and a fan-out is costlier and slower than a solo turn.');
+  }
+  if (brainMode !== 'council') return r('Already the solo brain, sir.');
+  setBrainMode(null); logEvent({ ev: 'brain_mode', mode: 'default' });
+  return r('Back to the solo brain, sir.');
+}
+// Run ONE local turn as the read-only Council ensemble (the MoA brain). Single-flight on councilInFlight; wires
+// councilAbort so brain.abort()/Ctrl+C reaps the live workers; persists a jobstore kind:'council' source:'brain'
+// job (replay + `urfael council --list` for free); logs council_start/council_done. The emit adapter forwards the
+// synthesis delta to the voice writer (sendSay) and the orchestrator/worker lifecycle to the thinking stream
+// (sendThinking) so a 10-min council keeps the CLI socket alive past its 5-min idle. On ANY engine failure it
+// returns an HONEST {model:'council'} error and NEVER falls back to the solo subscription (an ensemble answer can
+// never secretly be a single-model one). Returns brain.ask's contract shape, model:'council'.
+// idea from NousResearch/hermes-agent (MIT), patterns only.
+async function runCouncilAsBrain(text, opts) {
+  // usage is reported zero on this contract (the ensemble's real token total is recorded on the council_done ledger
+  // line, not mislabelled into a solo-turn usage field); the flat-rate subscription is $0 marginal regardless.
+  const shape = (t, extra) => ({ text: t, model: 'council', ms: (extra && extra.ms) || 0, aborted: !!(extra && extra.aborted),
+    usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 } });
+  if (councilInFlight) return shape('A council is already in session, sir — one moment.');
+  const t0 = Date.now();
+  const agents = council.clampAgents(opts && opts.agents);
+  const webOk = AGENT_MODE === 'full';
+  let job;
+  try { job = jobstore.create({ kind: 'council', source: 'brain', task: String(text).slice(0, 8000), agents }); jobstore.update(job.id, { state: 'running', startedAt: new Date().toISOString(), pid: process.pid }); }
+  catch (e) { return shape('I could not open a council record, sir (' + String((e && e.message) || e).slice(0, 120) + ').'); }
+  logEvent({ ev: 'council_start', id: job.id, agents, source: 'brain' });
+  councilInFlight = true; councilChildren.clear();
+  councilAbort = () => { for (const c of councilChildren) { try { c.kill('SIGKILL'); } catch {} inflightScoped.delete(c); } councilChildren.clear(); };
+  const turnId = ++turnCounter;
+  sendThinking({ reset: true, model: 'council', turnId });
+  let synth = '', aborted = false, tokens = 0, errMsg = '';
+  const emitB = (o) => { try {
+    jobstore.appendLog(job.id, JSON.stringify({ id: job.id, ...o }));
+    switch (o.ev) {
+      case 'synthesis.delta': synth += o.delta || ''; sendSay({ delta: o.delta }); break;   // the answer streams to the voice writer
+      case 'orchestrator.delta': sendThinking({ note: String(o.delta || '').slice(0, 200) }); break;
+      case 'orchestrator.plan': sendThinking({ note: 'convened ' + ((o.subtasks || []).length) + ' agents' }); break;
+      case 'orchestrator.dispatch': sendThinking({ note: 'dispatch ' + o.to + (o.title ? ': ' + o.title : '') }); break;
+      case 'agent.done': sendThinking({ note: 'agent ' + o.id + ' returned' }); break;
+      case 'synthesis.start': sendThinking({ note: 'synthesizing' }); break;
+      case 'council.aborted': aborted = true; break;
+      case 'council.error': errMsg = errMsg || String(o.msg || o.reason || 'engine error'); break;
+      case 'council.done': tokens = o.tokens || 0; if (o.answer && !synth) synth = o.answer; break;
+    }
+  } catch {} };
+  try {
+    const cr = await council.runCouncil(String(text), { agents, webOk }, emitB, councilDeps(job.id));
+    if (cr && cr.aborted) aborted = true;
+    if (cr && typeof cr.answer === 'string' && cr.answer) synth = cr.answer;
+  } catch (e) {
+    errMsg = errMsg || String((e && e.message) || e).slice(0, 160);
+  } finally {   // ALWAYS release single-flight + the abort hook, even on a throw, so a fault never wedges future turns
+    councilInFlight = false; councilAbort = null;
+  }
+  const ms = Date.now() - t0;
+  logEvent({ ev: 'council_done', id: job.id, ok: !errMsg && !aborted, ms, tokens, source: 'brain' });
+  if (errMsg) return shape('The council could not finish, sir (' + errMsg + '). I did not answer solo — say "single brain" for the direct model.', { ms, aborted, tokens });
+  const answer = synth.trim() ? synth : '(The council returned no answer, sir. Try again, or say "single brain" for the direct model.)';
+  return shape(answer, { ms, aborted, tokens });
+}
 const brain = {
   warmUp() { getSession(MODELS.sonnet).ask('Reply with exactly: ready', { silent: true }).catch(() => {}); }, // silent: never leak the warm-up into a client stream
   async ask(text, opts) {
@@ -544,6 +648,15 @@ const brain = {
     if (dir) return applyModelDirective(dir);                          // a control command — no LLM turn, not recorded
     const pdir = parsePersonaDirective(text, personas.knownIds(personaRoster));   // "be the architect" / "list personas" / "back to urfael"
     if (pdir) return applyPersonaDirective(pdir);
+    // MIXTURE-OF-AGENTS BRAIN (opt-in, default OFF). This whole block runs ONLY when MOA_BRAIN_ON — so on a default
+    // install parseCouncilDirective is never consulted and runCouncilAsBrain is never reachable, keeping everything
+    // from here down BYTE-IDENTICAL to today. A pinned 'council' brain routes a plain turn into the read-only Council
+    // ensemble; an explicit per-turn /opus (routeOverride) still runs solo. See moaGate() for the byte-identity proof.
+    if (MOA_BRAIN_ON) {
+      const cdir = parseCouncilDirective(text);                         // "council mode" / "single brain" / "which brain am i on"
+      if (cdir) return applyBrainDirective(cdir);                        // a control command — no LLM turn, not recorded
+      if (brainMode === 'council' && !routeOverride(text)) return await runCouncilAsBrain(text, opts);
+    }
     // NATIVE DEFAULT BRAIN (opt-in). When the owner has pinned a native provider as the default brain AND it is
     // resolvable + keyed AND this turn carries no explicit per-turn /model override, run the turn on the in-process
     // native engine and return its (identically-shaped) result. On ANY miss tryNativeDefault returns null and we fall
@@ -621,7 +734,7 @@ const brain = {
   endConversation() { convoModel = pinnedModel ? MODELS[pinnedModel] : MODELS.sonnet; softTurns = 0; },
   // Abort the current LOCAL turn across the warm sessions. Touches only the serialized `sessions` map —
   // never askScoped (remote one-shots) or background jobs. Returns true if a turn was actually aborted.
-  abort() { let any = false; for (const s of sessions.values()) if (s.abort()) any = true; return any; },
+  abort() { let any = false; for (const s of sessions.values()) if (s.abort()) any = true; if (councilAbort) { try { councilAbort(); any = true; } catch {} } return any; },   // also reap a live MoA-brain council (opt-in)
   // Remote/untrusted turns (Telegram/Discord/etc.): a one-shot, STRUCTURALLY SANDBOXED claude — never the
   // warm local session, never bypassPermissions. Scoped to the profile's permission mode + tool allowlist +
   // --strict-mcp-config (no computer-use), with the message wrapped in an untrusted-data envelope. Stateless
@@ -633,6 +746,9 @@ const brain = {
       // profile. (guest's ['Read'] is non-empty by design, so it passes the floor and stays a guest.)
       if (!Array.isArray(profile.allowedTools) || !profile.allowedTools.length || !profile.trustFraming) profile = resolveProfile('untrusted');
       // a remote OWNER may switch the model/persona verbally too (it's their assistant); members/guests cannot.
+      // askScoped DELIBERATELY does NOT consult parseCouncilDirective and never reads brainMode — the MoA/council
+      // brain is LOCAL-ONLY by construction, so a remote "council mode" can never repin or convene an ensemble
+      // (defense-in-depth beyond the /brain 403). idea from NousResearch/hermes-agent (MIT), patterns only.
       if (ctx && ctx.role === 'owner') {
         const dir = parseModelDirective(text); if (dir) { const r = applyModelDirective(dir); resolve({ text: r.text, model: r.model }); return; }
         const pdir = parsePersonaDirective(text, personas.knownIds(personaRoster)); if (pdir) { const r = applyPersonaDirective(pdir); resolve({ text: r.text, model: r.model }); return; }
@@ -782,6 +898,7 @@ function vitals() {
     pinned: pinnedModel ? tierName(MODELS[pinnedModel]) : null,
     chats: chatRegistry.activeChats().map((c) => ({ chatId: c.chatId, model: c.model, providerId: c.providerId, connected: c.connected, lastActivity: c.lastActivity })),
     persona: activePersona === 'urfael' ? null : personas.displayFor(personaRoster, activePersona),   // null on the anchor → chip drawn only off-anchor
+    brain: MOA_BRAIN_ON ? (brainMode || 'default') : null,   // opt-in MoA/council brain mode; null when the flag is off (byte-identical default)
     update: updateStatus.available ? { available: true, kind: updateStatus.kind, behind: updateStatus.behind || 0, latest: updateStatus.latest || '', note: updater.summarize(updateStatus) } : null,
     // the persisted ui-prefs look, so a running TUI can live-apply an NL "change your theme to ember" without a relaunch
     uiTheme: (() => { try { return uiPalette.loadPrefs(UI_PREFS).theme; } catch { return ''; } })(),
@@ -2171,11 +2288,7 @@ const server = http.createServer(async (req, res) => {
         councilChildren.clear();
         councilAbort = () => { for (const c of councilChildren) { try { c.kill('SIGKILL'); } catch {} inflightScoped.delete(c); } councilChildren.clear(); emitC({ ev: 'council.aborted', round: 1, reason: 'user' }); };
         try {
-          await council.runCouncil(task, { agents, webOk }, emitC, {
-            spawn, CLAUDE_BIN, VAULT, scopedEnv: councilEnv, classifyModel, OPUS: MODELS.opus,
-            budgetWindow, inflightScoped, store: jobstore, jobId: job.id,
-            oneShot: councilOneShot, streamOne: councilStreamOne, _children: councilChildren,
-          });
+          await council.runCouncil(task, { agents, webOk }, emitC, councilDeps(job.id));
         } catch (e) { emitC({ ev: 'council.error', round: 1, reason: 'engine', msg: String((e && e.message) || e) }); jobstore.update(job.id, { state: 'interrupted', endedAt: new Date().toISOString() }); }
         logEvent({ ev: 'council_done', id: job.id });
       } finally {   // ALWAYS release single-flight + end the response, even on a throw, so a fault never bricks future councils
@@ -2249,6 +2362,22 @@ const server = http.createServer(async (req, res) => {
     const hasKey = entry ? !(need && !secretStore[need.env]) : false;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ nativeDefault: nativeDefault || null, hasKey }));
+  } else if (req.url === '/brain') {
+    // GET → {moaOn, brain}; POST {mode:'council'|'default'|'status'} → select the MoA/council brain (same code path
+    // as the verbal switch). LOCAL-ONLY: a present channel is refused (403, matching /council + /engine/default), so
+    // a remote channel can never flip the owner's brain — and askScoped never reads brainMode, making it local-only
+    // TWICE over. Fail-closed: when URFAEL_MOA_BRAIN is off, POST returns 400 + the enable hint and NOTHING is pinned.
+    if (req.method === 'POST') {
+      const body = await readBody(req); let parsed = {}; try { parsed = JSON.parse(body); } catch {}
+      if ('channel' in parsed && parsed.channel) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'the brain mode is local-only' })); return; }
+      if (!MOA_BRAIN_ON) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'the Mixture-of-Agents brain is off', hint: 'start the daemon with URFAEL_MOA_BRAIN=1, then POST /brain {mode:"council"}' })); return; }
+      const dir = parsed.mode === 'status' ? { action: 'brain-status' } : { action: 'brain', mode: parsed.mode === 'council' ? 'council' : 'default' };
+      const r = applyBrainDirective(dir);
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, moaOn: MOA_BRAIN_ON, brain: brainMode || 'default', text: r.text }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ moaOn: MOA_BRAIN_ON, brain: MOA_BRAIN_ON ? (brainMode || 'default') : 'default' }));
   } else if (req.method === 'POST' && req.url === '/chat') {
     // POST /chat {model, providerId} -> {chatId} — open a new chat bound to a provider WITHOUT disconnecting any
     // existing chat. Validates providerId against the registry (fail-closed: unknown provider is rejected).
@@ -2395,7 +2524,7 @@ const server = http.createServer(async (req, res) => {
     // `bound` is the daemon's AUTHORITATIVE self-report of what it listens on: server.address() returns the unix
     // socket PATH (a string) when bound to a pipe, or an { port } object when bound to TCP. This is the ground
     // truth the fortress self-audit reads to prove principle #1 (no inbound port), cross-platform and in-process.
-    res.end(JSON.stringify({ ok: true, warm: [...sessions.keys()], pid: process.pid,
+    res.end(JSON.stringify({ ok: true, warm: [...sessions.keys()], pid: process.pid, brain: MOA_BRAIN_ON ? (brainMode || 'default') : null,
       bound: ((a) => typeof a === 'string' ? { unix: a } : (a ? { tcpPort: a.port } : null))(server.address()) }));
   } else if (req.url === '/vitals') {
     res.writeHead(200, { 'Content-Type': 'application/json' });

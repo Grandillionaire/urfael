@@ -998,6 +998,25 @@ function readStdinAdapter(maxBytes) {
     await require('./council-view').run(task, agents, { replay });
     return;
   }
+  if (cmd === 'brain') {
+    // select the synthetic brain: 'moa'/'council' convenes the read-only Mixture-of-Agents ensemble as the answering
+    // brain; 'default'/'solo' restores the direct subscription brain; 'status' reports. OPT-IN + local-only: the
+    // daemon must be started with URFAEL_MOA_BRAIN=1. The same switch works verbally ("council mode", "single brain").
+    const sub = (rest[0] || 'status').toLowerCase();
+    if (sub === 'status' || sub === 'who') {
+      const m = await req('GET', '/brain');
+      if (!m || !m.moaOn) { console.log(dim('the Mixture-of-Agents brain is off — start the daemon with ') + gold('URFAEL_MOA_BRAIN=1') + dim(', then ') + gold('urfael brain council') + dim(' (opt-in, experimental; a costlier, slower read-only ensemble)')); return; }
+      if (m.brain === 'council') console.log(gold('⚖ council') + dim('   · read-only ensemble (opt-in, experimental; costlier + slower) · say “single brain” (or `urfael brain default`) to return'));
+      else console.log(gold('solo') + dim('   · the direct subscription brain · say “council mode” (or `urfael brain council`) to convene the ensemble'));
+      return;
+    }
+    const mode = /^(moa|council|ensemble|mixture|on)$/.test(sub) ? 'council' : /^(default|solo|single|direct|off)$/.test(sub) ? 'default' : null;
+    if (!mode) { console.error('usage: urfael brain <moa | council | default | solo | status>'); process.exit(1); }
+    const r = await req('POST', '/brain', { mode });
+    if (r && r.error) { console.error('✗ ' + r.error + (r.hint ? '\n  ' + dim(r.hint) : '')); process.exit(1); }
+    console.log(gold('✓ ' + (r.text || 'done')));
+    return;
+  }
   if (cmd === 'health') { console.log(JSON.stringify(await req('GET', '/health'))); return; }
   if (cmd === 'shutdown') { await req('POST', '/shutdown').catch(() => {}); console.log('brain stopped'); return; }
   if (cmd === 'status') {
