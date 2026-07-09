@@ -1178,6 +1178,14 @@ function envOn(v) { return /^(1|on|true)$/i.test(String(v == null ? '' : v).trim
 // idea from NousResearch/hermes-agent (MIT), patterns only.
 function moaGate(env, brainMode) { return envOn((env || {}).URFAEL_MOA_BRAIN) && brainMode === 'council'; }
 
+// asyncCouncilGate(env): the ONE predicate deciding whether the daemon may run a DETACHED-from-the-terminal, async,
+// summary-only Council off the request/response cycle (`urfael council --async`). True ONLY when the owner flipped the
+// boot flag URFAEL_COUNCIL_ASYNC on; the CLI ALSO requires an explicit --async (double opt-in). Pure + total, so the
+// flag-off default is provably never routed into the detached path (a POST /council with no async field is byte-
+// identical, a {async:true} without the flag is refused 403). Mirrors moaGate/envOn discipline.
+// idea from NousResearch/hermes-agent (MIT), patterns only.
+function asyncCouncilGate(env) { return envOn((env || {}).URFAEL_COUNCIL_ASYNC); }
+
 // Natural-language SYNTHETIC-BRAIN switching: catch a request to convene the read-only Council as the answering
 // brain ("council mode", "convene the council", "use mixture of agents", "switch to moa"), to dismiss it back to
 // the solo brain ("single brain", "solo", "just you", "leave the council"), or to report which brain is active
@@ -1330,4 +1338,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { atomicWriteJSON, resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, pidStartMarkerAsync, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseCouncilDirective, moaGate, envOn, parseSimplexEvent };
+module.exports = { atomicWriteJSON, resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, pidStartMarkerAsync, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseCouncilDirective, moaGate, asyncCouncilGate, envOn, parseSimplexEvent };

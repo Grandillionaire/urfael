@@ -40,7 +40,7 @@ const crypto = require('crypto');
     }
   } catch {}
 })();
-const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv: libScopedEnv, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, parseCouncilDirective, moaGate, envOn, watchFireArgs, makeCronGate, dedupePending, makePidLedger } = require('./lib');
+const { MODELS, classifyError, fallbackModelFor, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv: libScopedEnv, profileFor, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, buildHeartbeatPrompt, addPrincipal, TEAM_CHANNELS, newPairCode, redeemPairCode, parseModelDirective, parsePersonaDirective, parseCouncilDirective, moaGate, asyncCouncilGate, envOn, watchFireArgs, makeCronGate, dedupePending, makePidLedger } = require('./lib');
 const personas = require('./personas');
 const selfset = require('./self-settings');   // self-rewrite pillar: parse+validate+audit cosmetic self-settings (allowlist-gated)
 const recall = require('./recall');
@@ -56,6 +56,7 @@ const defaultBrain = require('./engine/default-brain');   // NATIVE DEFAULT BRAI
 const handoffCompact = require('./engine/handoff-compact');   // OPT-IN pre-hand-off distill compaction (pure, zero-dep, never-throws); default OFF via URFAEL_PRECOMPACT
 const jobstore = require('./jobstore');
 const council = require('./council');
+const asyncCouncil = require('./engine/async-council');   // OPT-IN detached, summary-only async Council driver (URFAEL_COUNCIL_ASYNC); reuses councilDeps + council.js verbatim
 const runner = require('./runner');
 const scheduler = require('./scheduler');
 const bridge = require('./bridge/bridge-core');
@@ -241,6 +242,7 @@ const inflightScoped = new Set(); // live remote one-shot procs
 // COUNCIL: single-flight live multi-agent orchestration. Its workers also join inflightScoped so shutdown() reaps them.
 let councilInFlight = false;
 let councilAbort = null;          // a closure that SIGKILLs the live worker set, set while a council runs
+let councilJobId = null;          // the id of the CURRENTLY in-flight council — id-scopes POST /council/:id/cancel (async path)
 const councilChildren = new Set();
 const MAX_SCOPED = 4;             // max concurrent remote turns
 const MAX_RUNNING_JOBS = 4;       // max concurrent background jobs
@@ -333,6 +335,15 @@ const PRECOMPACT_MAXTOK = 32000;   // the distill hand-off's usable window (matc
 // "council mode"). LOCAL-ONLY, costlier + slower, read-only workers, ledger-logged.
 // idea from NousResearch/hermes-agent (MIT), patterns only.
 const MOA_BRAIN_ON = envOn(process.env.URFAEL_MOA_BRAIN);
+// OPT-IN (default OFF): let `urfael council --async "<task>"` run a DETACHED-from-the-terminal, summary-only Council
+// off the request/response cycle (and off `chain`), so a 10-minute background council never blocks an /ask turn. When
+// OFF, a POST /council with NO async field is BYTE-IDENTICAL to today and a {async:true} is refused 403 — double
+// opt-in (the env flag AND the explicit --async). The detached workers reuse the SAME single-sourced councilDeps
+// read-only floor as the sync path; the run is jobstore-recorded (cancellable via /council/:id/cancel, replayable),
+// ledger-logged (council_start/council_push/council_done, source:'async'), and pushes a caveated summary on
+// completion. Honesty: detached-from-terminal + reconciled-on-restart (jobstore.reconcile), NOT crash-immortal.
+// idea from NousResearch/hermes-agent (MIT), patterns only.
+const ASYNC_COUNCIL_ON = asyncCouncilGate(process.env);
 if (AGENT_MODE === 'full') { try { logEvent({ ev: 'WARN', msg: 'URFAEL_MODE=full — remote owner/member turns can browse the web (still sandboxed: no write, no shell, no bypass, credential-deny holds).' }); } catch {} }
 
 // the in-flight /ask response stream — brain events are written to it as NDJSON
@@ -2343,11 +2354,34 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     let parsed = {}; try { parsed = JSON.parse(body); } catch {}
     if ('channel' in parsed && parsed.channel) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'council is local-only' })); return; }
+    // OPT-IN detached async branch (double opt-in). Fires ONLY when parsed.async is explicitly truthy; a request
+    // WITHOUT the async field falls straight through to the EXACT existing sync chain.then path below (byte-identical
+    // default). A {async:true} without the boot flag is refused with the enable hint.
+    // idea from NousResearch/hermes-agent (MIT), patterns only.
+    if (parsed.async && !ASYNC_COUNCIL_ON) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'detached async council is off', hint: 'start the daemon with URFAEL_COUNCIL_ASYNC=1' })); return; }
     const task = typeof parsed.task === 'string' ? parsed.task.slice(0, 8000) : '';
     if (!task.trim()) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'need {task}' })); return; }
     if (councilInFlight) { res.writeHead(409, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'a council is already in session' })); return; }
     const agents = council.clampAgents(parsed.agents);
     const webOk = AGENT_MODE === 'full';                              // workers get web tools ONLY in full mode (else read-only)
+    if (parsed.async) {   // ASYNC_COUNCIL_ON is guaranteed here (the gate above 403s otherwise)
+      // DETACHED branch: create the record, take the single-flight, reply IMMEDIATELY, then run OFF `chain` (a
+      // fire-and-forget promise, NOT chain.then) so a long background council never blocks an /ask turn. The emit
+      // adapter appends ONLY to the jobstore NDJSON log — never `res`, never the shared `active`/sendSay voice writer.
+      let job;
+      try { job = jobstore.create({ kind: 'council', source: 'async', task, agents }); jobstore.update(job.id, { state: 'running', startedAt: new Date().toISOString(), pid: process.pid }); }
+      catch (e) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'could not open a council record' })); return; }
+      councilInFlight = true; councilJobId = job.id; councilChildren.clear();
+      councilAbort = asyncCouncil.makeAbort(councilChildren, inflightScoped);
+      logEvent({ ev: 'council_start', id: job.id, agents, source: 'async' });
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: job.id, state: 'running', async: true }));
+      asyncCouncil.runDetached({
+        runCouncil: council.runCouncil, task, opts: { agents, webOk }, deps: councilDeps(job.id),
+        jobstore, id: job.id, notifyOwner, logEvent,
+        release: () => { councilInFlight = false; councilAbort = null; councilJobId = null; },
+      }).catch(() => { councilInFlight = false; councilAbort = null; councilJobId = null; });
+      return;
+    }
     chain = chain.then(async () => {
       councilInFlight = true;
       try {
@@ -2381,6 +2415,19 @@ const server = http.createServer(async (req, res) => {
     if (!j || j.kind !== 'council') { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
     res.end((jobstore.tailLog(cid, 100000) || '') + '\n');
+  } else if (req.method === 'GET' && req.url && /^\/council\/[A-Za-z0-9-]{4,64}\/result$/.test(req.url)) {
+    // SUMMARY-ONLY fetch: the persisted (<=4000-char) synthesis of a council (async or sync). Reuses the replay
+    // url-regex + the kind:'council' validation; a still-running council returns its current state + an empty answer.
+    const cid = req.url.split('/')[2];
+    const j = jobstore.get(cid);
+    if (!j || j.kind !== 'council') { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: cid, state: j.state, answer: j.result || '' }));
+  } else if (req.method === 'POST' && req.url && /^\/council\/[A-Za-z0-9-]{4,64}\/cancel$/.test(req.url)) {
+    // ID-SCOPED cancel of the CURRENTLY in-flight detached council. A wrong id is a 404 (you can't cancel the wrong
+    // council). The existing /council/abort stays for the sync TUI Ctrl+C. idea from NousResearch/hermes-agent (MIT).
+    const cid = req.url.split('/')[2];
+    const c = asyncCouncil.cancelDetached({ id: cid, councilJobId, councilAbort, jobstore, logEvent });
+    res.writeHead(c.code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: c.ok }));
   } else if (req.method === 'POST' && req.url === '/abort') {
     // abort ONLY the current in-flight LOCAL turn — never askScoped or jobs. Safe to call when idle.
     const ok = brain.abort(); logEvent({ ev: 'abort', ok });
