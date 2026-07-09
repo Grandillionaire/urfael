@@ -96,7 +96,11 @@ async function main() {
     const hasStream = ev.some((e) => e.kind === 'thinking'); const done = ev.find((e) => e.kind === 'done');
     ok('/ask streams + done', hasStream && done && typeof done.text === 'string' && done.text.length > 0, `${ev.length} events`);
     // abort idle then mid-flight
-    const ai = await sock('POST', '/abort');
+    // A just-finished /ask leaves the warm session RE-WARMING (a background pre-warm spawn); the first abort may
+    // cancel that pre-warm (ok:true, harmless, it just re-warms). Assert the STEADY idle state: drain any pre-warm,
+    // then an idle abort is ok:false.
+    let ai = await sock('POST', '/abort');
+    for (let i = 0; i < 5 && ai.json && ai.json.ok === true; i++) { await sleep(200); ai = await sock('POST', '/abort'); }
     ok('abort when idle → ok:false', ai.json && ai.json.ok === false);
     const slow = ask('Count slowly from 1 to 40 with a sentence about each number.');
     await sleep(1500); const am = await sock('POST', '/abort'); const sev = await slow;
