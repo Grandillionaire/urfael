@@ -70,6 +70,7 @@ const targets = [
   ['lib.parseCron', (v) => lib.parseCron(typeof v === 'string' ? v : '')],
   ['lib.parseModelDirective', (v) => lib.parseModelDirective(typeof v === 'string' ? v : ''), (r) => r === null || typeof r === 'object' || 'bad directive shape'],
   ['lib.parsePersonaDirective', (v) => lib.parsePersonaDirective(typeof v === 'string' ? v : '', ['architect', 'sage'])],
+  ['lib.parseCouncilDirective', (v) => lib.parseCouncilDirective(typeof v === 'string' ? v : ''), (r) => r === null || typeof r === 'object' || 'bad council directive shape'],
   ['lib.resolveProfile', (v) => lib.resolveProfile(v), (r) => (r && typeof r.name === 'string') || 'resolveProfile returned no name'],
   ['lib.profileFor', (v) => lib.profileFor(v, pick(['fortress', 'full', v])), (r) => (r && r.name !== 'local') || 'profileFor reached LOCAL from a role/mode!'],
   ['lib.resolvePrincipal', (v) => lib.resolvePrincipal({ telegram: [{ id: '1', role: 'owner' }] }, pick(['telegram', v]), v)],

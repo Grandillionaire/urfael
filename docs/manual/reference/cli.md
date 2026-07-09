@@ -116,7 +116,7 @@ See also: `code` · `checkpoints`
 
 ### `urfael scan`
 
-read-only security audit of a codebase, an AI finder plus a skeptic verifier that kills false positives.
+read-only, verified security audit of a repo.
 
 ```bash
 urfael scan [<path>] [--dir <path>] [--model <m>] [--report <file.md>] [--json]
@@ -670,6 +670,24 @@ urfael council --list
 ```
 
 See also: `tui` · `jobs`
+
+### `urfael brain`
+
+select the brain: solo (default) or opt-in council ensemble.
+
+```bash
+urfael brain <moa | council | default | solo | status>   (opt-in: needs URFAEL_MOA_BRAIN=1; local-only, read-only workers)
+```
+
+Examples:
+
+```bash
+urfael brain council
+urfael brain status
+urfael brain default
+```
+
+See also: `council` · `model`
 
 ### `urfael hooks`
 
