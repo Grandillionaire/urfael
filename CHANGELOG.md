@@ -4,11 +4,21 @@ All notable changes to Urfael are recorded here. The format follows [Keep a Chan
 
 Run `urfael version` to see what you are on, and `urfael update` to pull and reinstall the latest.
 
-## [Unreleased]
+## [0.10.0] - 2026-07-09
+
+A security and integrity wave on top of v0.9.0. Every feature is backend-verified, and the opt-in or default-off ones are labelled as such, so nothing here overclaims what protects you by default.
 
 ### Added
 
-- **`urfael scan <path>`: a read-only, verified security audit of any codebase.** A read-only agent (Read, Grep, Glob only; no write, no shell, no egress) sweeps the source with an anti-fabrication prompt, then an independent skeptic verifier re-checks every candidate and refutes the false ones, so no AI slop ships. It prints an honest report (verified findings, a "checked and cleared" section, and a scope-and-limits block) or writes it with `--report file.md`. The target repo is treated as untrusted input, and the read-only floor holds even if a hijack is attempted.
+- **`urfael scan <path>`: a read-only, verified security audit of any codebase.** A read-only agent (Read, Grep, Glob only; no write, no shell, no egress) sweeps the source with an anti-fabrication prompt, then an independent skeptic verifier re-checks every candidate and refutes the false ones, so no AI slop ships. It prints an honest report (verified findings, a "checked and cleared" section, and a scope-and-limits block) or writes it with `--report file.md`. The target repo is treated as untrusted input, and the read-only floor holds even if a hijack is attempted. On any brain error (auth, usage-limit, overloaded, 5xx, timeout) it reports "the audit could not run", never a false "clean".
+- **MCP tool-poisoning gate.** `urfael connect add` now poison-scans and pins an MCP server's tool descriptions, and `urfael connect verify` re-scans against the pin and refuses a server whose tools drifted (a rug-pull) until you re-approve. Fail-closed on a manifest it cannot fetch or parse. Detection is at add-time and on-demand verify, not a per-turn runtime interceptor.
+- **Ledger transparency log (`urfael attest verify`).** The tamper-evident Ledger of Record gains an RFC-6962 Merkle transparency log with a C2SP signed-note checkpoint, plus inclusion and consistency proofs, so an append-only history can be proven rather than only asserted. Zero dependencies, socket-only, fail-closed on malformed proofs.
+- **CaMeL-lite taint gate (opt-in, experimental).** A value-level taint tracker with a capability gate on privileged tool calls (write, edit, remember, shell), so untrusted data cannot silently reach a privileged sink. It is OFF by default and not wired into the default subscription path; enable it explicitly. Fail-closed at the gate.
+- **Sleep-time reflection (opt-in).** With `URFAEL_REFLECT=1`, an offline, read-only, no-LLM idle pass consolidates the day into a dated vault note. No egress, no shell, and it writes only its own note. Off by default.
+
+### Changed
+
+- **Native engine hardening.** The native compactor gains a prune pass and secret redaction, and the agent loop gains a real-token compaction trigger and a loop guard. The native engine stays opt-in; the default subscription brain is unchanged.
 
 ## [0.9.0] - 2026-06-25
 
