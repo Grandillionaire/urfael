@@ -220,6 +220,29 @@ function buildInclusion(seq) {
   try { return tlog.buildInclusionBundle(lines, seq, TLOG_ORIGIN, keys); }
   catch (e) { return { ok: false, reason: 'proof_failed', detail: String(e && e.message) }; }
 }
+// OPT-IN Memory Journey projection (guarded by MEMGRAPH_ON at the route). FAIL-CLOSED: git missing / non-repo /
+// empty memory / any error -> an empty graph, NEVER a throw or a 500. Runs ONE bounded, shell-free `git log -p`
+// (execFile, ARRAY args — no shell) over GRAPH_FILES; loads the learn ledger; verifies the hash chain (result is
+// PASSED to the projector, not recomputed there). An optional ?asOf=<date> is validated to a strict date charset
+// and passed ONLY as a git ARG (the same injection-safe pattern as `urfael as-of`).
+function buildGraphResponse(url) {
+  const EMPTY = { nodes: [], edges: [], ledger: { ok: false }, truncated: false, version: memgraph.VERSION };
+  try {
+    let asOf = '';
+    try { const v = new URL(url, 'http://x').searchParams.get('asOf'); if (v && /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.test(v)) asOf = v; } catch {}
+    const args = ['-C', MEMORY_DIR, 'log', '--format=%x01%h%x1f%ci%x1f%s', '-p'];
+    if (asOf) args.push('--before=' + asOf);   // ARG only, no shell — bounds the journey to commits on/before the date
+    args.push('--', ...GRAPH_FILES);
+    let gitLogText = '';
+    try { gitLogText = require('child_process').execFileSync('git', args, { maxBuffer: 1 << 24, timeout: 15000 }).toString(); }
+    catch { return EMPTY; }
+    const learnItems = (() => { try { return learn.load(MEMORY_DIR); } catch { return []; } })();
+    let lines = []; try { lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); } catch {}
+    const ledger = auditChain.verify(lines);
+    const g = memgraph.buildGraph({ gitLogText, learnItems, ledger });
+    return { ...g, version: memgraph.VERSION };
+  } catch { return EMPTY; }
+}
 // Brain-session orphan reaper. A crash/force-quit/SIGKILL of the daemon leaks the detached `claude` child; a
 // later boot SIGKILLs it so the ledger never accumulates zombies. Records `pid:marker` (the pid's start-time)
 // and reaps only a pid that is STILL our process — alive AND its start-time marker still matches — so a pid the
@@ -333,6 +356,14 @@ const PRECOMPACT_MAXTOK = 32000;   // the distill hand-off's usable window (matc
 // "council mode"). LOCAL-ONLY, costlier + slower, read-only workers, ledger-logged.
 // idea from NousResearch/hermes-agent (MIT), patterns only.
 const MOA_BRAIN_ON = envOn(process.env.URFAEL_MOA_BRAIN);
+// OPT-IN (default OFF): the read-only "Memory Journey" graph — a PROJECTION over data Urfael already owns (the
+// git-versioned memory + the hash-chained Ledger of Record). When OFF, the GET /graph route below is unmatched and
+// falls through to the existing 404, so the socket surface is BYTE-IDENTICAL to today. No new data, no new port, no
+// LLM, no sub-agent — just one bounded, shell-free `git log -p` over the `why` file set handed to the pure projector.
+// idea studied from NousResearch/hermes-agent (MIT), patterns only.
+const memgraph = require('./memgraph');
+const MEMGRAPH_ON = envOn(process.env.URFAEL_MEMGRAPH);
+const GRAPH_FILES = ['MEMORY.md', 'USER.md', 'USER.json', 'WORKFLOW.md', 'LESSONS.md'];   // the exact `urfael why` set (cli.js) — NOT MEMORY_FILES (which omits USER.json)
 if (AGENT_MODE === 'full') { try { logEvent({ ev: 'WARN', msg: 'URFAEL_MODE=full — remote owner/member turns can browse the web (still sandboxed: no write, no shell, no bypass, credential-deny holds).' }); } catch {} }
 
 // the in-flight /ask response stream — brain events are written to it as NDJSON
@@ -2665,6 +2696,11 @@ const server = http.createServer(async (req, res) => {
     // GET /audit/prove?seq=N — an inclusion proof for entry N: proves it is in the log without revealing the others.
     const seq = Number(new URL(req.url, 'http://x').searchParams.get('seq'));
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(buildInclusion(seq)));
+  } else if (MEMGRAPH_ON && req.url && req.url.startsWith('/graph')) {
+    // GET /graph[?asOf=<date>] — OPT-IN (URFAEL_MEMGRAPH) read-only Memory Journey projection over the git-versioned
+    // memory + the hash-chained Ledger of Record. Fail-closed to an empty graph on any error. When the flag is OFF
+    // this else-if is never entered and /graph falls through to the existing 404 below (byte-identical to today).
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(buildGraphResponse(req.url)));
   } else if (req.method === 'POST' && req.url === '/job') {
     // enqueue a detached background job (runs concurrently with voice — NOT in the serialized chain).
     const body = await readBody(req);
