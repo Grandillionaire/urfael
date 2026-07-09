@@ -14,6 +14,41 @@ const SOCK = path.join(JDIR, 'daemon.sock');
 const ENVF = path.join(JDIR, 'bridge.env');
 const TEAMF = path.join(JDIR, 'team.json');
 const AUDIT = path.join(JDIR, 'bridge-audit.log');
+// IDLE-SUSPEND doorbell (opt-in via URFAEL_IDLE_SUSPEND). A plain mtime-only 0600 file — NOT a socket, no secret,
+// no inbound port. notifyAll() bumps its mtime so a scheduled/heartbeat push warms the outbound pollers. Fail-safe:
+// a missing/hostile file can only make a poller poll MORE often, never drop or fast-path a message. See idle-governor.js.
+const WAKEF = path.join(JDIR, 'wake');
+
+// Parse the idle-suspend config from the environment. Returns null when the master flag is OFF (=> the pollers keep
+// byte-identical behavior and never construct a governor), else the two governor knobs with invalid values falling
+// back to the defaults. Reuses lib.envOn so only 1/on/true enable it. This gate touches nothing security-critical.
+function idleSuspendGate(env = process.env) {
+  const e = env || {};
+  if (!lib.envOn(e.URFAEL_IDLE_SUSPEND)) return null;         // OFF (unset/0/no/false/junk) => no suspension at all
+  const afterMin = Number(e.URFAEL_IDLE_AFTER_MIN);            // minutes of no owner activity before dropping to probe
+  const probeSecs = Number(e.URFAEL_IDLE_PROBE_SECS);         // low-frequency idle probe cadence, in seconds
+  const idleAfterMs = Number.isFinite(afterMin) && afterMin > 0 ? afterMin * 60000 : 300000; // default 5 min
+  const probeMs = Number.isFinite(probeSecs) && probeSecs > 0 ? probeSecs * 1000 : 60000;    // default 60 s
+  return { idleAfterMs, probeMs };
+}
+
+// Ring the doorbell: bump WAKEF's mtime so a suspended poller warms up. GATED on the master flag, so a flag-off
+// process leaves this a pure no-op and never creates WAKEF (notifyAll stays behaviorally byte-identical). The file
+// is created 0600 and EMPTY — the signal is the mtime alone, never any content. Best-effort + fail-soft.
+function touchWake() {
+  if (!lib.envOn(process.env.URFAEL_IDLE_SUSPEND)) return;    // off => no-op, WAKEF never created
+  try {
+    const now = new Date();
+    if (!fs.existsSync(WAKEF)) fs.writeFileSync(WAKEF, '', { mode: 0o600 }); // mtime-only doorbell, NO secret
+    fs.utimesSync(WAKEF, now, now);
+  } catch {}
+}
+
+// Read the doorbell mtime (ms). FAIL-CLOSED: missing/unreadable => 0, which folds to "no wake" in the governor, so
+// the poller simply keeps its probe cadence and still catches every message within the probe interval. Never throws.
+function wakeMtime() {
+  try { return fs.statSync(WAKEF).mtimeMs || 0; } catch { return 0; }
+}
 
 // TEAM MODE — the roster: per-channel allowlist of principals (id/name/role). team.json is the source of truth
 // when present; otherwise the legacy single-owner env id is the lone owner (so existing setups are unchanged).
@@ -212,6 +247,7 @@ function transcribeLocal(audioPath) {
 
 // One-way owner push to whichever channels are configured (single fixed destination each — no recipient param).
 async function notifyAll(text) {
+  touchWake(); // opt-in doorbell (no-op unless URFAEL_IDLE_SUSPEND): warm the outbound pollers for the conversation that follows this push
   const cfg = loadEnv();
   if (cfg.TELEGRAM_BOT_TOKEN && cfg.TELEGRAM_OWNER_CHAT_ID) { try { await telegramSend(cfg.TELEGRAM_BOT_TOKEN, cfg.TELEGRAM_OWNER_CHAT_ID, text); } catch {} }
   if (cfg.DISCORD_BOT_TOKEN && cfg.DISCORD_OWNER_USER_ID) { try { await discordDM(cfg.DISCORD_BOT_TOKEN, cfg.DISCORD_OWNER_USER_ID, text); } catch {} }
@@ -227,4 +263,4 @@ function warnExperimental(channel) {
   try { process.stderr.write('\n  [!] ' + channel + ' is EXPERIMENTAL: code-complete and unit-tested, but not yet certified against live accounts, so it may not work end-to-end yet. Please report what you hit at https://github.com/Grandillionaire/urfael/issues\n\n'); } catch {}
 }
 
-module.exports = { JDIR, SOCK, ENVF, TEAMF, AUDIT, loadEnv, loadRoster, resolvePrincipal, tryPair, audit, askDaemon, notifyDaemon, stripSpoken, TokenBucket, httpsJson, telegramSend, discordDM, qqSend, slackApi, slackPost, imessageSend, notifyAll, httpsDownload, transcribeLocal, EXPERIMENTAL, warnExperimental };
+module.exports = { JDIR, SOCK, ENVF, TEAMF, AUDIT, WAKEF, loadEnv, loadRoster, resolvePrincipal, tryPair, audit, askDaemon, notifyDaemon, stripSpoken, TokenBucket, httpsJson, telegramSend, discordDM, qqSend, slackApi, slackPost, imessageSend, notifyAll, httpsDownload, transcribeLocal, EXPERIMENTAL, warnExperimental, idleSuspendGate, touchWake, wakeMtime };
