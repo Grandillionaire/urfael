@@ -133,7 +133,7 @@ ipcMain.handle('urfael:reminder-cancel', (_e, id) => SAFE_ID.test(String(id)) ? 
 ipcMain.handle('urfael:jobs', () => daemonGet('/jobs'));
 ipcMain.handle('urfael:job', (_e, id) => SAFE_ID.test(String(id)) ? daemonGet('/job/' + id) : null);
 ipcMain.handle('urfael:job-cancel', (_e, id) => SAFE_ID.test(String(id)) ? daemonPostJson('/job/' + id + '/cancel') : null);
-const SETTABLE = ['SAY_VOICE', 'SAY_RATE', 'TTS_PROVIDER', 'STT_PROVIDER', 'URFAEL_THEME', 'URFAEL_ACKS', 'URFAEL_ORB', 'CONSOLE_VOICE', 'WAKE_KEYWORD', 'WAKE_WORD_LABEL', 'WHISPER_MODEL', 'KOKORO_VOICE', 'ELEVENLABS_SPEED'];
+const SETTABLE = ['SAY_VOICE', 'SAY_RATE', 'TTS_PROVIDER', 'STT_PROVIDER', 'URFAEL_THEME', 'URFAEL_ACKS', 'URFAEL_ORB', 'URFAEL_PET', 'CONSOLE_VOICE', 'WAKE_KEYWORD', 'WAKE_WORD_LABEL', 'WHISPER_MODEL', 'KOKORO_VOICE', 'ELEVENLABS_SPEED'];
 ipcMain.on('urfael:set-config', (_e, key, val) => {
   if (!SETTABLE.includes(key)) return;
   setTtsEnvValue(key, String(val).replace(/[\r\n]/g, '').slice(0, 200));
@@ -456,6 +456,7 @@ function readTtsEnv() {
     theme: cfg.URFAEL_THEME || 'sigil',
     acks: cfg.URFAEL_ACKS !== '0',   // instant spoken acknowledgments while thinking (default on)
     orb: cfg.URFAEL_ORB === '1',     // the floating orb HUD is OPT-IN — the Console is the app
+    pet: lib.envOn(cfg.URFAEL_PET),  // the code-drawn Familiar is OPT-IN + cosmetic; only shows in the HUD when URFAEL_ORB is also on
     consoleVoice: cfg.CONSOLE_VOICE !== '0', // Console speaks the [SPOKEN] remark aloud (default on)
   };
   ttsEnvCache = { mtime, val: out };

@@ -160,9 +160,11 @@ window.urfael.onThinking((p) => {
     reasonEl.innerHTML = ''; responseEl.textContent = ''; chipsEl.innerHTML = '';
     reasonRow((modelLabel(p.model) || 'Urfael') + ' engaged', 'model');
     escalate(isOpus(p.model) ? 'expanded' : 'active');
+    orb.setPetSignal({});   // fresh turn: clear any tool/abort pose (cheap no-op when the pet is off)
     refreshVitals();
   } else if (p.tool) {
     resolvePendingRows(); reasonRow(TOOL_LABEL(p.tool)); spawnMotes(6);
+    orb.setPetSignal({ tool: p.tool });   // the Familiar wields the real implement (cheap no-op when the pet is off)
     if (++toolCount >= 2) escalate('expanded');
   } else if (p.delta) {
     respText += p.delta;
@@ -186,7 +188,8 @@ function answerForScreen(t) {
   return t.replace(/\[\/?SPOKEN\]/gi, '').trim();        // no tags (fallback) → show all
 }
 window.urfael.onDone((p) => {
-  if (p && p.aborted) { resolvePendingRows(); scheduleCollapse(); return; } // barge/stop: don't paint '(stopped)' over the panel
+  if (p && p.aborted) { orb.setPetSignal({ aborted: true }); resolvePendingRows(); scheduleCollapse(); return; } // barge/stop: don't paint '(stopped)' over the panel
+  orb.setPetSignal({});   // turn finished cleanly: back to the resting pose (cheap no-op when the pet is off)
   resolvePendingRows();
   const full = answerForScreen((p && p.text) || respText);
   responseEl.textContent = full.slice(0, 1400);
@@ -482,6 +485,7 @@ document.getElementById('close').addEventListener('click', (e) => { e.stopPropag
 (async () => {
   cfg = await window.urfael.config();
   orb.setTheme(cfg.theme || 'sigil');
+  orb.setPet(cfg.pet);                 // opt-in code-drawn Familiar (URFAEL_PET); no-op unless both it and the orb HUD are on
   orb.start();
   const boot = document.getElementById('boot'), bl = document.getElementById('bootline');
   const seq = ['WAKING', 'READING THE ARCHIVE', 'AT YOUR SERVICE'];

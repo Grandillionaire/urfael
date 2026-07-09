@@ -20,6 +20,7 @@ const pluginhub = require('../pluginhub');
 const providers = require('../providers');
 const review = require('../engine/review');
 const fallback = require('../engine/fallback');
+const pet = require('../pet');
 
 const ITERS = parseInt(process.env.FUZZ_ITERS || '20000', 10);
 const BUDGET_MS = parseInt(process.env.FUZZ_BUDGET_MS || '250', 10);   // a parser must be ~linear; > this = ReDoS suspect
@@ -96,6 +97,11 @@ const targets = [
   ['fallback.classifyNativeError', (v) => fallback.classifyNativeError(typeof v === 'string' ? { ok: false, error: v } : v), (r) => (r && typeof r.retryable === 'boolean' && typeof r.category === 'string') || 'classifyNativeError bad shape'],
   // native fallback chain: total, returns an array no longer than the input chain (never grows, never throws).
   ['fallback.nativeFallbackChain', (v) => { const chain = Array.isArray(v) ? v : [v]; return { out: fallback.nativeFallbackChain({ chain, canEngine: () => true, hasSecret: () => true }), len: chain.length }; }, (r) => (Array.isArray(r.out) && r.out.length <= r.len) || 'nativeFallbackChain non-array / grew beyond the chain'],
+  // the opt-in Familiar is TOTAL: mapState always returns an AGENT_STATES member, frameTUI always returns a string,
+  // neither ever throws — the cosmetic layer can never take down a surface no matter how garbage its inputs.
+  ['pet.mapState', (v) => pet.mapState(v, (v && typeof v === 'object') ? v : { tool: v, aborted: v }), (r) => pet.AGENT_STATES.includes(r) || 'mapState returned a non-member: ' + JSON.stringify(r)],
+  ['pet.frameTUI', (v) => pet.frameTUI(v, (v && v.length) || 0, (typeof v === 'number' ? v : 1000), { unicode: !!(ri(2)), reduceMotion: !!(ri(2)), tool: v }), (r) => typeof r === 'string' || 'frameTUI non-string'],
+  ['pet.poseFor', (v) => pet.poseFor(v), (r) => (r && typeof r.posture === 'number' && typeof r.glow === 'number') || 'poseFor bad shape'],
 ];
 
 const fails = [];
