@@ -3158,7 +3158,12 @@ function listen() {
     loadEnabledPlugins();   // re-arm enabled (brain-tools-tier) plugins before the warm session spawns, so --mcp-config is set
     brain.warmUp();
     scheduler.start(deliverReminder);
-    scheduler.startCron(deliverCron); // re-arm persisted cron jobs; ticked in the same scheduler interval
+    // livePin + notify are inert unless URFAEL_CRON_HARDEN=1; then a scheduled job is drift-skipped if the owner's
+    // default brain changed since it was authored, and a missed/stale/drift skip is logged (never run on a drifted brain).
+    scheduler.startCron(deliverCron, {
+      livePin: () => ({ provider: nativeDefault || 'claude', model: MODELS.sonnet }),
+      notify: (info) => logEvent(info),
+    }); // re-arm persisted cron jobs; ticked in the same scheduler interval
     scheduler.startWatchers(deliverWatch); // re-arm persisted local event triggers (file/glob fs.watch + pid poll)
     // Re-dispatch any fires that were QUEUED behind an in-flight run when the daemon last died — they were already pulled
     // from their one-shot stores, so pending.json is their ONLY survivor. Clear the file first (they're in memory now);

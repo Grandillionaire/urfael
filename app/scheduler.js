@@ -7,7 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { normalizeReminder, normalizeCron, normalizeWatch, nextOccurrence, atomicWriteJSON } = require('./lib');
+const { normalizeReminder, normalizeCron, normalizeWatch, nextOccurrence, atomicWriteJSON, envOn } = require('./lib');
 const { isAlive } = require('./jobstore');
 
 const DIR = path.join(os.homedir(), '.claude', 'urfael');
@@ -26,6 +26,11 @@ let timer = null;
 // ticked in the SAME interval as reminders. Reminders are untouched.
 let crons = [];
 let deliverCron = () => {};
+// Cron reliability hardening (opt-in URFAEL_CRON_HARDEN=1; DEFAULT OFF). Injected by the daemon via startCron opts;
+// both stay dormant unless the flag is flipped, so the shipped default fire path + persisted store shape are
+// byte-identical. See tickCron / cronDecision below.
+let livePinFn = () => null;       // returns the live brain pin { provider, model } (or null when unknown)
+let cronNotifyFn = null;          // OPTIONAL sink for a skipped-run notice (drift/stale); console.error fallback
 
 // Third, independent store: LOCAL EVENT TRIGGERS ("watches") — each wakes the BRAIN when a local event happens
 // (a file changes, a directory subtree sees activity, or a watched pid exits). EVENT/POLL-armed, not time-math:
@@ -95,6 +100,10 @@ function addCron(spec) {
   const n = normalizeCron(spec);
   if (!n || crons.length >= MAX_ITEMS) return null;
   const c = { id: Date.now().toString(36) + '-' + crypto.randomBytes(3).toString('hex'), ...n, createdAt: new Date().toISOString() };
+  if (hardenOn()) {                                // opt-in: pin the brain this job was authored against, for drift-skip at fire time
+    let p = null; try { p = livePinFn(); } catch {}
+    if (p && p.provider != null) c.pin = { provider: String(p.provider), model: p.model == null ? null : String(p.model) };
+  }
   if (c.repeat) nextOccurrence(c);                 // a repeating spec dated in the past starts at its next occurrence
   crons.push(c); saveCron();
   return c;
@@ -114,13 +123,65 @@ function tick(now = Date.now()) {
   if (changed) save();
 }
 
+// ---- CRON RELIABILITY HARDENING (opt-in: URFAEL_CRON_HARDEN=1) ----------------------------------------------
+// Default OFF: hardenOn() is false, tickCron takes the ORIGINAL branch verbatim, addCron records no pin, and the
+// persisted store shape + fire order are byte-identical to the shipped default (proven by the flag-off parity test).
+// When the owner flips it on, two FAIL-CLOSED guards engage — both can only ever REDUCE fires, never add one:
+//   (a) MISSED-RUN SINGLE-GRACE: a repeat job whose window was slept/crashed through fires EXACTLY ONCE on the next
+//       tick if its due time is still within a BOUNDED grace; missed by more than the bound => SKIPPED (advanced,
+//       not fired stale). nextOccurrence already collapses N missed windows to one advance, so there is never a
+//       catch-up storm, and lastRun is stamped BEFORE delivery so a crash mid-fire cannot double-fire on restart.
+//   (b) PROVIDER-DRIFT FAIL-CLOSED: a job that recorded the brain it was authored against (pin) is SKIPPED if that
+//       pin no longer matches the live config at fire time, rather than silently running on a different brain. A
+//       job with no pin (the flag-off authoring shape) can never drift, so this is a pure no-op there.
+// idea from NousResearch/hermes-agent (MIT), patterns only, NO code copied.
+const CRON_MISS_GRACE_MS = 3600000;   // 1h bound: a repeat job overdue by more than this is too stale to fire, only re-armed
+function hardenOn() { return envOn(process.env.URFAEL_CRON_HARDEN); }
+function samePin(a, b) {               // fail-closed equality: an unknown side (null) never matches a recorded pin
+  if (!a || !b) return false;
+  return String(a.provider) === String(b.provider) && String(a.model == null ? '' : a.model) === String(b.model == null ? '' : b.model);
+}
+// Pure per-job fire decision, evaluated ONLY under the flag for a job already known to be due (c.at <= now).
+// Returns { fire, reason }: fire=true runs it once; fire=false advances WITHOUT running (drift/stale/already-ran).
+// Computed purely from the recorded pin/lastRun/at vs now — no side effects, so it is unit-testable in isolation.
+function cronDecision(c, now, graceMs, livePin) {
+  const at = typeof (c && c.at) === 'number' ? c.at : now;
+  if (c && c.pin && !samePin(c.pin, livePin)) return { fire: false, reason: 'drift' };            // (b) never run on a drifted brain
+  if (typeof (c && c.lastRun) === 'number' && c.lastRun >= at) return { fire: false, reason: 'already-ran' }; // idempotence: this occurrence already fired
+  if (now - at > graceMs) return { fire: false, reason: 'stale' };                                // (a) bounded grace: too stale, re-arm only
+  return { fire: true, reason: 'due' };
+}
+function emitCronSkip(c, reason, now) {
+  const info = { ev: 'cron_skip', id: c && c.id, reason, at: c && c.at, now, pin: (c && c.pin) || null };
+  if (typeof cronNotifyFn === 'function') { try { cronNotifyFn(info); return; } catch {} }
+  console.error('[urfael] cron ' + (c && c.id) + ' skipped (' + reason + '): not fired on this tick (fail-closed).');
+}
+
 function tickCron(now = Date.now()) {
+  if (hardenOn()) return tickCronHardened(now);
+  // ORIGINAL fire path — reached whenever URFAEL_CRON_HARDEN is unset, so it stays byte-identical to the shipped default.
   let changed = false;
   for (const c of crons.slice()) {
     if (c.at > now) continue;
     try { deliverCron(c); } catch {}            // injected by the daemon — never coupled to the brain here
     changed = true;
     if (!nextOccurrence(c, now)) crons.splice(crons.indexOf(c), 1);   // one-shots fire once then drop
+  }
+  if (changed) saveCron();
+}
+
+// Hardened twin of tickCron: SAME due filter + SAME single-advance, plus the two fail-closed guards above. Only ever
+// reached when URFAEL_CRON_HARDEN=1. A non-fire outcome advances the job WITHOUT delivering (never a stale/drifted run).
+function tickCronHardened(now) {
+  let changed = false;
+  let livePin = null; try { livePin = livePinFn(); } catch {}
+  for (const c of crons.slice()) {
+    if (c.at > now) continue;                             // not due yet — IDENTICAL filter to the normal path (no retro-fire of a future job)
+    const d = cronDecision(c, now, CRON_MISS_GRACE_MS, livePin);
+    if (d.fire) { c.lastRun = now; try { deliverCron(c); } catch {} }  // stamp lastRun BEFORE delivery so a crash mid-fire cannot double-fire
+    else emitCronSkip(c, d.reason, now);                  // loud, bounded notice — a skip is never silent
+    changed = true;
+    if (!nextOccurrence(c, now)) crons.splice(crons.indexOf(c), 1);    // one advance collapses N missed windows; one-shots drop
   }
   if (changed) saveCron();
 }
@@ -274,7 +335,15 @@ function startWatchers(fireFn, opts) {
 
 // Wire cron delivery + re-arm the persisted cron store. Called by the daemon after start(); kept separate so
 // the deliverCron closure (which spawns the sandboxed brain one-shot) is injected without coupling this module.
-function startCron(deliverFn) { deliverCron = deliverFn; loadCron(); }
+// opts (optional, all dormant unless URFAEL_CRON_HARDEN=1): { livePin } injects the live-brain reader used for the
+// drift-skip guard; { notify } injects the skipped-run notice sink (console.error is the fallback). A single-arg call
+// (the historical shape) leaves both at their inert defaults, so the flag-off path is unchanged.
+function startCron(deliverFn, opts) {
+  deliverCron = deliverFn;
+  if (opts && typeof opts.livePin === 'function') livePinFn = opts.livePin;
+  if (opts && typeof opts.notify === 'function') cronNotifyFn = opts.notify;
+  loadCron();
+}
 
 module.exports = { start, add, cancel, list, tick, startCron, addCron, cancelCron, listCron, getCron, tickCron,
-  startWatchers, addWatch, cancelWatch, listWatch, getWatch, tickWatch, makeDebouncer };
+  startWatchers, addWatch, cancelWatch, listWatch, getWatch, tickWatch, makeDebouncer, cronDecision };
