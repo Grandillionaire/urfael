@@ -57,6 +57,7 @@ const engine = require('./engine');             // NATIVE ENGINE: in-process age
 const defaultBrain = require('./engine/default-brain');   // NATIVE DEFAULT BRAIN: pure decision + shape-mapper for the opt-in "run the local turn on a pinned native provider" path
 const handoffCompact = require('./engine/handoff-compact');   // OPT-IN pre-hand-off distill compaction (pure, zero-dep, never-throws); default OFF via URFAEL_PRECOMPACT
 const jobstore = require('./jobstore');
+const runScope = require('./run-scope');         // OPT-IN (URFAEL_RUN_SCOPE=1, default OFF) fair per-origin run cap + origin-scoped resume; layered on the EXISTING global caps, zero-dep, no new port
 const council = require('./council');
 const asyncCouncil = require('./engine/async-council');   // OPT-IN detached, summary-only async Council driver (URFAEL_COUNCIL_ASYNC); reuses councilDeps + council.js verbatim
 const runner = require('./runner');
@@ -353,6 +354,12 @@ const PRECOMPACT_RATIO = (() => { const v = parseFloat(process.env.URFAEL_PRECOM
 const PRECOMPACT_FIRSTN = (() => { const v = parseInt(process.env.URFAEL_PRECOMPACT_FIRSTN, 10); return Number.isFinite(v) && v >= 0 ? v : 2; })();   // protected first exchanges
 const PRECOMPACT_LASTN = (() => { const v = parseInt(process.env.URFAEL_PRECOMPACT_LASTN, 10); return Number.isFinite(v) && v >= 0 ? v : 6; })();   // verbatim recent exchanges
 const PRECOMPACT_MAXTOK = 32000;   // the distill hand-off's usable window (matches the native engine's contextWindow)
+// OPT-IN (default OFF): fair per-origin run scoping. When OFF, RUN_SCOPE_ON is false so NONE of the run-scope
+// branches (the per-origin admission gate in askScoped, the creator-origin stamp on a job, the origin check on a
+// resume/reuse) ever execute — the assembled turn, the global caps, and the shipped job JSON stay BYTE-IDENTICAL.
+// When ON it only ever REFUSES (same busy string / a fail-closed resume denial); it never widens access.
+const RUN_SCOPE_ON = runScope.enabled(process.env);
+const scopeCounter = runScope.makeCounter();   // in-memory per-origin slot accounting for the remote (askScoped) path; inert unless RUN_SCOPE_ON
 // OPT-IN (default OFF): expose the read-only Council (app/council.js) as a selectable synthetic 'council' brain
 // mode (a.k.a. Mixture-of-Agents / MoA / ensemble). When OFF, parseCouncilDirective is never consulted, the MoA
 // routing branch and the brain-pin load are skipped, and POST /brain fails closed — so the ask path is BYTE-
@@ -810,6 +817,11 @@ const brain = {
       }
       const permMode = (profile.permissionMode && profile.permissionMode !== 'bypassPermissions') ? profile.permissionMode : 'acceptEdits';
       if (inflightScoped.size >= MAX_SCOPED) { resolve({ text: '(busy — too many remote requests in flight; try again in a moment)', model: '' }); return; }
+      // FAIR PER-ORIGIN SHARE (opt-in, default OFF): on top of the global cap above, an origin that already holds its
+      // fair slice of MAX_SCOPED is refused with the SAME busy string, so one flooding remote principal cannot take
+      // every slot while others starve. Owner is exempt (single-owner use stays byte-identical); an unattributable
+      // origin is clamped to 1 (fail-closed). This NEVER raises the global cap and never runs when the flag is off.
+      if (RUN_SCOPE_ON && !scopeCounter.admit(ctx, MAX_SCOPED)) { resolve({ text: '(busy — too many remote requests in flight; try again in a moment)', model: '' }); return; }
       // auto-route, then CLAMP DOWN to the owner-set per-principal cap (if any). The cap can only LOWER the tier, never
       // raise it, so a capped member/guest can't burn the expensive tier on a cost-DoS prompt; no cap → classifyModel as before.
       const model = capModel(classifyModel(text), normPinModel(ctx.modelCap));
@@ -825,11 +837,12 @@ const brain = {
       // minimal env (PATH/HOME + model knobs + backend routing): never the daemon's unrelated secrets.
       const proc = spawn(CLAUDE_BIN, args, { cwd: VAULT, env: scopedEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
       inflightScoped.add(proc); // tracked in-memory (killed on shutdown); NOT persisted to the brain killfile (avoids pid-reuse kills)
+      const scopeKey = RUN_SCOPE_ON ? scopeCounter.acquire(ctx) : null;   // reserve this origin's slot; released on exit/error (null + no-op when the flag is off)
       let out = '';
       proc.stdout.on('data', (d) => { out += d.toString(); if (out.length > 5000000) out = out.slice(-5000000); });
       const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 180000); // exit handler resolves
       proc.on('exit', () => {
-        clearTimeout(timer); inflightScoped.delete(proc);
+        clearTimeout(timer); inflightScoped.delete(proc); if (scopeKey) scopeCounter.release(scopeKey);
         let txt = '', ju = {};
         // capture the scoped child's token usage too: --output-format json already emits a `usage` block; we used to
         // parse `out` only for j.result and discard j.usage, so every remote principal read $0 in any cost rollup.
@@ -843,7 +856,7 @@ const brain = {
         if (txt && ctx.role === 'owner') modelUser(text, txt);
         resolve({ text: txt || '(no reply)', model });
       });
-      proc.on('error', () => { clearTimeout(timer); inflightScoped.delete(proc); resolve({ text: '(brain spawn failed)', model }); });
+      proc.on('error', () => { clearTimeout(timer); inflightScoped.delete(proc); if (scopeKey) scopeCounter.release(scopeKey); resolve({ text: '(brain spawn failed)', model }); });
     });
   },
 };
@@ -863,6 +876,10 @@ function delegateBackground(turn) {
     principal: String(t.principal || ''), role: String(t.role || ''), channel: String(t.channel || '') };
   if (t.model) spec.model = String(t.model);
   if (t.repo) spec.repo = String(t.repo);
+  // ORIGIN-SCOPED RESUME (opt-in, default OFF): stamp the creator origin so ONLY the same origin (or the local owner)
+  // may later resume/reuse this job. A no-channel delegation is the local owner; a channel-bearing one is its remote
+  // principal/channel. Absent unless the flag is on, so the persisted job JSON is byte-identical by default.
+  if (RUN_SCOPE_ON) spec.runScopeOrigin = runScope.originKey(spec.channel ? { role: spec.role, principal: spec.principal, channel: spec.channel } : { local: true });
   let job;
   try { job = jobstore.create(spec); runner.run(jobstore.get(job.id)); }
   catch (e) { logEvent({ ev: 'job_create_error', err: String((e && e.message) || e) }); return { error: 'could not persist job' }; }
@@ -2861,6 +2878,10 @@ const server = http.createServer(async (req, res) => {
     const ceiling = ('channel' in spec && spec.channel) ? profileFor(spec.role, AGENT_MODE).name : 'local';
     const requested = (typeof spec.scope === 'string' && spec.scope) ? spec.scope : ceiling; // absent → the ceiling (local for the owner socket)
     spec.scope = narrowScope(requested, ceiling);
+    // ORIGIN-SCOPED RESUME (opt-in, default OFF): record the creator origin (local owner for a bare socket request; the
+    // remote principal/channel for a channel-bearing one) so a later resume/reuse route can refuse a cross-origin
+    // resume fail-closed. Only when the flag is on — otherwise the stored job JSON is byte-identical.
+    if (RUN_SCOPE_ON) spec.runScopeOrigin = runScope.originKey(('channel' in spec && spec.channel) ? { role: spec.role, principal: spec.principal, channel: spec.channel } : { local: true });
     let job;
     try { job = jobstore.create(spec); runner.run(jobstore.get(job.id)); }   // a jobs-dir I/O fault must 500, not hang the client
     catch (e) { logEvent({ ev: 'job_create_error', err: String((e && e.message) || e) }); res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'could not persist job' })); return; }
@@ -2901,13 +2922,20 @@ const server = http.createServer(async (req, res) => {
   } else if (req.url && req.url.startsWith('/job/')) {
     const m = req.url.match(/^\/job\/([A-Za-z0-9-]{4,64})(\/cancel)?$/); // id validated; never interpolated into a shell
     if (!m) { res.writeHead(404); res.end(); return; }
+    // ORIGIN-SCOPED RESUME (opt-in, default OFF): reusing a job (cancel or read-back) is gated to the SAME origin that
+    // created it. A bare 0600-socket request IS the local owner, who may resume anything (so today's owner path is
+    // byte-identical); the gate exists so any FUTURE non-owner resume path is refused fail-closed by construction. A
+    // job with no recorded creator origin (pre-flag) is treated as unattributable and only the owner may resume it.
+    const resumeAllowed = (j) => !RUN_SCOPE_ON || runScope.canResume(j && j.spec && j.spec.runScopeOrigin, { local: true });
     if (m[2]) { // POST /job/:id/cancel — a real kill switch (signals the whole process group)
       if (req.method !== 'POST') { res.writeHead(405); res.end(); return; }
+      if (RUN_SCOPE_ON) { const jc = jobstore.get(m[1]); if (jc && !resumeAllowed(jc)) { logEvent({ ev: 'job_cancel', id: m[1], ok: false, refused: 'cross-origin' }); res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'cross-origin resume refused' })); return; } }
       const ok = runner.cancel(m[1]); logEvent({ ev: 'job_cancel', id: m[1], ok });
       res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok })); return;
     }
     const j = jobstore.get(m[1]);
     if (!j) { res.writeHead(404); res.end(); return; }
+    if (!resumeAllowed(j)) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'cross-origin resume refused' })); return; }
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ...j, log: jobstore.tailLog(m[1], 60) }));
   } else if (req.method === 'POST' && req.url === '/remind') {
     // schedule a reminder: {text, at|inMins, repeat?: 'daily'|'weekly'|{everyMins}} — fires as

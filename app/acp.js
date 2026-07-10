@@ -13,8 +13,16 @@ const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const acp = require('./acp-translate');
+const runScope = require('./run-scope');   // OPT-IN (URFAEL_RUN_SCOPE=1, default OFF) origin-scoped session resume; inert unless the flag is set
 
 const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
+// ORIGIN-SCOPED SESSION RESUME (opt-in, default OFF): each ACP bridge process is ONE editor connection, so its
+// sessions belong to a single per-process origin. When the flag is on, a session is stamped with the origin that
+// created it and a session/prompt reusing it must present the SAME origin, so a session can never be driven by a
+// different origin (defense-in-depth for a leaked/replayed session id). Off by default → the session map and the
+// dispatch path are byte-identical, and dispatch's optional origin arg is never read.
+const RUN_SCOPE_ON = runScope.enabled(process.env);
+const ACP_ORIGIN = 'acp:' + process.pid;
 const out = (obj) => process.stdout.write(JSON.stringify(obj) + '\n');
 const notify = (sessionId, update) => out(acp.rpcNotify('session/update', { sessionId, update }));
 
@@ -56,8 +64,8 @@ function streamPrompt(sessionId, text, reqId) {
 }
 
 // dispatch one inbound JSON-RPC message.
-const sessions = new Map();          // sessionId -> { inflight? }
-async function dispatch(msg) {
+const sessions = new Map();          // sessionId -> { inflight?, origin? }
+async function dispatch(msg, origin) {
   if (!msg || msg.jsonrpc !== '2.0') return;
   const { id, method, params } = msg;
   const isRequest = id !== undefined && id !== null;
@@ -66,13 +74,18 @@ async function dispatch(msg) {
     case 'authenticate': return out(acp.rpcResult(id, {}));        // no app-level credential; the 0600 socket is the boundary
     case 'session/new': {
       const sessionId = crypto.randomUUID();                       // editor-supplied mcpServers are intentionally NOT forwarded (moat)
-      sessions.set(sessionId, {});
+      const s = {};
+      if (RUN_SCOPE_ON) s.origin = origin || ACP_ORIGIN;           // bind the creating origin (opt-in); absent by default → byte-identical
+      sessions.set(sessionId, s);
       return out(acp.rpcResult(id, { sessionId }));
     }
     case 'session/prompt': {
       const sessionId = params && params.sessionId;
       const s = sessions.get(sessionId);
       if (!s) return out(acp.rpcError(id, -32602, 'unknown session'));
+      // ORIGIN-SCOPED RESUME (opt-in): reuse only by the origin that created this session; a cross-origin reuse is
+      // refused fail-closed BEFORE the single-flight check touches any session state. Never runs when the flag is off.
+      if (RUN_SCOPE_ON && !runScope.canResume(s.origin, origin || ACP_ORIGIN)) return out(acp.rpcError(id, -32603, 'cross-origin resume refused (this session belongs to another origin)'));
       if (s.inflight) return out(acp.rpcError(id, -32603, 'a prompt is already in flight (single warm conversation)'));
       const text = acp.flattenPromptBlocks(params && params.prompt);
       if (!text) return out(acp.rpcResult(id, { stopReason: 'end_turn' }));
