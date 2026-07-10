@@ -3,8 +3,8 @@
 // reusable skill from an arbitrary source, routed through Urfael's existing safety pipeline BEFORE the skill is ever
 // trusted, indexed, or (it never is) executed.
 //
-// Provenance (clean-room): we STUDIED the Hermes `/learn <anything>` MIT pattern — distill a skill from a dir/URL/the
-// last run and index it. We copied NO code. Hermes trusts the distilled skill ON WRITE (auto-authoring from an
+// Provenance (clean-room): we STUDIED the Hermes `/learn <anything>` MIT pattern (NousResearch/hermes-agent, MIT) —
+// distill a skill from a dir/URL/the last run and index it. Patterns only; we copied NO code. Hermes trusts the distilled skill ON WRITE (auto-authoring from an
 // arbitrary source is the skill-poisoning surface). Urfael runs the same distillation but gates the output through the
 // SAME moat every installed skill passes and then some: distill on the fortress READ-ONLY floor (Read/Grep/Glob, no
 // Write/Edit/Bash, no egress) -> the hub static scanner (30+ danger families + decode-and-rescan) -> a sha256 pin ->
