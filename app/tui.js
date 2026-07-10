@@ -16,6 +16,7 @@ const theme = require('./tui-theme');
 const anim = require('./tui-anim');
 const rend = require('./tui-render');
 const slash = require('./slash');
+const ctxreport = require('./context-report');   // per-category context attribution (pure renderer)
 const hist = require('./tui-history');
 const dc = require('./daemon-client');   // shared unix-socket client (request + /ask NDJSON stream)
 
@@ -265,6 +266,7 @@ function runSlash(name, arg) {
   if (c.name === 'persona') return runPersona(arg);
   if (c.name === 'search') return runSearch(arg);
   if (c.name === 'usage') return runUsage();
+  if (c.name === 'context') return runContext(arg);
 }
 
 function pending(text) { add('sys', '╶ ' + text); const ix = lines.length - 1; render(); return ix; }
@@ -408,6 +410,40 @@ function runUsage() {
     .catch(() => settle(ix, 'usage: daemon unreachable'));
 }
 
+// /context [message] → per-category attribution of what fills the model input for a turn. Pass a message to see what
+// active recall would add for that turn. Rendered plain (sys lines are sanitized) via the shared context-report
+// renderer, so the CLI and the cockpit read identically. Read-only; never touches the turn path.
+function runContext(arg) {
+  const q = String(arg || '').trim();
+  const ix = pending('context…');
+  req('GET', '/context' + (q ? '?q=' + encodeURIComponent(q.slice(0, 4000)) : ''))
+    .then((rep) => {
+      if (!rep || typeof rep !== 'object') { settle(ix, 'context: (unavailable)'); return; }
+      const ID = { gold: (s) => s, dim: (s) => s, bold: (s) => s };
+      const out = ctxreport.lines(rep, ID);
+      settle(ix, out[0] || 'context');
+      for (const ln of out.slice(1)) add('sys', ln);
+      render();
+    })
+    .catch(() => settle(ix, 'context: daemon unreachable'));
+}
+
+// OPT-IN always-on context widget (URFAEL_CONTEXT_CARD=1): after each completed turn, append a single compact line
+// naming the biggest measured consumer + the measured total, so the window stays visible without a manual /context.
+// Default-OFF keeps the cockpit byte-identical. Read-only, fail-soft: a hiccup shows nothing.
+const CONTEXT_CARD_ON = /^(1|true|on|yes)$/i.test(String(process.env.URFAEL_CONTEXT_CARD || ''));
+function contextCardTick() {
+  if (!CONTEXT_CARD_ON) return;
+  req('GET', '/context').then((rep) => {
+    if (!rep || !Array.isArray(rep.categories)) return;
+    const top = rep.categories.find((c) => c && c.biggest && c.measured);
+    const share = top && typeof top.share === 'number' ? Math.round(top.share * 100) + '%' : '?';
+    const line = 'context: ' + ctxreport.humanBytes(rep.totalBytes) + ' / ' + ctxreport.humanTok(rep.totalEstTokens)
+      + ' tok (est) · biggest ' + (top ? top.category + ' ' + share : '—') + ' · /context for detail';
+    add('sys', '╶ ' + line); render();
+  }).catch(() => {});
+}
+
 // showSlashHelp → list the whole palette in the transcript (plain text; the 'sys' style is applied by the renderer).
 function showSlashHelp() {
   add('sys', 'slash commands · type / then a name · ↑↓ choose · Tab complete · Enter run · Esc cancel');
@@ -485,6 +521,7 @@ function sendTurn(text) {
       const stamp = cfg.timestamps ? ' · ' + new Date().toTimeString().slice(0, 5) : '';
       add('sys', e.aborted ? '╶ stopped' : '╶ ' + (e.model || '') + (secs ? ' · ' + secs : '') + (tok ? ' · ' + tok : '') + stamp);
       render(); refreshVitals();
+      contextCardTick();   // opt-in (URFAEL_CONTEXT_CARD=1): compact "what fills the window" line after the turn; no-op by default
     },
     onError: (err) => {
       if (err.phase === 'error') finish(answerIdx >= 0 && lines[answerIdx].text ? '' : ' (brain unreachable)');

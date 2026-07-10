@@ -22,6 +22,7 @@ const COMMANDS = [
   { name: 'persona', arg: '[architect|sage|operator|muse|analyst|reset]', picker: true, summary: 'switch the voice (opens a picker)' },
   { name: 'search',  arg: '<query>', needsArg: true, summary: 'full-text search every past conversation' },
   { name: 'usage',   summary: "today's turns, tokens, and estimated cost" },
+  { name: 'context', arg: '[<message>]', summary: 'what fills the model input — bytes + est tokens per category' },
   { name: 'clear',   summary: 'clear the transcript', key: 'Ctrl+L' },
   { name: 'theme',   picker: true, summary: 'pick the colour theme, previewed live', key: 'Ctrl+T' },
   { name: 'anim',    picker: true, summary: 'pick the worker animation', key: 'Ctrl+Y' },
