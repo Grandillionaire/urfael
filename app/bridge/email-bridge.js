@@ -10,6 +10,7 @@
 // one-way push to the owner (the native "when email matching X arrives, do Y" primitive). The draft is unchanged.
 const tls = require('tls');
 const core = require('./bridge-core');
+const { IdleGovernor } = require('./idle-governor'); // opt-in idle-suspend (URFAEL_IDLE_SUSPEND); gates ONLY the non-IDLE fallback sleep
 
 const cfg = core.loadEnv();
 const HOST = cfg.EMAIL_IMAP_HOST;
@@ -345,7 +346,7 @@ async function saveDraft(imap, to, subject, body, inReplyTo) {
 }
 
 // One pass: find UNSEEN uids, and for each allowlisted one relay + draft. Returns nothing; logs via audit.
-async function drain(imap) {
+async function drain(imap, gov) {
   const uids = parseSearch(await imap.cmd('UID SEARCH UNSEEN'));
   const seen = (uid) => { processed.add(uid); if (processed.size > 5000) processed.clear(); }; // bound; reconnect re-derives
   for (const uid of uids) {
@@ -377,14 +378,15 @@ async function drain(imap) {
         core.audit({ ev: 'email_trigger', from: sender, action: trig.action });
       }
       core.audit({ ev: 'email_turn', from: sender, principal: principal.name, role: principal.role, inLen: mail.body.length, outLen: reply.length, ms: Date.now() - t0 });
+      gov && gov.markActivity(); // owner mail processed => snap the non-IDLE fallback cadence back to hot
     } catch (e) { core.audit({ ev: 'email_turn_error', from: sender, err: String((e && e.message) || e) }); } // a failed turn stays UNSEEN+unprocessed → retried
   }
 }
 
 // IDLE loop: arm IDLE, on an untagged EXISTS/RECENT send DONE and re-drain; fall back to POLL_SECS re-drain so
 // a server without IDLE still works. Resolves (returns) on any socket error so the caller can reconnect.
-async function serve({ imap, sock, hasIdle }) {
-  await drain(imap); // catch anything that arrived before we armed IDLE
+async function serve({ imap, sock, hasIdle }, gov) {
+  await drain(imap, gov); // catch anything that arrived before we armed IDLE
   for (;;) {
     if (hasIdle) {
       await new Promise((resolve) => {
@@ -398,10 +400,12 @@ async function serve({ imap, sock, hasIdle }) {
         imap.cmd('IDLE').then(resolve, resolve); // tagged completion arrives after DONE (or socket error)
       });
     } else {
-      await sleep(POLL_SECS * 1000);
+      // NON-IDLE fallback ONLY (the IMAP IDLE push branch above is untouched). At default knobs the idle probe
+      // equals email's native 60s floor, so ON==OFF here until URFAEL_IDLE_PROBE_SECS is raised — honest by design.
+      await sleep(gov ? gov.nextDelay() : POLL_SECS * 1000);
     }
     if (sock.destroyed) return;
-    try { await drain(imap); } catch (e) { core.audit({ ev: 'email_drain_error', err: String((e && e.message) || e) }); if (sock.destroyed) return; }
+    try { await drain(imap, gov); } catch (e) { core.audit({ ev: 'email_drain_error', err: String((e && e.message) || e) }); if (sock.destroyed) return; }
   }
 }
 
@@ -413,6 +417,11 @@ async function main() {
     process.exit(1);
   }
   core.audit({ ev: 'email_boot', allowed: ALLOWED.size, drafts: DRAFTS });
+  // IDLE-SUSPEND (opt-in, default OFF; SECONDARY to imessage — a no-op at default knobs since email's fallback is
+  // already 60s). Construct the governor ONCE here, OUTSIDE the reconnect loop, so it survives serve() reconnects
+  // rather than resetting to hot on every reconnect. Null when the gate is off => byte-identical fallback sleep.
+  const idleCfg = core.idleSuspendGate();
+  const gov = idleCfg ? new IdleGovernor({ activeMs: POLL_SECS * 1000, ...idleCfg }) : null;
   let backoff = 1000;
   for (;;) {
     let conn;
@@ -420,7 +429,7 @@ async function main() {
     catch (e) { core.audit({ ev: 'email_connect_error', err: String((e && e.message) || e), retryMs: backoff }); await sleep(backoff); backoff = Math.min(backoff * 2, 60000); continue; }
     core.audit({ ev: 'email_open', idle: conn.hasIdle });
     backoff = 1000; // reset on a successful connect
-    try { await serve(conn); } catch (e) { core.audit({ ev: 'email_serve_error', err: String((e && e.message) || e) }); }
+    try { await serve(conn, gov); } catch (e) { core.audit({ ev: 'email_serve_error', err: String((e && e.message) || e) }); }
     try { conn.sock.destroy(); } catch {}
     core.audit({ ev: 'email_close', retryMs: backoff });
     await sleep(backoff); backoff = Math.min(backoff * 2, 60000);

@@ -4,6 +4,12 @@ All notable changes to Urfael are recorded here. The format follows [Keep a Chan
 
 Run `urfael version` to see what you are on, and `urfael update` to pull and reinstall the latest.
 
+## [0.11.0] - 2026-07-10
+
+### Added
+
+- **Idle-suspend for the outbound bridge pollers (opt-in, default off).** With `URFAEL_IDLE_SUSPEND=1`, a self-timed outbound poller stretches its own poll cadence once the owner has gone quiet, then snaps back to the hot cadence on the next owner message or on a scheduled/heartbeat push. It lives entirely in `app/bridge/*`: a pure, zero-dependency `IdleGovernor` cadence state machine plus a plain 0600 mtime-only "wake" doorbell file that `notifyAll()` bumps. There are ZERO edits to `app/daemon.js`, so the brain daemon, its 0600 unix socket, and the allowlist gate stay hot and byte-identical, and there is still no inbound port. A woken poll re-runs the SAME allowlist gate, same code, same order, before any message reaches the brain; suspension only changes how long the loop sleeps, never what it checks, and the governor module is structurally incapable of referencing the socket or the gate. Fail-closed and fail-safe: a missing, stale, or hostile doorbell can only make a poller poll MORE often (stay hot), never drop or fast-path a message, so the worst case is a bounded, tunable first-catch latency (never a lost message). Clock skew is `max()`-guarded to the same effect. Off by default (only `1`/`on`/`true` enable it), so the default poller paths are byte-identical. Honestly scoped: it targets iMessage (the one true 4s busy-poller, the flagship win) and email's non-IDLE fallback (secondary, and a no-op at the default knobs because email's fallback is already 60s). The long-poll bridges (Telegram/Matrix), the IMAP IDLE push path, the Signal streaming subprocess, and the WebSocket-heartbeat bridges (Discord/Slack/QQ/SimpleX) are deliberately NOT suspended, because they are already idle-cheap server-side and forcing them to a non-blocking probe would make them busier or drop the connection. Tuning knobs (inert unless the master flag is on): `URFAEL_IDLE_AFTER_MIN` (default 5) and `URFAEL_IDLE_PROBE_SECS` (default 60, floored so the idle probe is never faster than the bridge's native poll interval).
+
 ## [0.10.0] - 2026-07-09
 
 A security and integrity wave on top of v0.9.0. Every feature is backend-verified, and the opt-in or default-off ones are labelled as such, so nothing here overclaims what protects you by default.

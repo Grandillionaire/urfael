@@ -11,6 +11,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
 const core = require('./bridge-core');
+const { IdleGovernor } = require('./idle-governor'); // opt-in idle-suspend cadence (URFAEL_IDLE_SUSPEND); inert when the gate is null
 
 const cfg = core.loadEnv();
 const HANDLE = cfg.IMESSAGE_OWNER_HANDLE;             // allowlisted phone (+1…) or email
@@ -71,8 +72,17 @@ async function main() {
   let last = 0;
   for (let i = 0; i < 3 && !last; i++) { last = await maxRowid(); if (!last) await sleep(500); }
   core.audit({ ev: 'imessage_start', sinceRowid: last });
+  // IDLE-SUSPEND (opt-in, default OFF): when the gate is null no governor exists and the poll cadence below is the
+  // byte-identical original POLL_SECS. When on, the governor stretches the 4s hot cadence to the idle probe once the
+  // owner has gone quiet, and snaps back on owner traffic or a notifyAll doorbell. It NEVER touches the allowlist.
+  const idleCfg = core.idleSuspendGate();
+  const gov = idleCfg ? new IdleGovernor({ activeMs: POLL_SECS * 1000, ...idleCfg }) : null;
+  let wasSuspended = false;
   for (;;) {
-    await sleep(POLL_SECS * 1000);
+    await sleep(gov ? gov.nextDelay() : POLL_SECS * 1000);
+    if (gov && gov.suspended() && !wasSuspended) core.audit({ ev: 'idle_suspend' }); // audit ONCE on the active->suspended edge
+    if (gov) wasSuspended = gov.suspended();
+    gov && gov.wakeAt(core.wakeMtime()); // fold the doorbell (a heartbeat/scheduled push warms us; missing file => 0 => no change)
     let rows = [];
     try { rows = await rowsSince(last); } catch (e) { core.audit({ ev: 'imessage_poll_error', err: String((e && e.message) || e) }); continue; }
     // single-handle SQL (bound to HANDLE), so resolve the principal once. True multi-handle imessage = a SQL
@@ -85,6 +95,7 @@ async function main() {
       if (!bucket.take()) { core.audit({ ev: 'imessage_ratelimited' }); core.imessageSend(principal.id, 'Rate limited — one sec.').catch(() => {}); continue; }
       handle(r.text, principal).catch(() => {});
     }
+    if (gov && rows.length) { gov.markActivity(); core.audit({ ev: 'idle_wake' }); } // owner traffic => snap back to the hot cadence
   }
 }
 
