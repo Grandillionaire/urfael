@@ -47,6 +47,7 @@ const recall = require('./recall');
 const ridx = require('./recall-index');         // persistent BM25 inverted index — recall AT SCALE (FTS5-equivalent)
 const embed = require('./embed');               // optional local-first embeddings client (semantic recall)
 const memctx = require('./memctx');             // ACTIVE RECALL: per-turn relevant-memory preamble (pure assembler)
+const refs = require('./refs');                 // INLINE CONTEXT REFS (opt-in URFAEL_REFS): @path/@dir/@diff/@url → nonce-framed UNTRUSTED block + ledgered
 const calendar = require('./calendar');         // LOCAL-FIRST calendar event store (MEMORY_DIR/calendar.json; pure helpers + fail-soft I/O)
 const schedchan = require('./schedule-channel'); // the dedicated Reminders & Calendar channel: parse+validate+assemble (pure; the gate is the daemon's)
 const consolidate = require('./consolidate');   // masterful compaction: dedupe + evidence-retire the ledger, right-size recall
@@ -118,7 +119,7 @@ const REPO_ROOT = path.join(__dirname, '..');
 const PKG_VERSION = (() => { try { return require('./package.json').version; } catch { return '0'; } })();
 let updateStatus = { kind: 'unknown', available: false, current: PKG_VERSION, t: 0 };   // cached; refreshed on a cadence
 const CHAINFILE = path.join(MEMORY_DIR, 'audit-chain.jsonl');
-const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start', 'self_setting', 'self_update', 'cal_add', 'cal_move', 'cal_cancel', 'schedule_apply', 'precompact', 'goal_contract', 'goal_verify']);
+const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start', 'self_setting', 'self_update', 'cal_add', 'cal_move', 'cal_cancel', 'schedule_apply', 'precompact', 'goal_contract', 'goal_verify', 'ref_inject']);
 let chainSeq = -1, chainLastHash = auditChain.GENESIS, chainSeeded = false;
 function seedChain() {
   try { const lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); if (lines.length) { const last = JSON.parse(lines[lines.length - 1]); if (typeof last.seq === 'number' && typeof last.h === 'string') { chainSeq = last.seq; chainLastHash = last.h; } } } catch {}
@@ -1135,7 +1136,21 @@ function persistRecallIndex() {
 // embedder it is pure BM25 (identical cost). Recent in-conversation lines are excluded so recall brings cross-session
 // memory, not an echo. OFF only if URFAEL_ACTIVE_RECALL=0. Fail-soft: ANY hiccup returns the original text.
 const ACTIVE_RECALL_ON = process.env.URFAEL_ACTIVE_RECALL !== '0';
+const REFS_ON = process.env.URFAEL_REFS === '1';   // INLINE CONTEXT REFS: OPT-IN, default OFF → turn assembly byte-identical, a bare @word is never a ref
 const RECALL_EMBED_TIMEOUT_MS = 500;            // a per-turn query embedding is time-boxed; on timeout we keep BM25 order
+// resolveTurnRefs — THE one gated @-ref call, wired beside memctx.buildContext at the turn-assembly seam. Resolves the
+// owner's @path/@dir/@diff/@url tokens fail-closed (SSRF-filtered + realpath-clamped in refs.js), frames every injected
+// byte in a nonce untrusted envelope, and commits one tamper-evident ledger entry per ref so `urfael audit --verify`
+// can show exactly which external/file bytes (by sha256) entered the turn. Off (URFAEL_REFS≠1) → empty block. Never throws.
+async function resolveTurnRefs(text) {
+  if (!REFS_ON) return { block: '', entries: [] };
+  try {
+    return await refs.build(text, {
+      root: VAULT, enabled: true,
+      onLedger: (e) => logEvent({ ev: 'ref_inject', kind: e.kind, source: e.source, sha256: e.sha256, bytelen: e.bytelen }),
+    });
+  } catch { return { block: '', entries: [] }; }
+}
 let _vecCacheHot = null, _vecCacheAt = 0;
 function hotVecStore() {                         // cache the vector sidecar briefly so the hot path never re-reads it per turn
   const now = Date.now();
@@ -1150,10 +1165,15 @@ function embedQueryTimed(q) {                    // ONE small query embedding, t
   ]);
 }
 async function activeRecall(text) {
-  if (!ACTIVE_RECALL_ON) return { promptText: text, surfaced: [] };
+  // @-CONTEXT REFERENCES (opt-in URFAEL_REFS=1) resolve INDEPENDENTLY of active recall, so `@diff` works even if the
+  // owner disabled recall. Off → refBlock is '' and every path below stays byte-identical. withRefs() prepends the
+  // nonce-framed UNTRUSTED refs block exactly like the recalled-memory block rides in.
+  const refBlock = REFS_ON ? (await resolveTurnRefs(text)).block : '';
+  const withRefs = (t) => (refBlock ? refs.prepend(refBlock, t) : t);
+  if (!ACTIVE_RECALL_ON) return { promptText: withRefs(text), surfaced: [] };
   try {
     const q = String(text == null ? '' : text);
-    if (q.trim().length < 3) return { promptText: text, surfaced: [] };
+    if (q.trim().length < 3) return { promptText: withRefs(text), surfaced: [] };
     const idx = refreshRecallIndex();
     let turns = ridx.entriesFor(idx, ridx.query(idx, q, embed.enabled() ? 16 : 8));   // wider shortlist when we can re-rank
     if (embed.enabled() && turns.length) {
@@ -1168,11 +1188,11 @@ async function activeRecall(text) {
     const lessons = learn.trusted(learn.load(MEMORY_DIR));              // verified, strongest-first (confidence = salience)
     const exclude = transcript.slice(-6).map((t) => t && t.user).filter(Boolean);     // don't echo the live conversation
     const ctx = memctx.buildContext({ query: q, turns, lessons, exclude });
-    if (!ctx.block) return { promptText: text, surfaced: [] };
+    if (!ctx.block) return { promptText: withRefs(text), surfaced: [] };
     const sizedBlock = consolidate.formatForModel(ctx.block, convoModel);   // tighter for fast tiers, full for Opus; preserves the reference-only fence
     logEvent({ ev: 'active_recall', turns: ctx.surfacedTurns.length, lessons: ctx.surfacedLessons.length, chars: ctx.block.length, semantic: embed.enabled() });
-    return { promptText: memctx.prepend(sizedBlock, q), surfaced: ctx.surfacedLessons };
-  } catch { return { promptText: text, surfaced: [] }; }
+    return { promptText: withRefs(memctx.prepend(sizedBlock, q)), surfaced: ctx.surfacedLessons };
+  } catch { return { promptText: withRefs(text), surfaced: [] }; }
 }
 // ---- NATIVE ENGINE local turn -------------------------------------------------------------------------
 // Run one turn on a NON-subscription provider (an API key, or a local/Ollama endpoint) via the in-process engine
