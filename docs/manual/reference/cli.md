@@ -486,6 +486,7 @@ your installed skills; install scans + previews, never runs.
 ```bash
 urfael skills list | export <name> | scan <file>
   | install <https-url> [--yes]
+  | learn <dir | https-url | --from-last>
 ```
 
 Examples:
@@ -493,7 +494,7 @@ Examples:
 ```bash
 urfael skills list
 urfael skills install https://example.com/skill.md
-urfael skills scan ./draft.md
+urfael skills learn --from-last
 ```
 
 See also: `hub` · `import`

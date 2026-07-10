@@ -574,7 +574,35 @@ function readStdinAdapter(maxBytes) {
       return;
     }
     if (sub === 'install' && rest[1]) { const r = await hub.installFromUrl(rest[1], { yes: rest.includes('--yes') }); if (!r.ok) process.exit(1); return; }
-    console.log('usage: urfael skills list | export <name> | scan <file> | install <https-url> [--yes]');
+    // learn: distil a reusable skill from a dir / https-url / the just-completed workflow, routed through the SAME
+    // moat every installed skill passes and then some — distil on the read-only fortress floor, scan, sha256-pin, an
+    // INDEPENDENT refute-only verifier, Ledger the capture, then store as INERT markdown (never executed). OPT-IN:
+    // this is a brand-new subcommand; with it un-invoked the default path is byte-identical.
+    if (sub === 'learn') {
+      const skillLearn = require('./skill-learn');
+      const { spawn: spawnChild } = require('child_process');
+      const { scopedEnv: libScopedEnv } = require('./lib');
+      const fromLast = rest.includes('--from-last') || rest[1] === '--from-last';
+      const source = fromLast ? '--from-last' : rest.find((a, i) => i >= 1 && !a.startsWith('--') && rest[i - 1] !== '--model');
+      if (!source && !fromLast) { console.log('usage: urfael skills learn <dir | https-url | --from-last> [--model <m>]'); return; }
+      const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || 'claude';
+      const deps = { spawn: spawnChild, CLAUDE_BIN, scopedEnv: () => libScopedEnv(process.env) };
+      const emit = (e) => {
+        if (e.ev === 'skill-learn.source') process.stderr.write(gold('● urfael skills learn') + dim('  ' + e.kind + '  ·  read-only, scanned, verified, never executed') + '\n');
+        else if (e.ev === 'skill-learn.distill') process.stderr.write(dim('  distilling on the read-only floor…') + '\n');
+        else if (e.ev === 'skill-learn.scanned') process.stderr.write(dim('  scan: ' + e.verdict + ' (' + e.flags + ' flag(s))') + '\n');
+        else if (e.ev === 'skill-learn.pinned') process.stderr.write(dim('  pinned sha256 ' + String(e.sha256).slice(0, 12) + '…') + '\n');
+        else if (e.ev === 'skill-learn.verify') process.stderr.write(dim('  independent verifier judging (refute-only)…') + '\n');
+        else if (e.ev === 'skill-learn.blocked') process.stderr.write(bad('✗') + ' scanner BLOCKED the distilled skill (' + e.verdict + ') — quarantined, nothing indexed\n');
+        else if (e.ev === 'skill-learn.vetoed') process.stderr.write(bad('✗') + ' verifier VETOED the skill' + (e.note ? dim(' — ' + String(e.note).slice(0, 100)) : '') + ' — quarantined, nothing indexed\n');
+        else if (e.ev === 'skill-learn.written') process.stderr.write(gold('✓ learned ') + e.path + dim('  (stored as markdown — never executed)') + '\n');
+        else if (e.ev === 'skill-learn.error') process.stderr.write(bad('✗') + ' ' + (e.msg || 'could not learn a skill') + '\n');
+      };
+      const r = await skillLearn.runSkillLearn(source, { fromLast, model: flag(rest, '--model'), ledgerDir: MEMORY_DIR, sessionsDir: path.join(MEMORY_DIR, 'sessions') }, emit, deps);
+      if (!r.ok) process.exit(1);
+      return;
+    }
+    console.log('usage: urfael skills list | export <name> | scan <file> | install <https-url> [--yes]\n  | learn <dir | https-url | --from-last>');
     return;
   }
 

@@ -429,4 +429,4 @@ function entryFor(file) {
   return { slug, title: m.name || slug, description: m.desc || '', url: 'https://YOUR-HOST/skills/' + slug + '.md', author: '', sha256: crypto.createHash('sha256').update(body, 'utf8').digest('hex'), tags: [] };
 }
 
-module.exports = { listLocal, exportSkill, scan, capabilityLines, installFromUrl, slugify, meta, SKILLS_DIR, hubIndexUrl, parseIndex, fetchIndex, searchEntries, findEntry, hubInstall, entryFor };
+module.exports = { listLocal, exportSkill, scan, capabilityLines, installFromUrl, slugify, meta, SKILLS_DIR, hubIndexUrl, parseIndex, fetchIndex, fetchMd, searchEntries, findEntry, hubInstall, entryFor };
