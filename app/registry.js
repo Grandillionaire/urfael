@@ -173,8 +173,8 @@ const COMMANDS = [
   // ── SKILLS ───────────────────────────────────────────────────────────────────
   { name: 'skills', group: 'SKILLS', starter: true, bareLabel: 'urfael skills list', bareSummary: 'your skills (scanned, never run)',
     summary: 'your installed skills; install scans + previews, never runs',
-    usage: 'urfael skills list | export <name> | scan <file>\n  | install <https-url> [--yes]',
-    examples: ['urfael skills list', 'urfael skills install https://example.com/skill.md', 'urfael skills scan ./draft.md'],
+    usage: 'urfael skills list | export <name> | scan <file>\n  | install <https-url> [--yes]\n  | learn <dir | https-url | --from-last>',
+    examples: ['urfael skills list', 'urfael skills install https://example.com/skill.md', 'urfael skills learn --from-last'],
     see: ['hub', 'import'] },
   { name: 'hub', group: 'SKILLS',
     summary: 'browse the skill registry — scanned + sha-checked, never run',
