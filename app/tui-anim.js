@@ -6,6 +6,8 @@
 // estimate (chars/4) while in flight — the daemon streams no live usage — that snaps to the
 // authoritative done.usage.output_tokens and drops the '~' once the turn finishes.
 
+const pet = require('./pet');   // the opt-in code-drawn Familiar (pure, zero-dep, never-throws); only consulted when cfg.pet is on
+
 const WORD = ['ᚢ', 'ᚱ', 'ᚠ', 'ᚨ', 'ᛖ', 'ᛚ'];        // U R F A E L (matches cli.js banner)
 
 const ANIM = {
@@ -75,10 +77,26 @@ function workerVerb(t0, now, lastTool) {
   return VERBS[Math.floor((now - t0) / VERB_MS) % VERBS.length];
 }
 
+// petGlyph(cfg, theme, st, now): the OPT-IN Familiar's worker-line prefix (a coloured 1-2 cell pose). Pure; it
+// only maps the state the cockpit ALREADY derived (st.petState + st.lastTool) through the pure pet module and
+// tints the glyph with the current accent — it reaches nothing. Wrapped by the caller so any throw drops the pet.
+function petGlyph(cfg, theme, st, now) {
+  const state = pet.mapState(st && st.petState, { tool: st && st.lastTool });
+  const g = pet.frameTUI(state, st && st.t0, now, { unicode: cfg.unicode !== false, reduceMotion: !!cfg.reduceMotion, tool: st && st.lastTool });
+  return theme.accent + g + theme.RST;
+}
+
 // composeWorker(cfg, theme, st, cols, now): the ONE worker line, PURE, fully coloured, NOT clipped.
-//   st = { t0, lastTool, answerChars, usageTokens|null }
+//   st = { t0, lastTool, answerChars, usageTokens|null, petState? }
 //   reduce-motion → a static, screen-reader-friendly line (no glyph cycling).
+// When cfg.pet is on, the Familiar's pose is PREFIXED to the same line (it only ever prepends a glyph + a space, so
+// the elapsed / tok / verb tail is byte-identical); when cfg.pet is off it is byte-identical to the core line.
 function composeWorker(cfg, theme, st, cols, now) {
+  const line = _composeWorkerCore(cfg, theme, st, cols, now);
+  if (cfg && cfg.pet) { try { return petGlyph(cfg, theme, st, now) + ' ' + line; } catch { return line; } }
+  return line;
+}
+function _composeWorkerCore(cfg, theme, st, cols, now) {
   const secs = ((now - st.t0) / 1000).toFixed(1) + 's';
   const woven = st.usageTokens != null ? fmtTok(st.usageTokens) + ' tok' : '~' + fmtTok(estTokens(st.answerChars)) + ' woven';
   if (cfg.reduceMotion) {
@@ -126,4 +144,4 @@ function previewGlyph(name, theme, t0, now) {
 }
 
 module.exports = { WORD, ANIM, THINKING, VERBS, TOOL_VERB, TOOL_RUNE, VERB_MS, ORACLE_MS, verbFor, runeForTool, runeRow, spinnerGlyph,
-                   estTokens, fmtTok, workerVerb, composeWorker, startWorker, stopWorker, previewGlyph };
+                   estTokens, fmtTok, workerVerb, composeWorker, petGlyph, startWorker, stopWorker, previewGlyph };

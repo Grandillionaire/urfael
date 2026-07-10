@@ -17,6 +17,7 @@ class UrfaelOrb {
     this.analyser = null; this.freq = null;
     this.state = 'idle'; this.level = 0; this.spin = 0;
     this.theme = 'sigil';
+    this.petOn = false; this.petSig = {};   // the OPT-IN code-drawn Familiar (URFAEL_PET); default off → _draw byte-identical
     this.gaze = { x: 0, y: 0 }; this.gazeS = { x: 0, y: 0 }; // target + smoothed cursor gaze
     this._resize();
     window.addEventListener('resize', () => this._resize());
@@ -33,6 +34,8 @@ class UrfaelOrb {
   setState(s) { this.state = s; }
   setTheme(t) { this.theme = t || 'sigil'; }
   setGaze(g) { if (g) this.gaze = g; }
+  setPet(on) { this.petOn = !!on; }                       // toggle the Familiar layer (from cfg.pet at boot)
+  setPetSignal(sig) { this.petSig = (sig && typeof sig === 'object') ? sig : {}; }   // { tool?, aborted?/failed? } — cheap no-op when pet off
 
   _sampleLevel() {
     const active = (this.state === 'listening' || this.state === 'speaking');
@@ -60,6 +63,40 @@ class UrfaelOrb {
     else if (this.theme === 'ember') this._drawReactor();
     else if (this.theme === 'sigil') this._drawMk2();
     else this._drawArc();
+    // ONE early guard → when petOn is false the frame is byte-identical to before; a render glitch degrades to no-pet.
+    if (this.petOn) { try { this._drawFamiliar(); } catch {} }
+  }
+
+  // ---------- the Familiar: a small code-drawn companion, drawn with the SAME primitives + STATE_COLORS ----------
+  // Consumes the pure pet module (window.UrfaelPet): mapState → poseFor, then draws posture/eye/limb/glow. tool /
+  // waiting / failed have no colour key, so they tint via the existing STATE_COLORS[x] || STATE_COLORS.idle fallback
+  // plus a distinct posture, so no default colour key changes and the orb's voice states render unchanged.
+  _drawFamiliar() {
+    const P = (typeof window !== 'undefined') && window.UrfaelPet; if (!P) return;
+    const st = P.mapState(this.state, this.petSig || {});
+    const pose = P.poseFor(st) || {};
+    const { ctx, size } = this;
+    const c = STATE_COLORS[st] || STATE_COLORS.idle;
+    const col = (a) => this._col(c, a);
+    const s = size * 0.11;                                      // a small Familiar, tucked below the sigil
+    const cx = size * 0.5, cy = size * 0.5 + size * 0.34;
+    const lean = (pose.posture - 0.5) * s * 0.9;
+    ctx.save(); ctx.translate(cx, cy); ctx.lineCap = 'round'; ctx.shadowColor = col(0.8);
+    // aura from glow
+    const g = ctx.createRadialGradient(0, 0, s * 0.2, 0, 0, s * 1.9);
+    g.addColorStop(0, col(0.10 + (pose.glow || 0) * 0.16)); g.addColorStop(1, col(0));
+    ctx.fillStyle = g; ctx.fillRect(-s * 2, -s * 2, s * 4, s * 4);
+    // body
+    ctx.shadowBlur = 6; ctx.lineWidth = 1.4; ctx.strokeStyle = col(0.25 + (pose.glow || 0) * 0.6);
+    ctx.beginPath(); ctx.arc(lean * 0.3, 0, s, 0, Math.PI * 2); ctx.stroke();
+    // eyes — openness from pose.eye
+    const eo = 0.12 + (pose.eye || 0) * 0.5, er = s * 0.16;
+    ctx.fillStyle = col(0.95);
+    for (const sx of [-1, 1]) { ctx.beginPath(); ctx.ellipse(lean * 0.3 + sx * s * 0.34, -s * 0.1, er, er * eo, 0, 0, Math.PI * 2); ctx.fill(); }
+    // limb reaching for the implement — extension from pose.limb, so the Familiar visibly "wields" a live tool
+    const reach = (pose.limb || 0) * s * 1.4;
+    if (reach > s * 0.3) { ctx.lineWidth = 1.6; ctx.strokeStyle = col(0.8); ctx.beginPath(); ctx.moveTo(lean * 0.3 + s * 0.7, s * 0.1); ctx.lineTo(lean * 0.3 + s * 0.7 + reach, s * 0.1 - reach * 0.2); ctx.stroke(); }
+    ctx.restore();
   }
 
   // ---------- sigil: minimalist rune-stone — one ring, the Uruz rune, breathing light ----------

@@ -88,6 +88,7 @@ function readCfg(env, isTTY) {
       const prefs = up.loadPrefs(pp);
       if (!env.URFAEL_TUI_THEME && prefs.theme) env = { ...env, URFAEL_TUI_THEME: prefs.theme };
       if (!env.URFAEL_TUI_ANIM && prefs.animation) env = { ...env, URFAEL_TUI_ANIM: prefs.animation };
+      if (!env.URFAEL_TUI_PET && !env.URFAEL_PET && prefs.pet != null) env = { ...env, URFAEL_TUI_PET: prefs.pet ? '1' : '0' };
     }
   } catch {}
   const theme = resolveTheme(env, isTTY);
@@ -105,12 +106,18 @@ function readCfg(env, isTTY) {
   const themeName = THEME_NAMES.includes(String(env.URFAEL_TUI_THEME || env.URFAEL_THEME || 'gold').toLowerCase())
     ? String(env.URFAEL_TUI_THEME || env.URFAEL_THEME || 'gold').toLowerCase() : 'gold';
 
+  // The opt-in Familiar (URFAEL_TUI_PET, falling back to URFAEL_PET — same precedence as URFAEL_TUI_THEME→URFAEL_THEME).
+  // Default OFF, so with no env + no prefs file this whole block is inert and cfg.pet stays false (byte-identical worker row).
+  const pet = /^(1|on|true)$/i.test(String(env.URFAEL_TUI_PET || env.URFAEL_PET || '').trim());
+  const unicode = supports256(env);   // the Familiar's Unicode pose needs a capable terminal; else its 7-bit ASCII face is used
+
   return Object.freeze({
     theme, themeName, anim,
     fps, frameMs: Math.round(1000 / fps),
     reduceMotion,
     compact: /^(1|on|true)$/i.test(env.URFAEL_TUI_COMPACT || ''),
     timestamps: /^(1|on|true)$/i.test(env.URFAEL_TUI_TIMESTAMPS || ''),
+    pet, unicode,
     isTTY,
   });
 }

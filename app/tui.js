@@ -123,7 +123,10 @@ function statusLine() {
 function workerLine(g, now) {
   if (!inflight) return null;
   const answerChars = (answerIdx >= 0 && lines[answerIdx] && lines[answerIdx].text || '').length;
-  return anim.composeWorker(cfg, cfg.theme, { t0: turnT0, lastTool, answerChars, usageTokens }, g.cols, now);
+  // the Familiar's surface hint, derived ONLY from flags the cockpit already tracks (cosmetic; mapState upgrades to
+  // 'tool' when a tool is in hand, and fails closed to idle). Pre-first-token is a pure (now - t0) threshold.
+  const petState = (answerChars === 0 && !lastTool && (now - turnT0) < 900) ? 'waiting' : 'thinking';
+  return anim.composeWorker(cfg, cfg.theme, { t0: turnT0, lastTool, answerChars, usageTokens, petState }, g.cols, now);
 }
 const MAX_INPUT_ROWS = 6;   // the prompt grows up to this many rows for multi-line input, then tails to keep the caret visible
 // inputBlock(g, T): the (possibly multi-line) prompt area as display rows + the caret column on the last row.
