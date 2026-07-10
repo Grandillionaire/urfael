@@ -57,6 +57,7 @@ const engine = require('./engine');             // NATIVE ENGINE: in-process age
 const defaultBrain = require('./engine/default-brain');   // NATIVE DEFAULT BRAIN: pure decision + shape-mapper for the opt-in "run the local turn on a pinned native provider" path
 const handoffCompact = require('./engine/handoff-compact');   // OPT-IN pre-hand-off distill compaction (pure, zero-dep, never-throws); default OFF via URFAEL_PRECOMPACT
 const jobstore = require('./jobstore');
+const transcriptWal = require('./transcript-wal');   // OPT-IN crash-safe WAL for the in-flight local turn (pure, zero-dep, never-throws); default OFF via URFAEL_TRANSCRIPT_WAL
 const council = require('./council');
 const asyncCouncil = require('./engine/async-council');   // OPT-IN detached, summary-only async Council driver (URFAEL_COUNCIL_ASYNC); reuses councilDeps + council.js verbatim
 const runner = require('./runner');
@@ -339,6 +340,10 @@ function councilDeps(jobId) {
 // deny. It is the daemon's env — a remote sender can NEVER select it. Anything but 'full' is Fortress.
 const AGENT_MODE = String(process.env.URFAEL_MODE || 'fortress').toLowerCase() === 'full' ? 'full' : 'fortress';
 const FALLBACK_ON = process.env.URFAEL_FALLBACK !== '0';   // owner local turns retry once on the other tier after a retryable failure; URFAEL_FALLBACK=0 to disable
+// OPT-IN crash-safe transcript WAL: journal the in-flight local turn to a 0600 side file so a mid-turn daemon crash
+// can recover the user's message on next boot. Default OFF (only the exact value '1' enables it) => zero extra I/O and
+// the turn path is byte-identical. Side journal only: it never touches the model input or the turn assembly.
+const TRANSCRIPT_WAL_ON = process.env.URFAEL_TRANSCRIPT_WAL === '1';
 // OPT-IN: the native engine makes ONE extra self-critique pass over its final answer before returning it. Default
 // OFF (URFAEL_SELF_REVIEW=1 to enable), so the default native/subscription paths stay byte-identical. Fail-soft and
 // bounded to one pass in the loop; a reviewer error/timeout keeps the original answer.
@@ -757,6 +762,10 @@ const brain = {
         mem.promptText += '\n\n[URFAEL CONTROLS — reference]\nA newer Urfael is available (' + (updater.summarize(updateStatus) || '') + '). If the owner is asking you to update yourself, emit exactly one directive on its own line: <<urfael:update>>. Emit it for nothing else. The owner confirms before anything is pulled.';
       }
     } catch {}
+    // CRASH-SAFE TRANSCRIPT WAL (opt-in URFAEL_TRANSCRIPT_WAL, default OFF): journal the in-flight user turn to a 0600
+    // side file BEFORE the model call, so a daemon crash mid-turn recovers the user's message on next boot. This is a
+    // side write only — it never reads/mutates mem.promptText, and a write failure is swallowed so the turn is unchanged.
+    if (TRANSCRIPT_WAL_ON) transcriptWal.record(MEMORY_DIR, { user: text, turnId, t: new Date().toISOString() });
     let reply = await session.ask(mem.promptText, { speak: true, turnId });
     // automatic fallback: a turn that failed for a RETRYABLE reason (overload, model-unavailable, network, timeout)
     // gets ONE retry on the other tier. An account-wide rate limit fails both, so we keep the original error; a
@@ -783,6 +792,9 @@ const brain = {
       // only a normally-completed turn warrants a per-turn review — never aborts/timeouts/spawn failures
       if (reply && !session.lastFailed) { reviewTurn(text, reply); modelUser(text, reply); reinforceSurfaced(mem.surfaced); }   // never review an aborted/timed-out/failed turn
     }
+    // CRASH-SAFE TRANSCRIPT WAL: the turn resolved cleanly (completed or owner-stopped), so drop the side journal. A
+    // hard crash BEFORE this point leaves the entry behind for boot recovery; a clean turn never surfaces on restart.
+    if (TRANSCRIPT_WAL_ON) transcriptWal.clear(MEMORY_DIR);
     return { text: reply, model, ms, aborted: reply === '(stopped)',
       usage: { input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read_input_tokens: u.cache_read_input_tokens || 0 } };
   },
@@ -3145,6 +3157,10 @@ const server = http.createServer(async (req, res) => {
 function listen() {
   try { fs.unlinkSync(SOCK); } catch {}
   cleanupOrphanBrains(); jobstore.reconcile();
+  // CRASH-SAFE TRANSCRIPT WAL (opt-in URFAEL_TRANSCRIPT_WAL): a journal entry that SURVIVED a restart means the daemon
+  // died mid-turn. Recover the user's message into the transcript, marked recovered, so the last exchange is never
+  // silently lost. recover() removes the entry as it reads it (exactly-once, never double-fires), and is fail-safe.
+  if (TRANSCRIPT_WAL_ON) { try { const w = transcriptWal.recover(MEMORY_DIR); if (w) { transcript.push({ user: w.user, urfael: w.urfael || '(reply lost to a mid-turn crash; recovered by the transcript journal)', recovered: true }); logEvent({ ev: 'transcript_wal_recover', turnId: w.turnId || 0 }); } } catch {} }
   // keep derived/transient sidecars out of the memory repo (lesson-staging handoff + the recall vector index)
   try {
     const gi = path.join(MEMORY_DIR, '.gitignore'); const cur = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : '';
