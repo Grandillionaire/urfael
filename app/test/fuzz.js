@@ -21,6 +21,7 @@ const providers = require('../providers');
 const review = require('../engine/review');
 const fallback = require('../engine/fallback');
 const pet = require('../pet');
+const refs = require('../refs');
 
 const ITERS = parseInt(process.env.FUZZ_ITERS || '20000', 10);
 const BUDGET_MS = parseInt(process.env.FUZZ_BUDGET_MS || '250', 10);   // a parser must be ~linear; > this = ReDoS suspect
@@ -102,6 +103,12 @@ const targets = [
   ['pet.mapState', (v) => pet.mapState(v, (v && typeof v === 'object') ? v : { tool: v, aborted: v }), (r) => pet.AGENT_STATES.includes(r) || 'mapState returned a non-member: ' + JSON.stringify(r)],
   ['pet.frameTUI', (v) => pet.frameTUI(v, (v && v.length) || 0, (typeof v === 'number' ? v : 1000), { unicode: !!(ri(2)), reduceMotion: !!(ri(2)), tool: v }), (r) => typeof r === 'string' || 'frameTUI non-string'],
   ['pet.poseFor', (v) => pet.poseFor(v), (r) => (r && typeof r.posture === 'number' && typeof r.glow === 'number') || 'poseFor bad shape'],
+  // inline context refs: parseRefs is a TOTAL, ReDoS-safe token scanner over the raw turn text — it must never throw,
+  // stay linear, and only ever emit a bounded list of {kind∈{url,diff,path}} tokens no matter how hostile the input.
+  ['refs.parseRefs', (v) => refs.parseRefs(typeof v === 'string' ? v : JSON.stringify(v)), (r) => (Array.isArray(r) && r.length <= 64 && r.every((t) => (t.kind === 'url' || t.kind === 'diff' || t.kind === 'path') && typeof t.arg === 'string' && typeof t.raw === 'string')) || 'parseRefs produced a bad token list'],
+  // the nonce untrusted-envelope: frame() must ALWAYS return a string whose nonce does NOT occur inside the injected
+  // body — the property that makes the frame un-escapable — no matter what bytes the content carries.
+  ['refs.frame', (v) => refs.frame('file', 'x', typeof v === 'string' ? v : JSON.stringify(v)), (r) => { if (typeof r !== 'string') return 'frame non-string'; const m = r.match(/<<<([0-9a-f]{24})>>>/); if (!m) return 'frame emitted no nonce marker'; const nonce = m[1]; const body = r.slice(r.indexOf('>>>\n') + 4, r.lastIndexOf('\n<<<')); return body.indexOf(nonce) === -1 || 'the nonce leaked into the framed body — escapable frame'; }],
 ];
 
 const fails = [];
