@@ -70,6 +70,14 @@ All three surfaces below bind `127.0.0.1` only. The brain itself opens no TCP po
 | `URFAEL_DASHBOARD_PORT` | Port for the web dashboard (`urfael dashboard`). | `7717` |
 | `URFAEL_HOOKS_PORT` | Port for the webhook receiver (`urfael hooks`). | `7718` |
 
+## Memory Journey graph (opt-in, experimental)
+
+Read-only, off by default. A projection over data Urfael already owns; it adds no data model, no egress, and no new inbound port (it is another route on the existing 0600 unix socket, proxied by the loopback dashboard).
+
+| Variable | Description | Default |
+|---|---|---|
+| `URFAEL_MEMGRAPH` | Set to `1`/`on`/`true` on **both** the daemon and the dashboard to enable the read-only "Memory journey" section: a graph of beliefs and lessons projected from the git-versioned memory plus the hash-chained Ledger of Record. Every node and edge resolves to a real git commit SHA; whole-chain integrity is shown via `audit-chain.verify` (a broken chain shows a red banner and withholds the provable badges). It loads on demand, caps and truncates its own output, and renders with `createElementNS`/`textContent` under the unchanged locked CSP. With it unset, the served dashboard page is byte-identical and the `/graph` route falls through to the existing 404. | unset (off) |
+
 ## Scheduling
 
 | Variable | Description | Default |

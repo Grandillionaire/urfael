@@ -13,6 +13,10 @@ const path = require('path');
 const crypto = require('crypto');
 const uiPalette = require('./ui-palette');  // unified presentation prefs -> live CSS vars (closed schema; no security knob)
 const dc = require('./daemon-client');       // shared unix-socket client (request + /ask NDJSON stream)
+// OPT-IN (default OFF): the read-only "Memory Journey" graph section + its /api/graph proxy. When OFF, the pageHtml()
+// interpolations below resolve to '' (byte-identical page) and the /api/graph routes are never registered.
+// idea studied from NousResearch/hermes-agent (MIT), patterns only.
+const MEMGRAPH = require('./lib').envOn(process.env.URFAEL_MEMGRAPH);
 
 const HOST = '127.0.0.1';                                  // loopback ONLY — never 0.0.0.0, never a LAN/public iface
 const PORT = Math.min(Math.max(parseInt(process.env.URFAEL_DASHBOARD_PORT, 10) || 7717, 1), 65535);
@@ -166,6 +170,92 @@ function livePrefsVars() {
   return out;
 }
 
+// ---- OPT-IN Memory Journey graph: CSS + section shell + on-demand client. All three are interpolated into
+// pageHtml() ONLY when MEMGRAPH is on (each `${MEMGRAPH ? ... : ''}` resolves to '' when off -> byte-identical
+// page). RENDER SAFETY: the client builds inline SVG with document.createElementNS on a FIXED allowlist and writes
+// EVERY attacker-influenceable string (belief/lesson label, file, subject, SHA) via textContent / createTextNode
+// ONLY — coordinates + colours are numeric/fixed, never from data. It clears with replaceChildren()/textContent=''.
+// No script/iframe/foreignObject, no innerHTML on graph data, so an adversarial distilled-memory label can NEVER
+// execute; the locked CSP (default-src 'none') is unchanged. idea studied from NousResearch/hermes-agent (MIT).
+const GRAPH_CSS = `
+#mj-wrap{overflow:auto;max-height:540px;border:1px solid #221d14;border-radius:8px;background:#0c0b09;margin-top:10px}
+#mj-svg{display:block}
+.mj-banner{background:#3a1512;border:1px solid #e0625e;color:#f4b8b4;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:600;letter-spacing:.02em}
+.mj-detail{margin-top:12px;background:#0c0b09;border:1px solid #2a2419;border-radius:8px;padding:12px 14px}
+.mj-detail .mj-k{color:#8a836f;font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin-top:8px}
+.mj-detail .mj-k:first-child{margin-top:0}
+.mj-detail .mj-v{color:#e7dfc9;margin:2px 0;word-break:break-word;overflow-wrap:anywhere}
+.mj-badge{display:inline-block;margin-top:10px;background:#16210f;border:1px solid #4a6b2e;color:#a9c982;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:600}
+.mj-node{cursor:pointer}
+.mj-node text{pointer-events:none}
+.mj-legend{color:#7e7660;font-size:11px;margin-top:8px}`;
+const GRAPH_SECTION = `
+  <section id="memjourney">
+    <div class="chats-head"><h2>Memory journey <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">· opt-in, read-only</span></h2>
+      <div class="chats-new"><button id="mj-load" type="button">Load journey</button></div>
+    </div>
+    <div id="mj-banner" class="mj-banner" style="display:none"></div>
+    <div id="mj-status" class="empty">A read-only projection of your git-versioned memory and the hash-chained Ledger of Record. Every node resolves to a real git commit; loaded on demand.</div>
+    <div id="mj-wrap" style="display:none"></div>
+    <div id="mj-legend" class="mj-legend" style="display:none"></div>
+    <div id="mj-detail" class="mj-detail" style="display:none"></div>
+  </section>`;
+const GRAPH_SCRIPT = `
+// ---- MEMGRAPH GRAPH CLIENT (begin) — inline SVG via createElementNS on a fixed allowlist, textContent-only labels ----
+var MJ_NS='http://www.w3.org/2000/svg';
+var mjLedgerOk=true;
+function mjSvg(tag,attrs){ var e=document.createElementNS(MJ_NS,tag); if(attrs){ for(var a in attrs){ if(Object.prototype.hasOwnProperty.call(attrs,a)) e.setAttribute(a,String(attrs[a])); } } return e; }
+function mjTitle(parent,txt){ var t=mjSvg('title'); t.textContent=String(txt==null?'':txt); parent.appendChild(t); }
+function mjKV(parent,k,v){ var kk=document.createElement('div'); kk.className='mj-k'; kk.textContent=String(k); var vv=document.createElement('div'); vv.className='mj-v'; vv.textContent=String(v==null?'':v); parent.appendChild(kk); parent.appendChild(vv); return vv; }
+function mjDetail(n){ var det=$('#mj-detail'); det.replaceChildren(); det.style.display='block';
+  mjKV(det, n.kind==='lesson'?'lesson':'belief', n.label);
+  if(n.file) mjKV(det,'source file',n.file);
+  if(/^[0-9a-f]+$/.test(String(n.sha||''))) mjKV(det,'current source',n.sha+'   ·   git show '+n.sha);
+  if(n.firstSha && n.firstSha!==n.sha && /^[0-9a-f]+$/.test(String(n.firstSha))) mjKV(det,'first recorded',n.firstSha+'   ·   git show '+n.firstSha);
+  if(n.pass) mjKV(det,'memory pass',n.pass+(n.date?'  ·  '+n.date:''));
+  if(n.retired) mjKV(det,'status','retired'+(n.retiredSha?'  ·  git show '+n.retiredSha:''));
+  if(n.kind==='lesson'){ mjKV(det,'lesson status',String(n.status||'')); mjKV(det,'confidence',Number(n.confidence||0).toFixed(2)); if(n.verifyNote) mjKV(det,'verifier note',n.verifyNote); }
+  // provable badge is WITHHELD when the ledger's own hash chain is broken — never present a tamper-evident graph as trustworthy.
+  if(mjLedgerOk && /^[0-9a-f]+$/.test(String(n.sha||''))){ var b=document.createElement('span'); b.className='mj-badge'; b.textContent='provable · reproduce with git show '+n.sha; det.appendChild(b); }
+}
+function mjRender(g){
+  var banner=$('#mj-banner'), status=$('#mj-status'), wrap=$('#mj-wrap'), legend=$('#mj-legend'), detail=$('#mj-detail');
+  detail.style.display='none'; detail.replaceChildren();
+  var nodes=(g&&g.nodes)||[], edges=(g&&g.edges)||[];
+  var led=(g&&g.ledger)||{ok:false};
+  mjLedgerOk = led.ok!==false;
+  if(led.ok===false){ banner.style.display='block'; banner.textContent='LEDGER BROKEN'+(typeof led.brokenSeq==='number'?' at seq '+led.brokenSeq:'')+' — do not trust'; }
+  else { banner.style.display='none'; banner.textContent=''; }
+  if(!nodes.length){ wrap.style.display='none'; legend.style.display='none'; status.style.display='block'; status.textContent='graph unavailable — no versioned memory yet (or git unavailable).'; return; }
+  status.style.display='none';
+  var W=920, rowH=30, padTop=18, padBottom=18, dotX=64, labelX=86;
+  var H=padTop+padBottom+nodes.length*rowH;
+  var pos={}, i;
+  for(i=0;i<nodes.length;i++){ pos[nodes[i].id]=padTop+i*rowH+rowH/2; }
+  var svg=mjSvg('svg',{id:'mj-svg',width:W,height:H,viewBox:'0 0 '+W+' '+H});
+  var edgeLayer=mjSvg('g'), nodeLayer=mjSvg('g');
+  for(i=0;i<edges.length;i++){ var e=edges[i]; var y1=pos[e.from], y2=pos[e.to]; if(y1==null||y2==null) continue;
+    var bulge=Math.min(46,14+Math.abs(y2-y1)/4);
+    var d='M '+(dotX-7)+' '+y1+' C '+(dotX-7-bulge)+' '+y1+' '+(dotX-7-bulge)+' '+y2+' '+(dotX-7)+' '+y2;
+    var p=mjSvg('path',{d:d,fill:'none',stroke:'#d8a23a','stroke-width':1.4,opacity:0.55}); mjTitle(p,(e.label||'revision')+' · '+e.sha); edgeLayer.appendChild(p); }
+  for(i=0;i<nodes.length;i++){ var n=nodes[i]; var y=pos[n.id];
+    var grp=mjSvg('g',{'class':'mj-node'});
+    var fill=n.kind==='lesson'?'#f0c768':(n.retired?'#4a4436':'#b79a5f');
+    var c=mjSvg('circle',{cx:dotX,cy:y,r:6,fill:fill,stroke:'#0c0b09','stroke-width':2}); grp.appendChild(c);
+    var t=mjSvg('text',{x:labelX,y:y+4,fill:n.retired?'#8a836f':'#ece6d8','font-size':12,'font-family':'ui-monospace,monospace'});
+    t.textContent=(n.kind==='lesson'?'[lesson] ':'')+String(n.label||'').slice(0,78)+(n.retired?'  (retired)':''); grp.appendChild(t);
+    mjTitle(grp,String(n.label||'')); (function(nn){ grp.addEventListener('click',function(){ mjDetail(nn); }); })(n);
+    nodeLayer.appendChild(grp); }
+  svg.appendChild(edgeLayer); svg.appendChild(nodeLayer);
+  wrap.replaceChildren(svg); wrap.style.display='block';
+  legend.style.display='block';
+  legend.textContent=nodes.length+' node'+(nodes.length===1?'':'s')+' · '+edges.length+' revision'+(edges.length===1?'':'s')+(g&&g.truncated?' · truncated to the most recent':'')+' · click a node for its provenance';
+}
+function mjLoad(){ var b=$('#mj-load'); if(b) b.disabled=true; $('#mj-status').style.display='block'; $('#mj-status').textContent='loading…';
+  api('/api/graph').then(function(g){ mjRender(g); }).catch(function(){ $('#mj-status').textContent='graph unavailable.'; }).then(function(){ if(b) b.disabled=false; }); }
+(function(){ var b=$('#mj-load'); if(b) b.addEventListener('click',mjLoad); })();
+// ---- MEMGRAPH GRAPH CLIENT (end) ----`;
+
 // ---- the page: one self-contained inline HTML+JS doc, gold-on-dark, Console identity ------------------------
 function pageHtml() {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -252,7 +342,7 @@ mark.hl{background:linear-gradient(180deg,rgba(240,199,104,.08),rgba(240,199,104
   .ask-wrap{flex-direction:column}
   button{width:100%}
   textarea,input{font-size:16px} /* >=16px stops iOS auto-zoom on focus */
-}
+}${MEMGRAPH ? GRAPH_CSS : ''}
 </style></head><body>
 <header><h1>URFAEL</h1><span class="sub" id="status">connecting…</span></header>
 <main>
@@ -283,7 +373,7 @@ mark.hl{background:linear-gradient(180deg,rgba(240,199,104,.08),rgba(240,199,104
   <section><h2>Session search</h2>
     <input id="sq" placeholder="search every past conversation…" autocomplete="off">
     <div id="sessions" style="margin-top:10px"></div>
-  </section>
+  </section>${MEMGRAPH ? GRAPH_SECTION : ''}
 </main>
 <script>
 'use strict';
@@ -430,7 +520,7 @@ function prefs(){return api('/api/prefs').then(function(d){
     if(/^--[a-z0-9]+$/i.test(k)&&typeof val==='string'&&/^[#a-z0-9(),.%/ -]+$/i.test(val)) rs.setProperty(k,val); }
 }).catch(function(){})}
 function tick(){vit();usage();usageByPrincipal();reminders();jobs();learn();audit();prefs()}
-tick();setInterval(tick,5000);
+tick();setInterval(tick,5000);${MEMGRAPH ? GRAPH_SCRIPT : ''}
 </script></body></html>`;
 }
 
@@ -483,6 +573,18 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/jobs') return sendJson(res, 200, (await daemonGet('/jobs')) || []);
     if (req.method === 'GET' && pathname === '/api/learn') return sendJson(res, 200, (await daemonGet('/learn')) || {});
     if (req.method === 'GET' && pathname === '/api/audit') return sendJson(res, 200, (await daemonGet('/audit')) || {});
+    // OPT-IN Memory Journey (registered ONLY when MEMGRAPH). Both routes sit AFTER the auth gate + rateOk() check
+    // above, reuse the existing daemonGet() over the 0600 socket (no new socket, no new port), and are read-only.
+    if (MEMGRAPH && req.method === 'GET' && pathname === '/api/graph') {
+      const asOf = u.searchParams.get('asOf');
+      const qp = asOf ? '?asOf=' + encodeURIComponent(asOf) : '';   // the daemon re-validates asOf to a strict date charset; anything else is ignored
+      return sendJson(res, 200, (await daemonGet('/graph' + qp)) || { nodes: [], edges: [], ledger: { ok: false }, truncated: false });
+    }
+    if (MEMGRAPH && req.method === 'GET' && pathname === '/api/graph/prove') {
+      const seq = u.searchParams.get('seq');
+      if (!/^\d+$/.test(String(seq == null ? '' : seq))) return sendJson(res, 400, { error: 'seq must be a non-negative integer' });
+      return sendJson(res, 200, (await daemonGet('/audit/prove?seq=' + encodeURIComponent(seq))) || {});   // passthrough to the daemon's real inclusion proof for ANY recorded ledger seq
+    }
     if (req.method === 'GET' && pathname === '/api/sessions') return sendJson(res, 200, await searchSessions(u.searchParams.get('q') || ''));
     if (req.method === 'GET' && pathname === '/api/prefs') return sendJson(res, 200, { vars: livePrefsVars() }); // live recolor source (already-gated tokens)
     if (req.method === 'POST' && pathname === '/api/ask') {
@@ -516,16 +618,24 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('not found'); // no fs lookup, ever
 });
 
-// Refuse to run if we can't bind loopback (a bind failure must not silently fall through to a wider iface).
-server.on('error', (e) => { process.stderr.write('urfael dashboard: cannot bind ' + HOST + ':' + PORT + ' — ' + ((e && e.message) || e) + '\n'); process.exit(1); });
-server.listen(PORT, HOST, () => {
-  // NEVER print the token to stdout — under launchd stdout is a file that may not be 0600, and the token is
-  // a full-power credential (the daemon treats dashboard /api/ask as the local owner). The token lives only in
-  // the 0600 token file; `urfael dashboard` reads it and prints the tokened URL to YOUR terminal.
-  process.stdout.write('Urfael dashboard on http://' + HOST + ':' + PORT + '  (run `urfael dashboard` for the tokened link)\n');
-});
-process.on('SIGTERM', () => process.exit(0));
-process.on('SIGINT', () => process.exit(0));
-// RESILIENCE: a localhost server callback throw must not kill the dashboard; log to stderr and keep serving.
-process.on('uncaughtException', (e) => { try { process.stderr.write('urfael dashboard uncaught: ' + String((e && e.stack) || e).slice(0, 600) + '\n'); } catch {} });
-process.on('unhandledRejection', (e) => { try { process.stderr.write('urfael dashboard rejection: ' + String((e && (e.stack || e.message)) || e).slice(0, 600) + '\n'); } catch {} });
+// Only bind the loopback listener + install the process signal handlers when this file is the real entrypoint
+// (cli.js launches `node app/dashboard.js` as its own process). Nothing require()s the dashboard in normal
+// operation, so wrapping the listen()/signals in a require.main guard is runtime-identical for the real spawn —
+// it merely lets a unit test `require('./dashboard')` and call pageHtml() WITHOUT binding the port or trapping signals.
+if (require.main === module) {
+  // Refuse to run if we can't bind loopback (a bind failure must not silently fall through to a wider iface).
+  server.on('error', (e) => { process.stderr.write('urfael dashboard: cannot bind ' + HOST + ':' + PORT + ' — ' + ((e && e.message) || e) + '\n'); process.exit(1); });
+  server.listen(PORT, HOST, () => {
+    // NEVER print the token to stdout — under launchd stdout is a file that may not be 0600, and the token is
+    // a full-power credential (the daemon treats dashboard /api/ask as the local owner). The token lives only in
+    // the 0600 token file; `urfael dashboard` reads it and prints the tokened URL to YOUR terminal.
+    process.stdout.write('Urfael dashboard on http://' + HOST + ':' + PORT + '  (run `urfael dashboard` for the tokened link)\n');
+  });
+  process.on('SIGTERM', () => process.exit(0));
+  process.on('SIGINT', () => process.exit(0));
+  // RESILIENCE: a localhost server callback throw must not kill the dashboard; log to stderr and keep serving.
+  process.on('uncaughtException', (e) => { try { process.stderr.write('urfael dashboard uncaught: ' + String((e && e.stack) || e).slice(0, 600) + '\n'); } catch {} });
+  process.on('unhandledRejection', (e) => { try { process.stderr.write('urfael dashboard rejection: ' + String((e && (e.stack || e.message)) || e).slice(0, 600) + '\n'); } catch {} });
+}
+
+module.exports = { pageHtml };
