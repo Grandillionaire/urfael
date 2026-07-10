@@ -39,7 +39,7 @@ macOS on Apple Silicon or Intel is the primary, best-tested target. Linux is sup
 
 ## Is it production-ready?
 
-Be honest: it is young. Every feature is verified end-to-end by an in-repo harness (`npm run e2e`) against a live daemon, and the security-critical paths ship adversarial regression tests. The security benchmark (`npm run security`) boots the real daemon and dashboard and attacks them: the latest run resisted 11 of 11 attack classes across 123 checks.
+Be honest: it is young. Every feature is verified end-to-end by an in-repo harness (`npm run e2e`) against a live daemon, and the security-critical paths ship adversarial regression tests. The security benchmark (`npm run security`) boots the real daemon and dashboard and attacks them: the latest run resisted 11 of 11 attack classes across 125 checks.
 
 What that does not buy you is scale. This is a personal tool. The live relay of the Matrix, Signal, and WhatsApp bridges, the QQ, SimpleX, and PSTN phone bridges, and the eight native webhook channels has not been exercised against real accounts (their parsing and allowlist logic is unit-tested and frozen as benchmark checks); the certified core is Telegram, Discord, Slack, iMessage, and Email. It is security-tested, not battle-tested at scale. That is the one thing only time and users add.
 
