@@ -422,6 +422,47 @@ async function main() {
   // never bypasses, and its only shell is git/cd (no arbitrary Bash), so a poisoned turn can't escalate it.
   const umBlock = daemonSrc.slice(daemonSrc.indexOf('function modelUser'), daemonSrc.indexOf('function lastCurated'));
   check('the per-turn user-model dialectic is framed UNTRUSTED, never bypasses, shell is git/cd-only', umBlock.includes('UNTRUSTED') && !umBlock.includes('bypassPermissions') && umBlock.includes('Bash(git:*)') && !umBlock.includes("'Bash'") && !/Bash\(\*\)/.test(umBlock), 'theory-of-mind on untrusted input, write-scoped, no arbitrary shell');
+  // OPT-IN independent-verifier GOAL GATE (experimental; host+docker certified, ssh fails closed). A candidate-done
+  // is adjudicated by a SECOND, FRESH read-only agent whose only power is to VETO — it structurally cannot edit code
+  // to pass itself — and its verdict is a hash-chained LOG RECORD, not the control signal. Freeze the read-only
+  // floor, the fail-closed parse, the default-off gating, and the chained ledger events so none can silently regress.
+  const gv = require('../goal-verify');
+  const scanMod = require('../scan');
+  check('the independent goal-verifier spawns on the READ-ONLY floor (Read/Grep/Glob, single-sourced from scan.js), with NO Write/Edit/Bash, NO --resume, NO bypass — in goal-verify.js AND goal-loop.sh',
+    (() => {
+      const argv = gv.verifierArgv('P', 'sonnet');
+      const at = argv[argv.indexOf('--allowedTools') + 1];
+      const floorOk = at === scanMod.READ_FLOOR.join(',') && at === 'Read,Grep,Glob' && gv.READ_FLOOR === scanMod.READ_FLOOR;
+      const noWriteTool = !at.split(',').some((t) => /Write|Edit|Bash/.test(t));
+      const noEscalate = !argv.includes('--resume') && !argv.includes('bypassPermissions') && !argv.some((a) => /dangerously-skip/.test(String(a)));
+      const shOk = /--allowedTools Read,Grep,Glob --output-format json/.test(goalLoop) && !/VFLAGS=\([^)]*(--resume|bypassPermissions)/.test(goalLoop);
+      return floorOk && noWriteTool && noEscalate && shOk && argv.includes('--strict-mcp-config') && argv[argv.indexOf('--permission-mode') + 1] === 'acceptEdits';
+    })(),
+    'a hijacked verifier can still only READ — it can neither write to make itself pass nor exfiltrate; the floor IS scan.js READ_FLOOR so it can never drift wider than the audited scanner');
+  check('the goal-verifier is FAIL-CLOSED: empty / garbage / a pass with no per-criterion evidence / a refute all mean NOT done, and parseVerdict never throws',
+    (() => {
+      const crit = gv.parseCriteria('c one\nc two');
+      const notDone = ['', 'garbage', '{"verdict":"pass"}', '{"verdict":"refute","reason":"x"}',
+        JSON.stringify({ verdict: 'pass', met: [{ id: 'c1', evidence: 'x' }] }),
+        JSON.stringify({ verdict: 'pass', met: [{ id: 'c1', evidence: 'x' }, { id: 'c2', evidence: '  ' }] })].every((t) => gv.parseVerdict(t, crit).done === false);
+      const done = gv.parseVerdict(JSON.stringify({ verdict: 'pass', met: [{ id: 'c1', evidence: 'a' }, { id: 'c2', evidence: 'b' }], reason: 'ok' }), crit).done === true;
+      let threw = false; try { gv.parseVerdict({}, null); gv.parseVerdict(undefined, undefined); gv.parseVerdict('{', 5); } catch { threw = true; }
+      return notDone && done && !threw;
+    })(),
+    'only a well-formed pass citing non-empty evidence for EVERY criterion declares done; a false "done" is unreachable by a malformed/injected verdict, and the parser never throws');
+  check('the goal-loop --verify gate is OPT-IN + default byte-identical: the two candidate-done blocks are untouched, the interception is a `[ -n "$VERIFY" ]` pre-step, and a green check is still adjudicated',
+    /\[ -n "\$VERIFY" \]/.test(goalLoop)
+      && goalLoop.includes('if run_check; then echo "✅ verify command passes — done."; DONE=1; break; fi')
+      && goalLoop.includes('[ "$last" = "$MARKER" ] && { echo "✅ completion marker (no verify command given)."; DONE=1; break; }')
+      && /if \[ -z "\$VERIFY" \] && \[ -n "\$CHECK" \] && run_check/.test(goalLoop)
+      && /--verify requires --criteria/.test(goalLoop),
+    'with neither --verify nor URFAEL_GOAL_VERIFY the loop is byte-identical; --verify without --criteria fails closed; a red --check never even spawns the verifier');
+  check("the gate's contract + verdicts are HASH-CHAINED: 'goal_contract'/'goal_verify' are CHAINED_EVENTS, logged only via the daemon's single-writer logEvent over the owner socket (POST /goal/ledger, closed schema) — a child can't forge chain position",
+    /CHAINED_EVENTS = new Set\(\[[^\]]*'goal_contract'[^\]]*'goal_verify'/.test(daemonSrc)
+      && /req\.url === '\/goal\/ledger'/.test(daemonSrc)
+      && /malformed goal-ledger event/.test(daemonSrc)
+      && /p\.verdict === 'pass' \|\| p\.verdict === 'refute' \|\| p\.verdict === 'error'/.test(daemonSrc),
+    'the up-front contract and every verdict enter the tamper-evident Ledger of Record (daemon owns seq/prevH/hash); the verdict is a LOG RECORD, never the control signal, so a rogue worker curling the socket pollutes the log but can never cause a false done; urfael audit --verify covers them');
 
   // ── 7. INSECURE-BY-DEFAULT CONFIG ─────────────────────────────────────────
   attackClass('Insecure defaults',

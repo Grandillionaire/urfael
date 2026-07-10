@@ -117,7 +117,7 @@ const REPO_ROOT = path.join(__dirname, '..');
 const PKG_VERSION = (() => { try { return require('./package.json').version; } catch { return '0'; } })();
 let updateStatus = { kind: 'unknown', available: false, current: PKG_VERSION, t: 0 };   // cached; refreshed on a cadence
 const CHAINFILE = path.join(MEMORY_DIR, 'audit-chain.jsonl');
-const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start', 'self_setting', 'self_update', 'cal_add', 'cal_move', 'cal_cancel', 'schedule_apply', 'precompact']);
+const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start', 'self_setting', 'self_update', 'cal_add', 'cal_move', 'cal_cancel', 'schedule_apply', 'precompact', 'goal_contract', 'goal_verify']);
 let chainSeq = -1, chainLastHash = auditChain.GENESIS, chainSeeded = false;
 function seedChain() {
   try { const lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); if (lines.length) { const last = JSON.parse(lines[lines.length - 1]); if (typeof last.seq === 'number' && typeof last.h === 'string') { chainSeq = last.seq; chainLastHash = last.h; } } } catch {}
@@ -2665,6 +2665,34 @@ const server = http.createServer(async (req, res) => {
     // GET /audit/prove?seq=N — an inclusion proof for entry N: proves it is in the log without revealing the others.
     const seq = Number(new URL(req.url, 'http://x').searchParams.get('seq'));
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(buildInclusion(seq)));
+  } else if (req.method === 'POST' && req.url === '/goal/ledger') {
+    // POST /goal/ledger — the ONE closed-schema sink for the opt-in goal-verify gate's contract + verdicts. Owner-
+    // socket-only (the 0600 socket, like every route here), MAX_BODY-capped. The verdict is a LOG RECORD, not the
+    // control signal: the child cannot forge chain position (the daemon owns seq/prevH/hash via logEvent), and a
+    // rogue worker curling this can pollute the log but can never cause a false "done". Malformed bodies → 400.
+    const body = await readBody(req);
+    let p = {}; try { p = JSON.parse(body); } catch { p = null; }
+    const isHex = (s, n) => typeof s === 'string' && s.length <= n && /^[0-9a-f]*$/i.test(s);
+    const ok = p && typeof p === 'object' && !Array.isArray(p)
+      && (p.ev === 'goal_contract' || p.ev === 'goal_verify')
+      && (p.goalId == null || (typeof p.goalId === 'string' && p.goalId.length <= 128))
+      && (p.iter == null || Number.isInteger(p.iter))
+      && (p.verdict == null || p.verdict === 'pass' || p.verdict === 'refute' || p.verdict === 'error')
+      && (p.reason == null || (typeof p.reason === 'string' && p.reason.length <= 500))
+      && (p.criteriaDigest == null || isHex(p.criteriaDigest, 64))
+      && (p.checkPassed == null || typeof p.checkPassed === 'boolean')
+      && (p.goal == null || (typeof p.goal === 'string' && p.goal.length <= 2048))
+      && (p.criteria == null || (typeof p.criteria === 'string' && p.criteria.length <= 8192))
+      && (p.check == null || (typeof p.check === 'string' && p.check.length <= 1024))
+      && (p.caps == null || (typeof p.caps === 'string' && p.caps.length <= 256));
+    if (!ok) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'malformed goal-ledger event' })); return; }
+    // Copy ONLY the closed-schema fields onto the logged record — the daemon stamps t/seq/prevH/hash (CHAINED_EVENTS).
+    const rec = { ev: p.ev };
+    for (const k of ['goalId', 'iter', 'verdict', 'reason', 'criteriaDigest', 'checkPassed', 'goal', 'criteria', 'check', 'caps']) {
+      if (p[k] != null) rec[k] = p[k];
+    }
+    logEvent(rec);
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true }));
   } else if (req.method === 'POST' && req.url === '/job') {
     // enqueue a detached background job (runs concurrently with voice — NOT in the serialized chain).
     const body = await readBody(req);
@@ -2677,6 +2705,10 @@ const server = http.createServer(async (req, res) => {
     if (spec.maxIters != null) spec.maxIters = clamp(spec.maxIters, 1, 50);
     if (spec.maxMins != null) spec.maxMins = clamp(spec.maxMins, 1, 240);
     if (spec.turnTimeout != null) spec.turnTimeout = clamp(spec.turnTimeout, 30, 3600);
+    // Opt-in independent-verifier gate (default OFF). Coerce spec.verify to a strict boolean; keep spec.criteria
+    // only if it's a bounded string path (goal-loop.sh fails closed if verify is on without it). Never widened here.
+    if ('verify' in spec) spec.verify = spec.verify === true || spec.verify === 1 || spec.verify === '1';
+    if (spec.criteria != null) { spec.criteria = (typeof spec.criteria === 'string') ? spec.criteria.slice(0, 4096) : undefined; }
     // TRUST-SCOPE the child off the request context, mirroring the /ask turn boundary. The daemon socket is owner-only
     // (0600) so a bare request is 'local' (full inherit — preserves existing owner ask/research behaviour). A request
     // carrying a channel is treated as remote-origin: its CEILING is profileFor(role) (untrusted|guest), and an explicit

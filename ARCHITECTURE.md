@@ -12,7 +12,7 @@ untrusted content with real power. Urfael inverts both: **the topology is one-wa
 your `claude` login and the chat APIs it polls; nothing reaches *in*), and **untrusted input is structurally
 contained** (every remote turn resolves — fail-closed — to a read-only, no-egress, nonce-framed sandbox
 *before a single token reaches the model*). The claim is not an adjective; it is a command: `npm run security`
-boots the real daemon and dashboard and attacks them, printing **11/11 attack classes · 119/119 checks**.
+boots the real daemon and dashboard and attacks them, printing **11/11 attack classes · 123/123 checks**.
 
 ## System shape
 
@@ -43,7 +43,7 @@ boots the real daemon and dashboard and attacks them, printing **11/11 attack cl
 
 **Why `daemon.js` is large and that is fine:** it is the *conductor*, not the orchestra. It owns I/O, process
 lifecycle, and routing; every decision worth testing is delegated to a pure satellite module that takes data
-and returns data with no daemon, no socket, no `claude`. That is why 1136 unit tests run in ~0.5s with zero
+and returns data with no daemon, no socket, no `claude`. That is why 1164 unit tests run in ~0.5s with zero
 credentials, and why the security benchmark re-uses the exact same functions the daemon calls.
 
 ## The moat, in five files (read these first)
@@ -91,7 +91,7 @@ A reviewer who reads these five understands the entire security posture:
 | `app/bridge/` | Eight chat bridges (telegram/discord/slack/imessage/email/matrix/signal/whatsapp) + `bridge-core.js` + `notify.js`. They poll OUT; allowlist before the brain. |
 | `app/dashboard.js` · `openai-api.js` | Loopback-only (`127.0.0.1`) token-gated web dashboard and OpenAI-compatible API. |
 | `app/scheduler.js` · `runner.js` · `hooks.js` · `voice.js` · `wake-worker.js` · `import.js` · `embed.js` · `setup.js` | Cron/reminders, the goal-loop runner, the webhook receiver, local STT/TTS + wake word, the OpenClaw/Hermes importer, embeddings, the onboarding wizard. |
-| `app/test/` | 1136 `node:test` unit tests (`*.test.js`, pure, no creds) + two live-daemon harnesses (`e2e.js`, `security-benchmark.js`) run only via their own npm scripts. |
+| `app/test/` | 1164 `node:test` unit tests (`*.test.js`, pure, no creds) + two live-daemon harnesses (`e2e.js`, `security-benchmark.js`) run only via their own npm scripts. |
 
 ## Data & security flow of one remote message
 
@@ -124,13 +124,13 @@ The full version, with the residual risks Urfael does **not** cover, is in [docs
 
 Honesty is the product, so the tests are too:
 
-- **1136 fast unit tests** (`npm test` → `node --test test/*.test.js`) — pure modules, no credentials, ~0.5s.
+- **1164 fast unit tests** (`npm test` → `node --test test/*.test.js`) — pure modules, no credentials, ~0.5s.
   They exercise the load-bearing logic directly: fail-closed profile resolution, `intersectTools`, the persona
   anchor / `SAFETY_CLAUSE` invariants, the hash-chain verifier, the seal, the cron/hook/script normalizers,
   BM25 recall, did-you-mean, and the registry drift guard. Several are frozen adversarial regressions.
 - **The security benchmark** (`npm run security` → `node test/security-benchmark.js`) — boots the **real**
   daemon + dashboard and runs the actual attack classes that compromised self-hosted agents in the wild:
-  **11/11 attack classes · 119/119 individual checks**. Class 9, "correctness & craft regressions," guards against
+  **11/11 attack classes · 123/123 individual checks**. Class 9, "correctness & craft regressions," guards against
   silent quality rot (a typo burning a turn, a status card that stops verifying its own numbers, a persona
   that widens real power, a Council worker that escalates its tools).
 - **The end-to-end harness** (`npm run e2e`) — every feature against a live daemon: streamed conversation,

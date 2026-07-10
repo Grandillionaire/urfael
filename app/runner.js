@@ -43,6 +43,11 @@ function argvFor(job) {
     if (s.turnTimeout) args.push('--turn-timeout', String(s.turnTimeout));
     if (s.check) args.push('--check', String(s.check));
     if (s.model) args.push('--model', String(s.model));
+    // Opt-in two-key completion gate (default OFF → argv byte-identical without it). --verify makes candidate-done
+    // adjudicated by an independent read-only refuter; it FAILS CLOSED without a machine-checkable --criteria file,
+    // so both cross as argv elements (never shell-interpolated). Absent spec.verify/spec.criteria → neither is added.
+    if (s.verify) args.push('--verify');
+    if (typeof s.criteria === 'string' && s.criteria) args.push('--criteria', String(s.criteria));
     // Optional throwaway-container isolation. Whitelist server-side; goal-loop.sh re-validates + needs docker.
     if (s.sandbox === 'docker' || s.sandbox === 'docker-net') args.push('--sandbox', s.sandbox);
     // Optional remote SSH backend: turns run on a remote host. Validate the host server-side against the SAME safe
@@ -77,7 +82,7 @@ function argvFor(job) {
 // UNREVIEWED background job. This was the LONE spawn path still handing the child the full process env. The
 // goal-loop's operational selectors (isolation backend + yolo, the documented env-equivalents of its --sandbox
 // / --ssh-* / bypass flags) are forwarded so a normal owner-local job behaves identically; nothing else is.
-const JOB_ENV_KEYS = ['URFAEL_YOLO', 'URFAEL_SANDBOX', 'URFAEL_SANDBOX_IMAGE', 'URFAEL_SSH_HOST', 'URFAEL_SSH_DIR'];
+const JOB_ENV_KEYS = ['URFAEL_YOLO', 'URFAEL_SANDBOX', 'URFAEL_SANDBOX_IMAGE', 'URFAEL_SSH_HOST', 'URFAEL_SSH_DIR', 'URFAEL_GOAL_VERIFY', 'URFAEL_GOAL_CRITERIA'];
 function jobEnv() { return scopedEnv(process.env, JOB_ENV_KEYS); }
 
 function run(job) {
