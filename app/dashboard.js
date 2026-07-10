@@ -362,6 +362,10 @@ mark.hl{background:linear-gradient(180deg,rgba(240,199,104,.08),rgba(240,199,104
     <div class="usage-note">cost is an estimate from override-able rates, read from the recent log tail</div>
     <div id="usage-by-principal" style="margin-top:10px"></div>
   </section>
+  <section><h2>Context</h2>
+    <div class="usage-note">what fills the model input for a turn — bytes are exact, tokens are an estimate (~4 chars/token)</div>
+    <div id="context"><span class="empty">…</span></div>
+  </section>
   <section><h2>Ask</h2>
     <div class="ask-wrap"><textarea id="q" placeholder="ask the brain…"></textarea><button id="send">send</button></div>
     <div id="reply"></div>
@@ -436,6 +440,28 @@ function learn(){return api('/api/learn').then(function(d){
   var items=(d.items||[]).slice().sort(function(a,b){return (ord[a.status]-ord[b.status])||(b.confidence-a.confidence)}).slice(0,30);
   $('#learn').innerHTML=head+items.map(function(i){var c=i.status==='trusted'?'#8fae6e':i.status==='retired'?'#888':'#d4a85a';
     return '<div class="row"><span class="ch" style="color:'+c+'">'+esc(i.status)+'</span> <span class="t">'+(i.status==='retired'?'':esc(Number(i.confidence||0).toFixed(2)))+'</span> '+esc(String(i.ref||'').slice(0,90))+'</div>'}).join('');
+}).catch(function(){})}
+// ---- context breakdown: per-category bytes + labelled token estimate of what fills the model input for a turn.
+// Byte counts are exact (Urfael assembles these); the token column is an estimate and says so. The biggest measured
+// consumer is flagged, and each row carries its one-command trim. The CLI-managed running window (which Urfael cannot
+// see) is shown as an honest, unmeasured row rather than guessed at. Read-only.
+function hbytes(n){ if(n==null)return '—'; n=Number(n)||0; if(n<1024)return n+' B'; if(n<1048576)return (n/1024).toFixed(n<10240?1:0)+' KB'; return (n/1048576).toFixed(1)+' MB'; }
+function htok(n){ if(n==null)return '—'; n=Number(n)||0; return n>=1000?'~'+Math.round(n/1000)+'k':'~'+n; }
+function context(){return api('/api/context').then(function(r){
+  var cats=r&&r.categories; if(!cats||!cats.length){$('#context').innerHTML='<span class="empty">nothing to attribute yet</span>';return}
+  var head='<div class="muted" style="margin-bottom:8px">engine <b>'+esc(r.engine||'cli')+'</b> · measured total '+esc(hbytes(r.totalBytes))+' / '+esc(htok(r.totalEstTokens))+' tok (est)</div>';
+  var rows=cats.map(function(c){
+    var pctv=(c.share==null)?null:Math.round(c.share*100);
+    var w=(pctv==null)?0:Math.max(2,pctv);
+    var meta=c.measured?(esc(hbytes(c.bytes))+' · '+esc(htok(c.estTokens))+' tok · '+(pctv==null?'—':pctv+'%')):'<span class="muted">not visible to Urfael</span>';
+    var flag=c.biggest?' <span style="color:#d4a85a">◄ biggest</span>':'';
+    var barcol=c.measured?'#d4a85a':'#3a3327';
+    var bar='<div style="height:5px;border-radius:3px;background:'+barcol+';width:'+w+'%;margin-top:4px;opacity:'+(c.measured?1:0.4)+'"></div>';
+    var trim=c.trim?'<div class="muted" style="font-size:11px;margin-top:2px">trim: '+esc(c.trim)+'</div>':'';
+    return '<div class="row" style="display:block"><div><b>'+esc(c.category)+'</b>'+flag+' <span class="muted">'+meta+'</span></div>'+bar+trim+'</div>';
+  }).join('');
+  var note=r.note?'<div class="usage-note" style="margin-top:8px">'+esc(r.note)+'</div>':'';
+  $('#context').innerHTML=head+rows+note;
 }).catch(function(){})}
 function audit(){return api('/api/audit').then(function(d){
   var a=d&&d.activity; if(!a||!a.length){$('#audit').innerHTML='<span class="empty">no remote (principal) activity yet</span>';return}
@@ -519,7 +545,7 @@ function prefs(){return api('/api/prefs').then(function(d){
     // belt-and-suspenders (server already gated): only our token names + a conservative color charset
     if(/^--[a-z0-9]+$/i.test(k)&&typeof val==='string'&&/^[#a-z0-9(),.%/ -]+$/i.test(val)) rs.setProperty(k,val); }
 }).catch(function(){})}
-function tick(){vit();usage();usageByPrincipal();reminders();jobs();learn();audit();prefs()}
+function tick(){vit();usage();usageByPrincipal();context();reminders();jobs();learn();audit();prefs()}
 tick();setInterval(tick,5000);${MEMGRAPH ? GRAPH_SCRIPT : ''}
 </script></body></html>`;
 }
@@ -569,6 +595,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && pathname === '/api/vitals') return sendJson(res, 200, (await daemonGet('/vitals')) || {});
     if (req.method === 'GET' && pathname === '/api/usage') { const by = u.searchParams.get('by'); const qp = (by === 'principal' || by === 'channel') ? '?by=' + by : ''; return sendJson(res, 200, (await daemonGet('/usage' + qp)) || {}); }
+    if (req.method === 'GET' && pathname === '/api/context') { const q = u.searchParams.get('q'); const qp = q ? '?q=' + encodeURIComponent(String(q).slice(0, 4000)) : ''; return sendJson(res, 200, (await daemonGet('/context' + qp)) || {}); }
     if (req.method === 'GET' && pathname === '/api/reminders') return sendJson(res, 200, (await daemonGet('/reminders')) || []);
     if (req.method === 'GET' && pathname === '/api/jobs') return sendJson(res, 200, (await daemonGet('/jobs')) || []);
     if (req.method === 'GET' && pathname === '/api/learn') return sendJson(res, 200, (await daemonGet('/learn')) || {});

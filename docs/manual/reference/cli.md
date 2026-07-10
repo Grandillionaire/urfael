@@ -816,6 +816,23 @@ urfael usage --by channel --verify
 
 See also: `status` · `audit`
 
+### `urfael context`
+
+what fills the model input, per category: bytes + est tokens.
+
+```bash
+urfael context ["<a message>"] [--json]
+```
+
+Examples:
+
+```bash
+urfael context
+urfael context "what did we decide about the launch?"
+```
+
+See also: `usage` · `forget`
+
 ### `urfael model`
 
 pin a tier (opus/sonnet/auto) or switch the model provider.

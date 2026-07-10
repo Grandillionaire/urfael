@@ -47,6 +47,7 @@ const recall = require('./recall');
 const ridx = require('./recall-index');         // persistent BM25 inverted index — recall AT SCALE (FTS5-equivalent)
 const embed = require('./embed');               // optional local-first embeddings client (semantic recall)
 const memctx = require('./memctx');             // ACTIVE RECALL: per-turn relevant-memory preamble (pure assembler)
+const ctxreport = require('./context-report');  // CONTEXT ATTRIBUTION: per-category bytes/token-estimate of what fills a turn (pure, read-only)
 const calendar = require('./calendar');         // LOCAL-FIRST calendar event store (MEMORY_DIR/calendar.json; pure helpers + fail-soft I/O)
 const schedchan = require('./schedule-channel'); // the dedicated Reminders & Calendar channel: parse+validate+assemble (pure; the gate is the daemon's)
 const consolidate = require('./consolidate');   // masterful compaction: dedupe + evidence-retire the ledger, right-size recall
@@ -1171,7 +1172,9 @@ async function activeRecall(text) {
     if (!ctx.block) return { promptText: text, surfaced: [] };
     const sizedBlock = consolidate.formatForModel(ctx.block, convoModel);   // tighter for fast tiers, full for Opus; preserves the reference-only fence
     logEvent({ ev: 'active_recall', turns: ctx.surfacedTurns.length, lessons: ctx.surfacedLessons.length, chars: ctx.block.length, semantic: embed.enabled() });
-    return { promptText: memctx.prepend(sizedBlock, q), surfaced: ctx.surfacedLessons };
+    // `block` is additive (callers read only promptText/surfaced); the read-only context-report reuses it so its
+    // recalled-memory figure is the EXACT block this turn would carry, not a re-derived estimate.
+    return { promptText: memctx.prepend(sizedBlock, q), surfaced: ctx.surfacedLessons, block: sizedBlock };
   } catch { return { promptText: text, surfaced: [] }; }
 }
 // ---- NATIVE ENGINE local turn -------------------------------------------------------------------------
@@ -1183,6 +1186,34 @@ async function activeRecall(text) {
 function nativeSystemPrompt() {
   try { const s = fs.readFileSync(path.join(VAULT, 'CLAUDE.md'), 'utf8'); if (s && s.trim()) return s.slice(0, 12000); } catch {}
   return 'You are Urfael, a security-first personal AI assistant running on your own machine. Use the provided tools to read and search the vault. Be terse, direct, and honest; never invent file contents — read them.';
+}
+// ---- CONTEXT ATTRIBUTION: read-only per-category breakdown of what fills one owner turn -----------------------
+// Reuses the EXACT pieces the turn path assembles — the native system string (or the CLI constitution + active
+// persona overlay), the four injected memory files, and (for a supplied message) the SAME activeRecall block — so
+// the numbers are measured from what actually rides in, not a re-derived guess. Read-only + fail-soft: any hiccup
+// yields a safe partial. The native default brain owns its whole window (engine 'native', running window measured);
+// on the CLI subscription the claude CLI owns its running window, so context-report appends the honest
+// 'CLI-managed (not measured here)' remainder rather than fabricate it. Additive: never perturbs the turn path.
+async function contextReport(q) {
+  const entry = nativeDefault ? providerSessions.findProvider(providerList(), nativeDefault) : null;
+  const useNative = !!(entry && engine.pickAdapter(entry) && nativeSecretFor(entry));   // pinned AND actually able to serve the turn
+  let systemPrompt = '';
+  const memoryFiles = [];
+  if (useNative) {
+    systemPrompt = nativeSystemPrompt();                          // the exact system string the native engine sends
+  } else {
+    try { systemPrompt = fs.readFileSync(path.join(VAULT, 'CLAUDE.md'), 'utf8'); } catch {}
+    try { const ov = personas.overlayFor(personaRoster, activePersona); if (ov) systemPrompt += (systemPrompt ? '\n\n' : '') + ov; } catch {}
+    for (const f of MEMORY_FILES) { try { const t = fs.readFileSync(path.join(MEMORY_DIR, f), 'utf8'); if (t) memoryFiles.push({ name: f, text: t }); } catch {} }
+  }
+  let recallBlock = '', history;
+  const query = String(q == null ? '' : q).trim();
+  if (query) {
+    try { const mem = await activeRecall(query); recallBlock = (mem && mem.block) || ''; if (useNative) history = mem && mem.promptText != null ? String(mem.promptText).slice(recallBlock.length) : query; } catch {}
+  } else if (useNative) history = '';
+  const rep = ctxreport.report({ systemPrompt, memoryFiles, recallBlock, refs: [], history, engine: useNative ? 'native' : 'cli' });
+  rep.query = query || null;
+  return rep;
 }
 // nativeRecallSearch — the native `recall` tool: BM25 (+ optional semantic) over the session archive, returned as
 // text. NAMED distinctly (not `recallText`) because a module-scope `function recallText(e)` already exists below for
@@ -2691,6 +2722,16 @@ const server = http.createServer(async (req, res) => {
     // a key's NAME (authEnv) may appear, never a value. The socket is 0600 so this is owner-only regardless.
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ providers: providerList().map((e) => ({ id: e.id, label: e.label, kind: e.kind, baseUrl: e.baseUrl, big_model: e.big_model, small_model: e.small_model, authKind: e.authKind, authLabel: e.authLabel, verified: e.verified, cost: e.cost, speed: e.speed, quality: e.quality })) }));
+  } else if (req.url === '/context' || (req.url || '').startsWith('/context?')) {
+    // GET /context[?q=<message>] — READ-ONLY per-category attribution of what fills the model input for a turn:
+    // system/persona prompt, the injected memory files, the recalled-memory block (for the supplied message), and,
+    // on the native default brain, the running window. Bytes are exact; tokens are a labelled estimate. Additive:
+    // it reads what the turn path already assembles and never mutates it. Local-only by nature (0600 socket).
+    let q = '';
+    try { q = new URL(req.url, 'http://x').searchParams.get('q') || ''; } catch {}
+    const rep = await contextReport(q.slice(0, 4000));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(rep));
   } else if (req.url === '/usage' || (req.url || '').startsWith('/usage?')) {
     // GET /usage — backward-compatible. Bare → tokens/turns/ESTIMATED cost for today / last 7d / last 30d
     // (usageSummary, the shape the dashboard + HUD depend on). ?by=principal|channel → the per-key rollup; add

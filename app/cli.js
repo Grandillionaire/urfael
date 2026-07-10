@@ -1375,6 +1375,21 @@ function readStdinAdapter(maxBytes) {
     }
     return;
   }
+  if (cmd === 'context') {
+    // per-category attribution of what fills the model input for a turn: system/persona prompt, the injected memory
+    // files, the recalled-memory block (pass a message to see what it would recall), and — on the native default
+    // brain — the running window. Bytes are exact; the token column is a labelled ESTIMATE. --json prints the raw
+    // payload. Read-only: it reports what the turn path already assembles and changes nothing.
+    const ctxrep = require('./context-report');
+    const json = rest.includes('--json');
+    const q = rest.filter((a) => a !== '--json').join(' ').trim();
+    const rep = await req('GET', '/context' + (q ? '?q=' + encodeURIComponent(q.slice(0, 4000)) : '')).catch(() => null);
+    if (!rep || typeof rep !== 'object') { console.log(dim('brain offline — start it with `urfael status`')); return; }
+    if (json) { console.log(JSON.stringify(rep, null, 2)); return; }
+    for (const ln of ctxrep.lines(rep, { gold, dim, bold: gold })) console.log(ln);
+    if (!q) console.log(dim('  tip: ') + gold('urfael context "<a message>"') + dim(' to see what active recall would add for that turn'));
+    return;
+  }
   if (cmd === 'usage') {
     // tokens / turns / ESTIMATED cost. Bare → today / 7d / 30d totals (the usageSummary windows). --by principal|channel
     // → the per-key rollup (who/which channel spent what), the dimension a per-AGENT scope can't express. --verify adds a
