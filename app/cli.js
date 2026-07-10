@@ -992,9 +992,38 @@ function readStdinAdapter(maxBytes) {
       for (const c of cs) console.log(gold(c.id) + dim('  ' + String(c.state || '').padEnd(11) + '  ') + String(c.task || '').slice(0, 70));
       return;
     }
+    // --result <id>: print the persisted (<=4000-char) SYNTHESIS of a council (summary-only; the detached-async result).
+    const resultId = flag(rest, '--result');
+    if (resultId) {
+      const r = await req('GET', '/council/' + encodeURIComponent(resultId) + '/result');
+      if (!r || typeof r !== 'object' || r.error) { console.error(bad('✗') + ' no such council, sir: ' + gold(resultId)); process.exit(1); }
+      if (r.answer && r.answer.trim()) process.stdout.write(require('./md').toAnsi(r.answer, { color: COLOR, base: COLOR ? '\x1b[33m' : '' }) + (COLOR ? '\x1b[0m' : '') + '\n');
+      else console.log(dim('still ' + (r.state || 'running') + ' — no synthesis yet, sir. watch:  ') + gold('urfael council --replay ' + resultId));
+      return;
+    }
+    // --cancel <id>: SIGKILL the workers of the in-flight detached council and mark it interrupted (id-scoped).
+    const cancelId = flag(rest, '--cancel');
+    if (cancelId) {
+      const r = await req('POST', '/council/' + encodeURIComponent(cancelId) + '/cancel', {});
+      if (r && r.ok) console.log(gold('✓') + ' council ' + gold(cancelId) + ' cancelled, sir.');
+      else { console.error(bad('✗') + ' no in-flight council with that id, sir: ' + gold(cancelId)); process.exit(1); }
+      return;
+    }
     const replay = flag(rest, '--replay'), agents = flag(rest, '--agents');
-    const task = rest.filter((a, i) => !a.startsWith('--') && rest[i - 1] !== '--replay' && rest[i - 1] !== '--agents').join(' ');
-    if (!replay && !task.trim()) { console.error('usage: urfael council "<task>" [--agents N]   ·   urfael council --list   ·   urfael council --replay <id>'); process.exit(1); }
+    const wantAsync = rest.includes('--async');
+    const task = rest.filter((a, i) => !a.startsWith('--') && rest[i - 1] !== '--replay' && rest[i - 1] !== '--agents' && rest[i - 1] !== '--result' && rest[i - 1] !== '--cancel').join(' ');
+    // --async: convene the council DETACHED from this terminal (opt-in; the daemon must be started with
+    // URFAEL_COUNCIL_ASYNC=1). Returns immediately with an id; the synthesis is fetched later via --result.
+    if (wantAsync) {
+      if (!task.trim()) { console.error('usage: urfael council --async "<task>" [--agents N]'); process.exit(1); }
+      const r = await req('POST', '/council', { task, agents, async: true });
+      if (r && r.id) { console.log(gold('✓') + ' Council convened in the background as ' + gold(r.id) + ', sir — I will push your phone when it adjourns.\n  result:  ' + gold('urfael council --result ' + r.id) + '   ·   watch:  ' + gold('urfael council --replay ' + r.id)); return; }
+      if (r && r.hint) console.error(bad('✗') + ' ' + (r.error || 'detached async council is off') + dim('\n  ' + r.hint));
+      else if (r && r.error) console.error(bad('✗') + ' ' + r.error + dim(r.error && /already in session/.test(r.error) ? '  (one council at a time)' : ''));
+      else console.error(bad('✗') + ' the council did not start, sir.');
+      process.exit(1);
+    }
+    if (!replay && !task.trim()) { console.error('usage: urfael council "<task>" [--agents N]   ·   urfael council --async "<task>"   ·   urfael council --list | --replay <id> | --result <id> | --cancel <id>'); process.exit(1); }
     await require('./council-view').run(task, agents, { replay });
     return;
   }

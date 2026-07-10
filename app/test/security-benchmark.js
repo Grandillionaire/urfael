@@ -397,6 +397,32 @@ async function main() {
       return noEgressChild && ownerInherits && narrowsOnly && wired;
     })(),
     'no shell/write on a scheduled untrusted-data turn; a delegated background subagent inherits the originating profile via delegateScope (untrusted → no egress; local inherits, never a shell) and POST /job is narrow-only (narrowScope), so a child never re-enters with unscoped egress');
+  // OPT-IN detached async Council (URFAEL_COUNCIL_ASYNC=1 + --async): a background, terminal-detached ensemble is a
+  // real capability, so it is gated OFF by default — a default install can NEVER start one. The pure gate is false for
+  // unset/'0'/'off', and the daemon refuses a POST /council {async:true} with a 403 opt-in hint (spawning ZERO workers)
+  // when the flag is off, so the flag-off surface is dead code.
+  check('the DETACHED async Council is gated OFF by default (no background ensemble on a default install)',
+    lib.asyncCouncilGate({}) === false && lib.asyncCouncilGate({ URFAEL_COUNCIL_ASYNC: '' }) === false
+    && lib.asyncCouncilGate({ URFAEL_COUNCIL_ASYNC: '0' }) === false && lib.asyncCouncilGate({ URFAEL_COUNCIL_ASYNC: 'off' }) === false
+    && lib.asyncCouncilGate({ URFAEL_COUNCIL_ASYNC: '1' }) === true
+    && /parsed\.async && !ASYNC_COUNCIL_ON/.test(daemonSrc) && /URFAEL_COUNCIL_ASYNC=1/.test(daemonSrc),
+    'asyncCouncilGate is a pure OFF-by-default flag; a {async:true} without it is 403 with the enable hint, no worker spawned');
+  // The detached async Council reuses the crown-jewel read-only floor VERBATIM: it drives council.runCouncil with the
+  // daemon's SINGLE-SOURCED councilDeps(job.id) (the floor never relocates), a planner requesting Write/Edit/Bash is
+  // still narrowed to {Read,Grep,Glob} (intersectTools fail-closed), it replies BEFORE the run starts (off `chain`),
+  // and its emit adapter appends ONLY to the jobstore log — it has no handle on `res` or the shared voice writer.
+  check('the detached async Council reuses the single-sourced read-only floor, detaches before running, and its emit is summary-only',
+    (() => {
+      const councilm = require('../council');
+      const ac = require('../engine/async-council');
+      const floorHeld = councilm.intersectTools(['Write', 'Edit', 'Bash', '--dangerously-skip-permissions'], councilm.COUNCIL_BASE_TOOLS).slice().sort().join(',') === 'Glob,Grep,Read';
+      const singleSourced = /asyncCouncil\.runDetached\(\{[\s\S]*?deps: councilDeps\(job\.id\)/.test(daemonSrc);
+      const immediateDetach = /res\.end\(JSON\.stringify\(\{ id: job\.id, state: 'running', async: true \}\)\);\s*asyncCouncil\.runDetached\(/.test(daemonSrc);
+      const emitSrc = ac.makeAsyncEmit.toString();
+      const summaryOnly = /appendLog/.test(emitSrc) && !/sendSay|\bactive\b|res\b/i.test(emitSrc);
+      return floorHeld && singleSourced && immediateDetach && summaryOnly;
+    })(),
+    'runDetached drives council.runCouncil with councilDeps(job.id) (floor intact, Write/Edit/Bash narrowed away), res.end fires before the run, and makeAsyncEmit appends only to the jobstore log (no voice writer)');
   // GAP (adversarial audit 2026-07): the background /job was the LAST spawn path still handing the child the daemon's
   // FULL process env; it now crosses the SAME scopedEnv() allowlist as cron/hook/watch/remote, so bridge.env + unrelated
   // provider keys never reach an UNREVIEWED background child. The goal-loop's own isolation selectors stay forwarded.

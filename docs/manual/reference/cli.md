@@ -658,15 +658,16 @@ live multi-agent council, watch agents decompose + synthesize.
 
 ```bash
 urfael council "<task>" [--agents N]
-urfael council --list | --replay <id>
+urfael council --async "<task>" [--agents N]   (detached; opt-in URFAEL_COUNCIL_ASYNC=1)
+urfael council --list | --replay <id> | --result <id> | --cancel <id>
 ```
 
 Examples:
 
 ```bash
 urfael council "audit this repo for security gaps"
-urfael council "compare 3 caching strategies" --agents 4
-urfael council --list
+urfael council --async "review the whole vault for stale notes"
+urfael council --result <id>
 ```
 
 See also: `tui` · `jobs`
