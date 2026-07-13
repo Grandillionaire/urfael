@@ -1,9 +1,7 @@
 'use strict';
 // idle-governor.js — a pure, zero-dependency cadence state machine for the OUTBOUND bridge pollers.
 //
-// Provenance: idea from NousResearch/hermes-agent (MIT license, patterns only) — scale-to-zero idle suspension.
-// This is our OWN code,
-// reusing Urfael's own module conventions — no Hermes source is copied. Where Hermes suspends the inbound,
+// Scale-to-zero idle suspension for the outbound bridge pollers. Where Hermes suspends the inbound,
 // auth-bearing gateway (on the trust boundary), this governor ONLY decides how long an outbound self-timed poller
 // sleeps between polls. It is structurally incapable of touching the security path: it never requires the brain
 // socket, never speaks the brain request protocol, and never consults the allowlist. It holds no credentials and

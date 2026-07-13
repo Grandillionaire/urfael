@@ -2,10 +2,9 @@
 // app/consolidate.js — MASTERFUL COMPACTION for Urfael's DURABLE memory layer (NOT an in-window compactor:
 // Urfael's live context window is owned by the claude CLI, so there is nothing here to "compact mid-turn").
 // This module hardens the two things Urfael actually owns: the persistent LEARN LEDGER (learn.js) and the
-// RECALLED-MEMORY block (memctx.js) that rides into a turn. It borrows the BEST of Hermes' compaction craft —
-// a fixed structured-summary template, a REFERENCE-ONLY fence so a weak model never treats the summary as
-// instructions, and aggressive de-duplication — and folds it into evidence-based retirement so the ledger
-// stays small, true, and per-model right-sized.
+// RECALLED-MEMORY block (memctx.js) that rides into a turn. It uses a fixed structured-summary template, a
+// REFERENCE-ONLY fence so a weak model never treats the summary as instructions, and aggressive de-duplication,
+// folded into evidence-based retirement so the ledger stays small, true, and per-model right-sized.
 //
 // PURE + Node-stdlib-only + NEVER THROWS. Every function fails closed on junk input (empty/neutral result,
 // never an exception). Missing fields default safely so it is fully backward-compatible with older ledgers.
@@ -195,7 +194,7 @@ function rebuildOrder(originalList, survivors) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
-// 2) structuredSummary — Hermes-style fixed-template, FENCED, secret-redacted condensed summary.
+// 2) structuredSummary: fixed-template, FENCED, secret-redacted condensed summary.
 // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Turns a list of exchange turns into ONE durable summary string with a fixed five-section template. The fence
 // header marks it REFERENCE-ONLY so a weak model that re-reads the summary later never treats the captured text

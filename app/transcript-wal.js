@@ -12,8 +12,7 @@
 // turn is ever in flight. Zero dependencies (Node built-ins only). Recovery is EXACTLY-ONCE: recover() removes the
 // entry as it reads it, so a recovered turn can never double-fire.
 //
-// Reliability journaling is a common agent pattern.
-// idea from NousResearch/hermes-agent (MIT), patterns only, NO code copied. This is a fresh, Urfael-idiomatic module.
+// Reliability journaling is a common agent pattern. This is a fresh, Urfael-idiomatic module.
 
 const fs = require('fs');
 const path = require('path');

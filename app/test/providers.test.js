@@ -110,7 +110,7 @@ test('preview is pure data, marks local/verified, and never contains a secret va
   assert.ok(!p.redact('Authorization: Bearer sk-or-THE-SECRET', ['sk-or-THE-SECRET']).includes('sk-or-THE-SECRET'));
 });
 
-// ── provider fallback chains (Hermes-style fallback_providers): the daemon tries the next on a failed turn ──
+// ── provider fallback chains (fallback_providers): the daemon tries the next on a failed turn ──
 test('chain resolves [primary, ...fallbacks] to real entries, deduped, self/unknown skipped', () => {
   const list = [
     { id: 'a', fallbacks: ['b', 'c', 'a', 'ghost'] },   // self + unknown are skipped

@@ -1,6 +1,6 @@
 'use strict';
-// Unit tests for the native-engine compactor. The properties that matter are the SAFETY ones borrowed from
-// Hermes: the kept tail is always a valid history (never starts on an orphan tool_result), the leading system
+// Unit tests for the native-engine compactor. The properties that matter are the SAFETY ones:
+// the kept tail is always a valid history (never starts on an orphan tool_result), the leading system
 // prompt is never summarized away, the prior summary is folded in on each pass (iterative merge), a weak
 // compaction backs off (anti-thrash), and — the load-bearing one — a summarizer that throws returns the window
 // UNCHANGED (fail-safe abort) instead of destroying context.
@@ -141,7 +141,7 @@ test('countLeadingSystem counts only the leading run', () => {
   assert.strictEqual(countLeadingSystem([{ role: 'system' }, { role: 'system' }, { role: 'user' }, { role: 'system' }]), 2);
 });
 
-// ── A. Phase-1 tool-output prune pass (borrowed from NousResearch/hermes-agent, MIT) ──
+// ── A. Phase-1 tool-output prune pass ──
 test('phase-1 prune: a giant tool dump is stubbed and the pruned window SKIPS the summarizer', async () => {
   let called = 0;
   const c = createCompactor({ summarize: async () => { called++; return { ok: true, summary: 'S' }; } });

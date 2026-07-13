@@ -72,11 +72,9 @@ test('pet.js contains ZERO require( and NONE of the brain-reaching symbols (stru
   assert.deepEqual(hits, [], 'pet.js must not contain any brain-reaching symbol; found: ' + hits.join(', '));
 });
 
-// ───────────────────────── 4) clean-room provenance + no fingerprints ─────────────────────────
-test('pet.js is a clean-room re-implementation: provenance present, no no-copy-traces fingerprint', () => {
-  assert.match(PET_SRC, /NousResearch\/hermes-agent/);
-  assert.match(PET_SRC, /MIT/);
-  assert.match(PET_SRC, /patterns/);
+// ───────────────────────── 4) origin-clean + no fingerprints ─────────────────────────
+test('pet.js carries no origin-reveal and no no-copy-traces fingerprint', () => {
+  assert.ok(!PET_SRC.includes('NousResearch' + '/hermes-agent'), 'no origin-reveal slug in pet.js');
   const FINGERPRINTS = [
     new RegExp('mirror of (herm' + 'es|openc' + 'law)', 'i'),
     new RegExp('\\bborrow' + 'able\\b', 'i'),

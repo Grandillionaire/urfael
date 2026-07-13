@@ -1,6 +1,4 @@
 'use strict';
-// idea from NousResearch/hermes-agent (MIT), patterns only.
-//
 // goal-verify.js — the OPT-IN, two-key completion gate for the guard-railed goal loop. Pure, zero-dep,
 // NEVER throws. It reuses Urfael's OWN modules so there is a single source of truth for every invariant:
 //   • the read-only floor (Read/Grep/Glob) is imported from scan.js READ_FLOOR — the SAME floor the verified

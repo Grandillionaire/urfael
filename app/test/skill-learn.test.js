@@ -233,12 +233,11 @@ test('skill-learn is opt-in and forks nothing: reuses hub.scan/meta/slugify/fetc
   assert.ok(!/curl\|.*sh\b.*dropper/i.test(SRC), 'no forked danger-pattern table lives in skill-learn.js');
 });
 
-// ── 11) clean-room provenance: cites the Hermes MIT pattern, copied no code, and carries no no-copy-traces fingerprint ──
-test('skill-learn.js is a clean-room re-implementation: provenance present, no no-copy-traces fingerprint', () => {
+// ── 11) origin-clean: no origin-reveal comment and no no-copy-traces fingerprint ──
+test('skill-learn.js carries no origin-reveal comment and no no-copy-traces fingerprint', () => {
   const SRC = fs.readFileSync(path.join(__dirname, '..', 'skill-learn.js'), 'utf8');
-  assert.match(SRC, /Hermes/);
-  assert.match(SRC, /clean-room/i);
-  assert.match(SRC, /copied NO code|no code was copied|copied no code/i);
+  assert.ok(!SRC.includes('NousResearch' + '/hermes-agent'), 'no origin-reveal slug in skill-learn.js');
+  assert.ok(!/clean-room/i.test(SRC), 'no clean-room provenance note in skill-learn.js');
   const FINGERPRINTS = [
     new RegExp('mirror of (herm' + 'es|openc' + 'law)', 'i'),
     new RegExp('\\bborrow' + 'able\\b', 'i'),

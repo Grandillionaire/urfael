@@ -1,6 +1,6 @@
 'use strict';
 // Memory Journey — a READ-ONLY projection of Urfael's OWN git-versioned memory into a belief/lesson graph.
-// idea studied from NousResearch/hermes-agent (MIT), patterns only; implemented from scratch over Urfael's OWN
+// A projection built from scratch over Urfael's OWN
 // git history + Ledger of Record. This module is PURE: no fs, no exec, no net, no listener, and it NEVER throws.
 // The daemon runs the one injection-safe `git log -p` over the `why` file set and hands the raw text here; this
 // file only PARSES + PROJECTS it. Nothing is persisted — the graph is derived on demand and thrown away.

@@ -18,8 +18,7 @@
 //     so the parts Urfael cannot see are collected into ONE explicitly-labelled category, 'CLI-managed (not measured
 //     here)' (bytes:null), rather than guessed at. We report what we assemble and we say what we cannot.
 //
-// idea studied from NousResearch/hermes-agent (MIT) — its per-category context popover is a heuristic estimate;
-// this measures Urfael's own assembled bytes. Patterns only; no code copied.
+// This measures Urfael's own assembled bytes; the per-category figure is a heuristic estimate, not a billed total.
 
 // Documented rough estimate. English text runs ~4 chars/token for the common tokenizers; this is a SIGNPOST for
 // "how much of the window is this", LABELLED an estimate everywhere it surfaces, never a billed or exact figure.

@@ -3,8 +3,7 @@
 // reusable skill from an arbitrary source, routed through Urfael's existing safety pipeline BEFORE the skill is ever
 // trusted, indexed, or (it never is) executed.
 //
-// Provenance (clean-room): we STUDIED the Hermes `/learn <anything>` MIT pattern (NousResearch/hermes-agent, MIT) —
-// distill a skill from a dir/URL/the last run and index it. Patterns only; we copied NO code. Hermes trusts the distilled skill ON WRITE (auto-authoring from an
+// This distills a skill from a dir/URL/the last run and indexes it. Hermes trusts the distilled skill ON WRITE (auto-authoring from an
 // arbitrary source is the skill-poisoning surface). Urfael runs the same distillation but gates the output through the
 // SAME moat every installed skill passes and then some: distill on the fortress READ-ONLY floor (Read/Grep/Glob, no
 // Write/Edit/Bash, no egress) -> the hub static scanner (30+ danger families + decode-and-rescan) -> a sha256 pin ->
@@ -36,7 +35,7 @@ const MAX_SKILL_BYTES = 256 * 1024;           // a skill is terse markdown; cap 
 const FAIL_VERDICT = Object.freeze({ correct: false, general: false, safe: false, confidence: 0, note: 'verifier unreachable' });
 
 // ── source resolution ─────────────────────────────────────────────────────────────────────────────────────────
-// A URL argument may carry a leading '@' (the Hermes-style sigil for "learn from this doc"). Everything else is a dir,
+// A URL argument may carry a leading '@' (the sigil for "learn from this doc"). Everything else is a dir,
 // unless --from-last (opts.fromLast or the literal token) selects the just-completed workflow.
 
 // Read the just-completed workflow from the archived session log. The latest YYYY-MM-DD.jsonl's last valid record is

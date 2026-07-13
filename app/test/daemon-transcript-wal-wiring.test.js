@@ -90,8 +90,8 @@ test('the recovery marker string carries no em/en dashes', () => {
   assert.doesNotMatch(line, /[–—]/, 'no en/em dashes in user-visible strings');
 });
 
-// ── PROVENANCE: the clean-room note is present and does NOT emit a forbidden copy fingerprint ──
-test('the module carries the clean-room provenance note and no copy fingerprint', () => {
-  assert.match(walSrc, /idea from NousResearch\/hermes-agent \(MIT\), patterns only, NO code copied/);
+// ── ORIGIN-CLEAN: no origin-reveal note leaks, and no forbidden copy fingerprint is present ──
+test('the module carries no origin-reveal note and no copy fingerprint', () => {
+  assert.ok(!walSrc.includes('NousResearch' + '/hermes-agent'), 'no origin-reveal note in transcript-wal.js');
   assert.doesNotMatch(walSrc, /mirror of (hermes|openclaw)/i);
 });

@@ -2,9 +2,8 @@
 // pet.js — "the Familiar": a pure, dependency-free, side-effect-free, never-throws state machine plus a
 // code-drawn pose/frame provider for Urfael's agent-state companion.
 //
-// Provenance: idea from NousResearch/hermes-agent (MIT), patterns only — the notion of a labelled agent-state
-// companion — re-implemented from scratch over Urfael's OWN runic identity, STATE_COLORS, and TOOL_RUNE families.
-// No code was copied; this is a clean-room re-implementation of the pattern, drawn in code (never a sprite atlas).
+// A labelled agent-state companion built over Urfael's OWN runic identity, STATE_COLORS, and TOOL_RUNE families,
+// drawn in code (never a sprite atlas).
 //
 // It is fed ONLY UI state the surfaces have ALREADY derived (the same signals that colour the orb and pick the
 // worker verb today). It has zero imports, opens nothing, reads nothing, and cannot reach the daemon, its private

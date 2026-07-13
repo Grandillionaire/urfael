@@ -3,7 +3,7 @@
 //
 // This is Urfael's OWN agent loop, the thing that exists only because we own the window now (the CLI engine in
 // app/session.js delegates the loop to the `claude` binary). It ties the three native pieces together:
-//   adapter (openai|anthropic) → toolset (fail-closed) → compactor (Hermes-pattern), and runs the standard
+//   adapter (openai|anthropic) → toolset (fail-closed) → compactor, and runs the standard
 //   call → tool_use → tool_result → call cycle until the model stops or a step/token bound trips.
 //
 // Design rules (match the rest of the daemon):
@@ -25,7 +25,7 @@ const { runReview } = require('./review');
 
 const DEFAULT_MAX_STEPS = 8;          // model→tools→model cycles per user turn
 const DEFAULT_MAX_TOKENS = 4096;      // per-call output budget
-const LOOP_REPEAT_LIMIT = 3;          // same tool call this many times in one turn ⇒ break the tool loop (deer-flow)
+const LOOP_REPEAT_LIMIT = 3;          // same tool call this many times in one turn ⇒ break the tool loop
 
 // deterministic order-independent JSON so {a:1,b:2} and {b:2,a:1} hash identically.
 function stableStringify(v) {
@@ -33,8 +33,8 @@ function stableStringify(v) {
   if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
   return JSON.stringify(v === undefined ? null : v);
 }
-// hash(toolName + sortedArgs) — the identity of a tool call for loop detection. Borrowed from bytedance/deer-flow
-// (MIT): its graph guards against an agent that re-issues the same call forever. Args that don't parse hash by raw.
+// hash(toolName + sortedArgs): the identity of a tool call for loop detection. Guards against an agent that
+// re-issues the same call forever. Args that don't parse hash by raw.
 function toolCallHash(name, argsStr) {
   let obj;
   try { obj = argsStr ? JSON.parse(argsStr) : {}; } catch { obj = { __raw: String(argsStr == null ? '' : argsStr) }; }
@@ -58,7 +58,7 @@ function createEngine(cfg) {
     const usage = { inTok: 0, outTok: 0 };
     let steps = 0;
     let finalText = '';
-    // deer-flow loop guard (per-turn): tally identical tool calls; on the 3rd repeat, deny further tools and force a
+    // loop guard (per-turn): tally identical tool calls; on the 3rd repeat, deny further tools and force a
     // final text answer. Fail-closed: it only ever RESTRICTS. lastInputTokens carries the model's authoritative input
     // token count into the NEXT compaction trigger (change C); 0 until the first call, where the estimate is used.
     const loopCounts = new Map();
@@ -107,7 +107,7 @@ function createEngine(cfg) {
         let looped = false;
         for (const call of res.toolCalls) {
           if (signal && signal.aborted) return result(false, 'aborted', 'aborted');
-          // deer-flow guard: tally this call's identity; the 3rd identical one trips the break (still dispatched so
+          // loop guard: tally this call's identity; the 3rd identical one trips the break (still dispatched so
           // the assistant tool_use keeps a matching tool_result — a valid history — then tools are denied next call).
           const h = toolCallHash(call.name, call.args);
           const n = (loopCounts.get(h) || 0) + 1; loopCounts.set(h, n);

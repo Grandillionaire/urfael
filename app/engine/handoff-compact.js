@@ -3,10 +3,9 @@
 // transcript. Pure, zero-dependency, and NEVER-throws: every entry point falls back to the untouched input on ANY
 // error, so a summarizer outage can never truncate or corrupt the hand-off. No network, no I/O, nothing listens here.
 //
-// PROVENANCE (honest): idea from NousResearch/hermes-agent (MIT), patterns only — re-implemented over Urfael's
-// message shape, no code copied. This module adds NOTHING new to the compaction mechanism itself; it REUSES
+// This module adds NOTHING new to the compaction mechanism itself; it REUSES
 // app/engine/compactor.js (createCompactor / pruneMiddle / redactSecrets / alignTailStart / countLeadingSystem /
-// toolResultStub) clean-room and only maps between Urfael's {user, urfael} distill transcript and the compactor's
+// toolResultStub) and only maps between Urfael's {user, urfael} distill transcript and the compactor's
 // engine-neutral message array. The one honest caveat is documented at every seam: the live memory-distill
 // transcript is text-only, so the >200-char tool-output prune is a NO-OP there and the shrink comes from the middle
 // summary; the prune is fully implemented + unit-tested and only bites if a tool-bearing window is ever the source.

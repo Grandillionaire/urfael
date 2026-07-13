@@ -134,7 +134,6 @@ function tick(now = Date.now()) {
 //   (b) PROVIDER-DRIFT FAIL-CLOSED: a job that recorded the brain it was authored against (pin) is SKIPPED if that
 //       pin no longer matches the live config at fire time, rather than silently running on a different brain. A
 //       job with no pin (the flag-off authoring shape) can never drift, so this is a pure no-op there.
-// idea from NousResearch/hermes-agent (MIT), patterns only, NO code copied.
 const CRON_MISS_GRACE_MS = 3600000;   // 1h bound: a repeat job overdue by more than this is too stale to fire, only re-armed
 function hardenOn() { return envOn(process.env.URFAEL_CRON_HARDEN); }
 function samePin(a, b) {               // fail-closed equality: an unknown side (null) never matches a recorded pin

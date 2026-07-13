@@ -253,12 +253,10 @@ test('every resolver + build is total: hostile/garbage inputs return a value, ne
   assert.equal(refs.resolveFile('x', {}).ok, false, 'no allowlist root → refused');
 });
 
-// ── clean-room provenance (parity with the sibling opt-in features: pet/memgraph/idle-suspend/…) ──
+// ── origin-clean (parity with the sibling opt-in features: pet/memgraph/idle-suspend/…) ──
 const REFS_SRC = fs.readFileSync(path.join(__dirname, '..', 'refs.js'), 'utf8');
-test('refs.js is a clean-room re-implementation: provenance present, no no-copy-traces fingerprint', () => {
-  assert.match(REFS_SRC, /NousResearch\/hermes-agent/);
-  assert.match(REFS_SRC, /MIT/);
-  assert.match(REFS_SRC, /patterns/);
+test('refs.js carries no origin-reveal and no no-copy-traces fingerprint', () => {
+  assert.ok(!REFS_SRC.includes('NousResearch' + '/hermes-agent'), 'no origin-reveal slug in refs.js');
   assert.doesNotMatch(REFS_SRC, /mirror of (hermes|openclaw)/i);
   // the source stays plain, greppable text: the dedup separator is an escape, never a raw NUL byte
   assert.doesNotMatch(REFS_SRC, /\x00/);

@@ -1,7 +1,7 @@
 'use strict';
 // Unit tests for the pure Memory Journey projector (app/memgraph.js). It must NEVER throw, never do I/O, keep every
 // attacker-influenceable label inert (verbatim in JSON, sanitized only at the DOM), assert NO fabricated per-lesson
-// proof, pass the audit-chain.verify RESULT through honestly, and stay clean-room (patterns from hermes, no code).
+// proof, pass the audit-chain.verify RESULT through honestly, and stay pure.
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -171,7 +171,7 @@ test('deterministic output: two identical builds are byte-identical', () => {
   assert.equal(a, b);
 });
 
-// ── purity + clean-room provenance ──
+// ── purity + origin-clean ──
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'memgraph.js'), 'utf8');
 
 test('memgraph.js is pure: no fs / child_process / net / http / os require, no listener', () => {
@@ -179,9 +179,7 @@ test('memgraph.js is pure: no fs / child_process / net / http / os require, no l
   assert.doesNotMatch(SRC, /\.listen\(|createServer/);
 });
 
-test('clean-room provenance comment is present and the forbidden copy marker is absent', () => {
-  assert.match(SRC, /NousResearch\/hermes-agent/);
-  assert.match(SRC, /MIT/);
-  assert.match(SRC, /patterns/);
+test('no origin-reveal comment is present and the forbidden copy marker is absent', () => {
+  assert.ok(!SRC.includes('NousResearch' + '/hermes-agent'), 'no origin-reveal slug in memgraph.js');
   assert.doesNotMatch(SRC, /mirror of (hermes|openclaw)/i);
 });

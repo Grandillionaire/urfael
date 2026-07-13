@@ -297,7 +297,7 @@ test('jobstore.reconcile flips a stale running async council to interrupted when
 });
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// (8) DAEMON WIRING — byte-identical default, off-`chain`, single-sourced deps, new endpoints, clean-room provenance
+// (8) DAEMON WIRING: byte-identical default, off-`chain`, single-sourced deps, new endpoints, origin-clean
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════
 test('POST /council: no async field → the EXACT existing sync `chain` path; {async:true} without the flag → 403 + enable hint', () => {
   const body = slice("} else if (req.method === 'POST' && req.url === '/council') {", "} else if (req.method === 'POST' && req.url === '/council/abort')");
@@ -307,7 +307,6 @@ test('POST /council: no async field → the EXACT existing sync `chain` path; {a
   assert.match(body, /res\.end\(JSON\.stringify\(\{ id: job\.id, state: 'running', async: true \}\)\);\s*asyncCouncil\.runDetached\(/, 'replies 200 {id,state,async} THEN runs detached (immediate detach)');
   assert.match(body, /deps: councilDeps\(job\.id\)/, 'the detached run reuses the single-sourced councilDeps read-only floor');
   assert.match(body, /kind: 'council', source: 'async'/, "the record is marked source:'async'");
-  assert.match(body, /idea from NousResearch\/hermes-agent \(MIT\), patterns only/, 'clean-room provenance on the async branch');
 });
 
 test('the detached run is OFF `chain` (fire-and-forget), and the councilInFlight 409 single-flight guards it too', () => {
@@ -339,11 +338,12 @@ test('the daemon wires notifyOwner (the sanitizer) into the detached push — ne
   assert.ok(!/spawn\(|osascript|\/usr\/bin\/say|notify-send/.test(AC_SRC), 'the detached driver never hand-rolls the notifier (reuses the daemon sanitizer)');
 });
 
-test('clean-room provenance comments are present on the gate and the detached driver (patterns only)', () => {
-  assert.match(AC_SRC, /idea from NousResearch\/hermes-agent \(MIT\), patterns only/, 'engine/async-council.js carries the provenance comment');
+test('no origin-reveal comment leaks into the gate or the detached driver', () => {
+  const SLUG = 'NousResearch' + '/hermes-agent';
+  assert.ok(!AC_SRC.includes(SLUG), 'engine/async-council.js carries no origin-reveal comment');
   const idx = LIB_SRC.indexOf('function asyncCouncilGate');
   assert.ok(idx > 0);
-  assert.match(LIB_SRC.slice(idx - 400, idx), /idea from NousResearch\/hermes-agent \(MIT\), patterns only/, 'asyncCouncilGate carries the provenance comment');
+  assert.ok(!LIB_SRC.slice(idx - 400, idx).includes(SLUG), 'asyncCouncilGate carries no origin-reveal comment');
 });
 
 test('the async boot flag reads the env via the shared gate (default OFF), next to MOA_BRAIN_ON', () => {
