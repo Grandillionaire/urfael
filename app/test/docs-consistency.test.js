@@ -102,7 +102,9 @@ test('every unit-test-count claim in the docs matches the cockpit const (no sile
   const u = (html.match(/const URFAEL\s*=\s*\{([^}]*)\}/) || [, ''])[1].match(/unitTests:\s*(\d+)/);
   assert.ok(u, 'const URFAEL must define unitTests: so the test count has one source of truth');
   const N = Number(u[1]);
-  const pats = [/(\d+)\s+unit tests/gi, /frozen by (\d+) tests/gi];
+  // allow up to two qualifier tokens (e.g. "`node:test`", "fast") between the number and "unit tests" so a count in
+  // "1349 `node:test` unit tests" / "1349 fast unit tests" cannot silently drift from the rest (a real prior blind spot).
+  const pats = [/(\d+)\s+(?:`?[\w:.-]+`?\s+){0,2}unit tests/gi, /frozen by (\d+) tests/gi];
   for (const rel of [...DOCS, 'docs/honesty.html', 'docs/faq.html', 'ARCHITECTURE.md']) {
     const t = read(rel);
     for (const re of pats) { let m; while ((m = re.exec(t))) assert.equal(Number(m[1]), N, rel + ' cites "' + m[0].trim() + '" but const URFAEL.unitTests is ' + N); }
