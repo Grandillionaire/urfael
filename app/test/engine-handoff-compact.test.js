@@ -1,6 +1,6 @@
 'use strict';
 // Unit tests for the OPT-IN pre-hand-off distill compactor (engine/handoff-compact.js). It reuses the native
-// compactor clean-room, so the properties under test are the seam ones: the FAIL-SAFE crown property (any summarizer
+// compactor, so the properties under test are the seam ones: the FAIL-SAFE crown property (any summarizer
 // outage returns the transcript UNCHANGED, byte-for-byte, never truncates/grows), the protected system+first-N+last-N,
 // the no-split tool boundary, the >200-byte tool-output prune, DUAL-EDGE secret redaction (input AND persisted
 // summary), the reference-only fence, the trigger gate + cooldown, and the ledger-shape the daemon logs.

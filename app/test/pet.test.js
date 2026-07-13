@@ -4,7 +4,7 @@
 // brain-reaching symbol (structural zero-cost), the DEFAULT worker row + orb frame are byte-identical when the
 // flag is off, the TUI/orb glue records zero pet-attributable daemon traffic, the render is deterministic +
 // wall-clock-pure, Unicode degrades to 7-bit ASCII, reduce-motion is static, nothing ever throws, the token
-// substring is unchanged, and the module is a clean-room re-implementation with provenance.
+// substring is unchanged, and the module is a clean-room re-implementation.
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');

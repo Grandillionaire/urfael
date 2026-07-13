@@ -91,7 +91,7 @@ A reviewer who reads these five understands the entire security posture:
 | `app/bridge/` | Eight chat bridges (telegram/discord/slack/imessage/email/matrix/signal/whatsapp) + `bridge-core.js` + `notify.js`. They poll OUT; allowlist before the brain. |
 | `app/dashboard.js` · `openai-api.js` | Loopback-only (`127.0.0.1`) token-gated web dashboard and OpenAI-compatible API. |
 | `app/scheduler.js` · `runner.js` · `hooks.js` · `voice.js` · `wake-worker.js` · `import.js` · `embed.js` · `setup.js` | Cron/reminders, the goal-loop runner, the webhook receiver, local STT/TTS + wake word, the OpenClaw/Hermes importer, embeddings, the onboarding wizard. |
-| `app/test/` | 1348 `node:test` unit tests (`*.test.js`, pure, no creds) + two live-daemon harnesses (`e2e.js`, `security-benchmark.js`) run only via their own npm scripts. |
+| `app/test/` | 1349 `node:test` unit tests (`*.test.js`, pure, no creds) + two live-daemon harnesses (`e2e.js`, `security-benchmark.js`) run only via their own npm scripts. |
 
 ## Data & security flow of one remote message
 
@@ -124,7 +124,7 @@ The full version, with the residual risks Urfael does **not** cover, is in [docs
 
 Honesty is the product, so the tests are too:
 
-- **1348 fast unit tests** (`npm test` → `node --test test/*.test.js`) — pure modules, no credentials, ~0.5s.
+- **1349 fast unit tests** (`npm test` → `node --test test/*.test.js`) — pure modules, no credentials, ~0.5s.
   They exercise the load-bearing logic directly: fail-closed profile resolution, `intersectTools`, the persona
   anchor / `SAFETY_CLAUSE` invariants, the hash-chain verifier, the seal, the cron/hook/script normalizers,
   BM25 recall, did-you-mean, and the registry drift guard. Several are frozen adversarial regressions.
