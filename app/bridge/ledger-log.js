@@ -1,6 +1,4 @@
 'use strict';
-// idea from NousResearch/hermes-agent (MIT), patterns only.
-//
 // Best-effort ledger POST for the opt-in goal-verify gate. Modeled on bridge/notify.js: node built-ins only, a
 // single fixed destination (the owner's 0600 daemon socket → POST /goal/ledger), and NO way to redirect it. The
 // verdict/contract is a LOG RECORD, never the control signal — so this must NEVER gate completion: a POST that

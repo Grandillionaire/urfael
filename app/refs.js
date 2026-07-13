@@ -4,8 +4,7 @@
 // hand back one ledger entry per ref {kind, source, sha256(bytes), bytelen}. OPT-IN (URFAEL_REFS=1): when off, build()
 // returns an empty block so turn assembly stays byte-identical and a bare `@word` is never a ref.
 //
-// CLEAN-ROOM PROVENANCE: the @-ref *UX* is common to many agents (idea from NousResearch/hermes-agent (MIT), patterns
-// only — NO code copied). Where they inject @file/@url content as ordinary, trusted-ish context (direct prompt-injection
+// The @-ref UX is common to many agents. Where they inject @file/@url content as ordinary, trusted-ish context (direct prompt-injection
 // surface), Urfael (a) SSRF-filters @url through the SAME lib.isPrivateHost guard that protects the relay channel, https
 // -only, (b) realpath-CLAMPS @path/@dir to the allowlist root so `@../../etc/passwd` can't escape, (c) wraps every
 // injected byte in an unguessable nonce envelope labelled reference-not-instructions, and (d) records the sha256 of

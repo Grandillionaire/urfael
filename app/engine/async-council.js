@@ -10,7 +10,6 @@
 //
 // HONESTY: "detached from your terminal, reconciled on restart" — NOT crash-immortal. A daemon restart kills an
 // in-flight council; jobstore.reconcile() then flips its stale 'running' record to 'interrupted' (pid gone).
-// idea from NousResearch/hermes-agent (MIT), patterns only.
 
 // The SUMMARY-ONLY emit adapter for a detached council. It ONLY appends the NDJSON line to the jobstore log (so
 // `urfael council --replay <id>` works after the fact) and captures the final synthesis + abort/error signals into

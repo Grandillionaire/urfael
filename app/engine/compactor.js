@@ -1,9 +1,8 @@
 'use strict';
 // app/engine/compactor.js — native-engine context compaction.
 //
-// PROVENANCE (honest): the mechanism set is borrowed from NousResearch/hermes-agent's agent/context_compressor.py
-// (MIT) — the patterns that make compaction safe rather than lossy — re-implemented from scratch in zero-dep JS
-// over Urfael's engine-neutral message shape. Borrowed ideas, not code. The patterns:
+// A zero-dep, safe-rather-than-lossy context compactor in pure JS over Urfael's engine-neutral message shape.
+// The mechanisms that keep compaction safe instead of lossy:
 //   • token-budget TAIL — keep the most recent messages that fit a token budget; summarize the middle.
 //   • NO-SPLIT tool pairs — never start the tail on an orphaned tool_result (whose assistant tool_use got
 //     summarized away); the boundary is aligned so the kept tail is always a valid API history.
@@ -15,12 +14,10 @@
 //   • ANTI-THRASH cooldown — a compaction that freed too little raises a backoff so we don't re-summarize every turn.
 //   • FAIL-SAFE ABORT — if the aux model errors (auth/network/timeout), the window is returned UNCHANGED. A
 //     transient summarizer outage must never destroy the live context. This is the single most important property.
-//   • PHASE-1 PRUNE (borrowed) — a deterministic tool-output prune pass runs BEFORE the aux call: bulky tool_results
+//   • PHASE-1 PRUNE: a deterministic tool-output prune pass runs BEFORE the aux call. Bulky tool_results
 //     become honest 1-line stubs, exact repeats collapse, oversized tool_call args are capped, image blobs elided.
-//     If pruning alone brings the window under budget we SKIP the summary — space reclaimed with NO model call.
-//     PROVENANCE (honest): this mechanism is borrowed from NousResearch/hermes-agent's context_compressor (MIT) —
-//     re-implemented from scratch over Urfael's message shape. Borrowed idea, not code. Every stub is DERIVED from
-//     the message's own bytes/lines/first line; it never invents an outcome.
+//     If pruning alone brings the window under budget we SKIP the summary, reclaiming space with NO model call.
+//     Every stub is DERIVED from the message's own bytes/lines/first line; it never invents an outcome.
 //   • SECRET REDACTION — a tool can surface a live credential; zero-dep regexes scrub the obvious shapes to
 //     [redacted] before the middle is serialized for the aux model AND before the summary is persisted.
 //
@@ -54,7 +51,7 @@ function alignTailStart(messages, idx) {
   return i;
 }
 
-// ── PHASE-1 tool-output prune pass (borrowed from NousResearch/hermes-agent, MIT) ───────────────────────────────
+// ── PHASE-1 tool-output prune pass ──────────────────────────────────────────────────────────────────────────────
 // Deterministic, no model call. Honest: every stub is derived from the message's own bytes/lines/first line.
 const ARG_CAP = 512;                                       // max chars kept per tool_call arg string
 const TOOL_STUB_MIN = 220;                                 // only stub tool_results bigger than this (bytes)
@@ -204,7 +201,7 @@ function createCompactor(cfg) {
     const tail = msgs.slice(boundary);
     if (middle.length === 0) return done('nothing_to_compact');
 
-    // PHASE 1 — deterministic tool-output prune pass (NousResearch/hermes-agent, MIT). Collapses stale tool output to
+    // PHASE 1: deterministic tool-output prune pass. Collapses stale tool output to
     // honest 1-line stubs, dedupes exact repeats, caps oversized tool_call args, elides image blobs — all with NO
     // model call. If pruning ALONE brings the window under budget, SKIP the aux summary entirely (the doctrine-positive
     // property: space reclaimed for free). We only take the skip when pruning actually freed space AND the pruned

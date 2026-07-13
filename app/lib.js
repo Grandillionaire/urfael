@@ -1175,7 +1175,6 @@ function envOn(v) { return /^(1|on|true)$/i.test(String(v == null ? '' : v).trim
 // moaGate(env, brainMode): the ONE predicate that decides whether a turn may enter the Mixture-of-Agents (council)
 // brain path. True ONLY when the owner has BOTH flipped the boot flag (URFAEL_MOA_BRAIN on) AND pinned brain mode
 // to 'council'. Pure + total, so the flag-off / unpinned default path is provably never routed into the ensemble.
-// idea from NousResearch/hermes-agent (MIT), patterns only.
 function moaGate(env, brainMode) { return envOn((env || {}).URFAEL_MOA_BRAIN) && brainMode === 'council'; }
 
 // asyncCouncilGate(env): the ONE predicate deciding whether the daemon may run a DETACHED-from-the-terminal, async,
@@ -1183,7 +1182,6 @@ function moaGate(env, brainMode) { return envOn((env || {}).URFAEL_MOA_BRAIN) &&
 // boot flag URFAEL_COUNCIL_ASYNC on; the CLI ALSO requires an explicit --async (double opt-in). Pure + total, so the
 // flag-off default is provably never routed into the detached path (a POST /council with no async field is byte-
 // identical, a {async:true} without the flag is refused 403). Mirrors moaGate/envOn discipline.
-// idea from NousResearch/hermes-agent (MIT), patterns only.
 function asyncCouncilGate(env) { return envOn((env || {}).URFAEL_COUNCIL_ASYNC); }
 
 // Natural-language SYNTHETIC-BRAIN switching: catch a request to convene the read-only Council as the answering
@@ -1194,7 +1192,6 @@ function asyncCouncilGate(env) { return envOn((env || {}).URFAEL_COUNCIL_ASYNC);
 // council meeting notes", "what is a mixture of agents", "the town council voted") is NEVER hijacked. Returns
 // {action:'brain',mode:'council'|'default'} | {action:'brain-status'} | null. Pure. This directive is consulted
 // ONLY on a MoA-enabled install (URFAEL_MOA_BRAIN on); a default install never calls it.
-// idea from NousResearch/hermes-agent (MIT), patterns only.
 function parseCouncilDirective(text) {
   let t = String(text == null ? '' : text).trim().toLowerCase();
   if (!t || t.length > 64) return null;                                  // directives are short; long → a real task

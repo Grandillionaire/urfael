@@ -370,7 +370,6 @@ const scopeCounter = runScope.makeCounter();   // in-memory per-origin slot acco
 // routing branch and the brain-pin load are skipped, and POST /brain fails closed — so the ask path is BYTE-
 // IDENTICAL to today. Runtime use ALSO requires the owner to pin brain mode ('urfael brain council' / NL
 // "council mode"). LOCAL-ONLY, costlier + slower, read-only workers, ledger-logged.
-// idea from NousResearch/hermes-agent (MIT), patterns only.
 const MOA_BRAIN_ON = envOn(process.env.URFAEL_MOA_BRAIN);
 // OPT-IN (default OFF): let `urfael council --async "<task>"` run a DETACHED-from-the-terminal, summary-only Council
 // off the request/response cycle (and off `chain`), so a 10-minute background council never blocks an /ask turn. When
@@ -379,13 +378,11 @@ const MOA_BRAIN_ON = envOn(process.env.URFAEL_MOA_BRAIN);
 // read-only floor as the sync path; the run is jobstore-recorded (cancellable via /council/:id/cancel, replayable),
 // ledger-logged (council_start/council_push/council_done, source:'async'), and pushes a caveated summary on
 // completion. Honesty: detached-from-terminal + reconciled-on-restart (jobstore.reconcile), NOT crash-immortal.
-// idea from NousResearch/hermes-agent (MIT), patterns only.
 const ASYNC_COUNCIL_ON = asyncCouncilGate(process.env);
 // OPT-IN (default OFF): the read-only "Memory Journey" graph — a PROJECTION over data Urfael already owns (the
 // git-versioned memory + the hash-chained Ledger of Record). When OFF, the GET /graph route below is unmatched and
 // falls through to the existing 404, so the socket surface is BYTE-IDENTICAL to today. No new data, no new port, no
 // LLM, no sub-agent — just one bounded, shell-free `git log -p` over the `why` file set handed to the pure projector.
-// idea studied from NousResearch/hermes-agent (MIT), patterns only.
 const memgraph = require('./memgraph');
 const MEMGRAPH_ON = envOn(process.env.URFAEL_MEMGRAPH);
 const GRAPH_FILES = ['MEMORY.md', 'USER.md', 'USER.json', 'WORKFLOW.md', 'LESSONS.md'];   // the exact `urfael why` set (cli.js) — NOT MEMORY_FILES (which omits USER.json)
@@ -446,7 +443,6 @@ function setNativeDefault(id) {
 // mode to 'council', a local turn convenes the read-only Council instead of the solo subscription, and returns
 // its synthesis. The pin persists (0600) like the model/persona pins, but is LOADED ONLY when the flag is on —
 // so a default install ignores it entirely and the ask path stays byte-identical. null = the solo default.
-// idea from NousResearch/hermes-agent (MIT), patterns only.
 const BRAINPIN = path.join(JDIR, 'brain.mode');
 function loadBrainPin() { try { return fs.readFileSync(BRAINPIN, 'utf8').trim().toLowerCase() === 'council' ? 'council' : null; } catch { return null; } }
 let brainMode = MOA_BRAIN_ON ? loadBrainPin() : null;   // when the flag is off this is ALWAYS null (pin never read)
@@ -635,7 +631,6 @@ function applyModelDirective(dir) {
 // Apply a parsed BRAIN directive WITHOUT an LLM turn — a no-spend control command (mirrors applyModelDirective).
 // Refuses with the URFAEL_MOA_BRAIN=1 enable hint when the flag is off, so the owner is told exactly how to turn
 // the mode on. Returns a normal ask result so every channel renders/speaks the confirmation.
-// idea from NousResearch/hermes-agent (MIT), patterns only.
 function applyBrainDirective(dir) {
   const r = (text) => ({ text, model: convoModel, ms: 0, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 } });
   if (dir.action === 'brain-status') {
@@ -660,7 +655,6 @@ function applyBrainDirective(dir) {
 // (sendThinking) so a 10-min council keeps the CLI socket alive past its 5-min idle. On ANY engine failure it
 // returns an HONEST {model:'council'} error and NEVER falls back to the solo subscription (an ensemble answer can
 // never secretly be a single-model one). Returns brain.ask's contract shape, model:'council'.
-// idea from NousResearch/hermes-agent (MIT), patterns only.
 async function runCouncilAsBrain(text, opts) {
   // usage is reported zero on this contract (the ensemble's real token total is recorded on the council_done ledger
   // line, not mislabelled into a solo-turn usage field); the flat-rate subscription is $0 marginal regardless.
@@ -822,7 +816,7 @@ const brain = {
       // a remote OWNER may switch the model/persona verbally too (it's their assistant); members/guests cannot.
       // askScoped DELIBERATELY does NOT consult parseCouncilDirective and never reads brainMode — the MoA/council
       // brain is LOCAL-ONLY by construction, so a remote "council mode" can never repin or convene an ensemble
-      // (defense-in-depth beyond the /brain 403). idea from NousResearch/hermes-agent (MIT), patterns only.
+      // (defense-in-depth beyond the /brain 403).
       if (ctx && ctx.role === 'owner') {
         const dir = parseModelDirective(text); if (dir) { const r = applyModelDirective(dir); resolve({ text: r.text, model: r.model }); return; }
         const pdir = parsePersonaDirective(text, personas.knownIds(personaRoster)); if (pdir) { const r = applyPersonaDirective(pdir); resolve({ text: r.text, model: r.model }); return; }
@@ -1788,7 +1782,7 @@ const PREDICT_ON = process.env.URFAEL_PREDICT === '1';  // opt-in: the heartbeat
 let lastBeat = 0, lastLocalTurn = 0, beating = false;
 
 // ---- per-turn background review + skill curator (both opt-in, OFF by default) --------------------
-const REVIEW_ON = process.env.URFAEL_REVIEW === '1';                                    // Hermes-style per-turn review
+const REVIEW_ON = process.env.URFAEL_REVIEW === '1';                                    // per-turn review
 const REVIEW_EVERY = Math.max(1, parseInt(process.env.URFAEL_REVIEW_EVERY, 10) || 1);   // review every Nth local turn
 // curator ON by default at a 7-day cadence (matches/beats Hermes, and ours is safer — it never executes a skill).
 // Unset → 7; an explicit URFAEL_CURATOR_DAYS=0 still disables it (off-switch preserved). Reads only your OWN skills.
@@ -2109,7 +2103,7 @@ function modelUser(user, urfael) {
   p.unref();
 }
 
-// ---- skill curator (opt-in via URFAEL_CURATOR_DAYS; OpenClaw 'dreaming' equivalent). On a long interval,
+// ---- skill curator (opt-in via URFAEL_CURATOR_DAYS). On a long interval,
 // while the owner is NOT mid-conversation, spawn a detached sandboxed one-shot that audits the vault's skill
 // files: consolidate duplicates, fix or DELETE stale/contradictory skills, keep each terse, commit if changed.
 // Honors the N-day cadence across restarts via curator.json. Never runs alongside distill, review, or itself.
@@ -2468,7 +2462,6 @@ const server = http.createServer(async (req, res) => {
     // OPT-IN detached async branch (double opt-in). Fires ONLY when parsed.async is explicitly truthy; a request
     // WITHOUT the async field falls straight through to the EXACT existing sync chain.then path below (byte-identical
     // default). A {async:true} without the boot flag is refused with the enable hint.
-    // idea from NousResearch/hermes-agent (MIT), patterns only.
     if (parsed.async && !ASYNC_COUNCIL_ON) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'detached async council is off', hint: 'start the daemon with URFAEL_COUNCIL_ASYNC=1' })); return; }
     const task = typeof parsed.task === 'string' ? parsed.task.slice(0, 8000) : '';
     if (!task.trim()) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'need {task}' })); return; }
@@ -2535,7 +2528,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: cid, state: j.state, answer: j.result || '' }));
   } else if (req.method === 'POST' && req.url && /^\/council\/[A-Za-z0-9-]{4,64}\/cancel$/.test(req.url)) {
     // ID-SCOPED cancel of the CURRENTLY in-flight detached council. A wrong id is a 404 (you can't cancel the wrong
-    // council). The existing /council/abort stays for the sync TUI Ctrl+C. idea from NousResearch/hermes-agent (MIT).
+    // council). The existing /council/abort stays for the sync TUI Ctrl+C.
     const cid = req.url.split('/')[2];
     const c = asyncCouncil.cancelDetached({ id: cid, councilJobId, councilAbort, jobstore, logEvent });
     res.writeHead(c.code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: c.ok }));

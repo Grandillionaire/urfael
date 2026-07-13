@@ -15,7 +15,6 @@ const uiPalette = require('./ui-palette');  // unified presentation prefs -> liv
 const dc = require('./daemon-client');       // shared unix-socket client (request + /ask NDJSON stream)
 // OPT-IN (default OFF): the read-only "Memory Journey" graph section + its /api/graph proxy. When OFF, the pageHtml()
 // interpolations below resolve to '' (byte-identical page) and the /api/graph routes are never registered.
-// idea studied from NousResearch/hermes-agent (MIT), patterns only.
 const MEMGRAPH = require('./lib').envOn(process.env.URFAEL_MEMGRAPH);
 
 const HOST = '127.0.0.1';                                  // loopback ONLY — never 0.0.0.0, never a LAN/public iface
@@ -176,7 +175,7 @@ function livePrefsVars() {
 // EVERY attacker-influenceable string (belief/lesson label, file, subject, SHA) via textContent / createTextNode
 // ONLY — coordinates + colours are numeric/fixed, never from data. It clears with replaceChildren()/textContent=''.
 // No script/iframe/foreignObject, no innerHTML on graph data, so an adversarial distilled-memory label can NEVER
-// execute; the locked CSP (default-src 'none') is unchanged. idea studied from NousResearch/hermes-agent (MIT).
+// execute; the locked CSP (default-src 'none') is unchanged.
 const GRAPH_CSS = `
 #mj-wrap{overflow:auto;max-height:540px;border:1px solid #221d14;border-radius:8px;background:#0c0b09;margin-top:10px}
 #mj-svg{display:block}

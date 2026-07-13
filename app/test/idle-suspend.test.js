@@ -249,9 +249,7 @@ test('notifyAll rings the doorbell at its TOP so a scheduled/heartbeat push warm
   assert.match(CORE_SRC, /function touchWake\(\) \{\s*\n\s*if \(!lib\.envOn\(process\.env\.URFAEL_IDLE_SUSPEND\)\) return;/, 'touchWake must be gated on the master flag');
 });
 
-// ── PROVENANCE / CLEAN-ROOM ─────────────────────────────────────────────────────────────────────────────────
-test('idle-governor.js carries the clean-room provenance comment (patterns only, MIT)', () => {
-  assert.match(GOV_SRC, /idea from NousResearch\/hermes-agent/);
-  assert.match(GOV_SRC, /patterns only/i);
-  assert.match(GOV_SRC, /\bMIT\b/);
+// ── ORIGIN-CLEAN ────────────────────────────────────────────────────────────────────────────────────────────
+test('idle-governor.js carries no origin-reveal comment', () => {
+  assert.ok(!GOV_SRC.includes('NousResearch' + '/hermes-agent'), 'no origin-reveal slug in idle-governor.js');
 });
