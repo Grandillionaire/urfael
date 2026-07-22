@@ -6,6 +6,7 @@
 // exactly the loss the fix removes. Zero-dep node:test, matching the repo style.
 const { test } = require('node:test');
 const assert = require('node:assert');
+const { assertOwnerOnly } = require('./_owner-only');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -128,7 +129,7 @@ test('makeCronGate persist: a queued fire survives a simulated restart and is re
     assert.equal(fs.existsSync(file), false, 'the not-busy fast path never writes pending.json (in-flight is not pending)');
     assert.equal(gate.admit(b), 'queued');
     assert.ok(fs.existsSync(file), 'a queued fire is persisted');
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'pending.json is 0600 (owner-only)');
+    assertOwnerOnly(assert, file, 'pending.json is 0600 (owner-only)');
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), [b], 'only the queued fire is on disk (A is in flight, not pending)');
 
     // the daemon DIES here — A's release() never runs, and B was already removed from its own store. Simulate a RESTART.

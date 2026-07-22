@@ -3,6 +3,7 @@
 // exercised against a temp dir under os.tmpdir() (never the real MEMORY_DIR), and torn down after.
 const { test } = require('node:test');
 const assert = require('node:assert');
+const { assertOwnerOnly } = require('./_owner-only');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -151,8 +152,7 @@ test('save: atomic, 0600, round-trips through load; returns true', () => {
     let s = cal.addEvent(cal.emptyStore(), { title: 'Persisted', start: NOW + 3600000, location: 'Home' }, { nowMs: NOW, id: 'k-p' }).store;
     assert.equal(cal.save(fp, s), true);
     // 0600 perms
-    const mode = fs.statSync(fp).mode & 0o777;
-    assert.equal(mode, 0o600, 'file is owner-only 0600');
+    assertOwnerOnly(assert, fp, 'file is owner-only 0600');
     // no leftover temp file
     assert.equal(fs.existsSync(fp + '.tmp'), false, 'temp file renamed away');
     const back = cal.load(fp);

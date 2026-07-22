@@ -93,12 +93,14 @@ test('runner.argvFor(ask): an absent/garbage scope fails CLOSED to no-egress', (
   }
 });
 
-test('runner.argvFor(goal): still routes through goal-loop.sh (never-push) regardless of scope', () => {
+test('runner.argvFor(goal): still routes through the guard-railed goal loop (never-push) regardless of scope', () => {
+  // POSIX: bash + goal-loop.sh. win32: our node + the parity-tested goal-loop.js twin. Same guard rails either way.
+  const WIN = process.platform === 'win32';
   for (const scope of ['untrusted', 'local', 'full']) {
     const argv = runner.argvFor({ kind: 'goal', spec: { goal: 'do a thing', repo: '/tmp/x', scope } });
-    assert.equal(argv[0], 'bash');
-    assert.ok(/goal-loop\.sh$/.test(argv[1]), 'goal must route through goal-loop.sh');
-    assert.ok(!argv.includes('--allowedTools'), 'goal toolset is goal-loop.sh business, not an allowlist');
+    assert.equal(argv[0], WIN ? process.execPath : 'bash');
+    assert.ok((WIN ? /goal-loop\.js$/ : /goal-loop\.sh$/).test(argv[1]), 'goal must route through the goal loop');
+    assert.ok(!argv.includes('--allowedTools'), 'goal toolset is goal-loop business, not an allowlist');
   }
 });
 

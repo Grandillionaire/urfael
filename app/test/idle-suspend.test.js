@@ -232,7 +232,7 @@ test('touchWake() is a no-op when the flag is off (no WAKEF) and writes a 0600 m
     assert.equal(fs.existsSync(core.WAKEF), true, 'flag ON => touchWake creates WAKEF');
     const st = fs.statSync(core.WAKEF);
     assert.equal(st.size, 0, 'WAKEF holds NO secret (mtime-only)');
-    assert.equal(st.mode & 0o777, 0o600, 'WAKEF must be mode 0600');
+    if (process.platform !== 'win32') assert.equal(st.mode & 0o777, 0o600, 'WAKEF must be mode 0600 (POSIX; profile ACL covers win32)');
     assert.ok(core.wakeMtime() > 0, 'wakeMtime reads the doorbell after touchWake');
   } finally {
     if (savedFlag === undefined) delete process.env.URFAEL_IDLE_SUSPEND; else process.env.URFAEL_IDLE_SUSPEND = savedFlag;

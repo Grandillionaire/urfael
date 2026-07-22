@@ -15,7 +15,12 @@ const cp = require('child_process');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');            // the worktree root (holds app/, vault-template/)
 const GOAL_LOOP = path.join(REPO_ROOT, 'vault-template', '_urfael', 'goal-loop.sh');
+const GOAL_LOOP_JS = path.join(REPO_ROOT, 'vault-template', '_urfael', 'goal-loop.js');
 const SRC = fs.readFileSync(GOAL_LOOP, 'utf8');
+// Every functional scenario below runs against BOTH implementations where the host allows: the bash loop
+// (POSIX only — bash does not exist on native Windows) and its JS twin (every OS, including the windows CI
+// leg). Same fakes, same assertions — the twin can never drift from the .sh without a red build.
+const ENGINES = process.platform === 'win32' ? ['js'] : ['sh', 'js'];
 
 // ── STATIC: the two existing candidate-done blocks are byte-for-byte intact ───────────────────────────────
 test('the existing --check and marker candidate-done blocks are byte-for-byte unchanged', () => {
@@ -110,61 +115,87 @@ function makeStub() {
   const home = path.join(dir, 'home'); fs.mkdirSync(path.join(home, '.claude', 'urfael'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'urfael', 'repo'), REPO_ROOT);
   const crit = path.join(dir, 'criteria.txt'); fs.writeFileSync(crit, '# the bar\ncriterion one must be implemented\n');
-  return { dir, bin, claudeLog, repo, home, crit };
+  // the SAME fake claude as a node script, for the JS twin (and the only form native Windows can run).
+  // Shebang + 0755 so the POSIX twin run can exec it too; claude-bin's .js branch handles it on win32.
+  const claudeJs = path.join(bin, 'claude-fake.js');
+  fs.writeFileSync(claudeJs, [
+    '#!/usr/bin/env node',
+    "'use strict';",
+    "const fs = require('fs');",
+    "const argv = process.argv.slice(2);",
+    "let prompt = ''; const i = argv.indexOf('-p'); if (i >= 0) prompt = argv[i + 1] || '';",
+    'fs.appendFileSync(' + JSON.stringify(claudeLog) + ", '===PROMPT===\\n' + prompt + '\\n');",
+    "if (prompt.includes('Independent completion review')) {",
+    "  if ((process.env.FAKE_VERDICT || 'pass') === 'pass') process.stdout.write(JSON.stringify({ result: JSON.stringify({ verdict: 'pass', met: [{ id: 'c1', evidence: 'found in a.js' }], reason: 'ok' }), is_error: false, session_id: 'v1' }));",
+    "  else process.stdout.write(JSON.stringify({ result: JSON.stringify({ verdict: 'refute', reason: 'criterion one is unmet' }), is_error: false, session_id: 'v1' }));",
+    '} else {',
+    "  process.stdout.write(JSON.stringify({ result: 'did work\\nURFAEL-GOAL-DONE', is_error: false, session_id: 'w1' }));",
+    '}',
+  ].join('\n'), { mode: 0o755 });
+  return { dir, bin, claudeLog, repo, home, crit, claudeJs };
 }
 
-function runLoop(stub, extraArgs, extraEnv) {
-  const env = Object.assign({}, process.env, {
-    HOME: stub.home,
-    PATH: stub.bin + ':' + process.env.PATH,
-  }, extraEnv || {});
-  const args = [GOAL_LOOP, 'do the thing', '--repo', stub.repo, '--max-iters', '2', '--turn-timeout', '30', '--model', 'sonnet', ...extraArgs];
-  const r = cp.spawnSync('bash', args, { env, encoding: 'utf8', timeout: 60000 });
+function runLoop(stub, extraArgs, extraEnv, engine) {
+  const common = ['do the thing', '--repo', stub.repo, '--max-iters', '2', '--turn-timeout', '30', '--model', 'sonnet', ...extraArgs];
+  let r;
+  if (engine === 'js') {
+    const env = Object.assign({}, process.env, {
+      HOME: stub.home, USERPROFILE: stub.home,                 // os.homedir() reads USERPROFILE on win32
+      URFAEL_CLAUDE_BIN: stub.claudeJs,                        // claude-bin: .js → run under our own node
+    }, extraEnv || {});
+    r = cp.spawnSync(process.execPath, [GOAL_LOOP_JS, ...common], { env, encoding: 'utf8', timeout: 60000 });
+  } else {
+    const env = Object.assign({}, process.env, {
+      HOME: stub.home,
+      PATH: stub.bin + ':' + process.env.PATH,
+    }, extraEnv || {});
+    r = cp.spawnSync('bash', [GOAL_LOOP, ...common], { env, encoding: 'utf8', timeout: 60000 });
+  }
   return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), prompts: (() => { try { return fs.readFileSync(stub.claudeLog, 'utf8'); } catch { return ''; } })() };
 }
 
-test('MANDATORY CONTRACT: --verify without --criteria exits non-zero (fail-closed)', () => {
+for (const engine of ENGINES) test('MANDATORY CONTRACT [' + engine + ']: --verify without --criteria exits non-zero (fail-closed)', () => {
   const stub = makeStub();
   try {
-    const r = runLoop(stub, ['--verify']);   // no --criteria
+    const r = runLoop(stub, ['--verify'], {}, engine);   // no --criteria
     assert.notEqual(r.code, 0, 'must exit non-zero');
     assert.match(r.out, /--verify requires --criteria/);
   } finally { fs.rmSync(stub.dir, { recursive: true, force: true }); }
 });
 
-test('DEFAULT BYTE-IDENTICAL: flag-off worker prompt is the baseline (no COMPLETION CONTRACT injected)', () => {
+for (const engine of ENGINES) test('DEFAULT BYTE-IDENTICAL [' + engine + ']: flag-off worker prompt is the baseline (no COMPLETION CONTRACT injected)', () => {
   const stub = makeStub();
   try {
-    const r = runLoop(stub, ['--max-iters', '1']);   // no --verify
+    const r = runLoop(stub, ['--max-iters', '1'], {}, engine);   // no --verify
     assert.ok(r.prompts.includes('Work toward this goal in this repo'), 'baseline prompt present');
     assert.ok(!r.prompts.includes('COMPLETION CONTRACT'), 'no contract text is injected when the gate is off');
     assert.ok(!r.prompts.includes('Independent completion review'), 'no verifier is ever spawned when the gate is off');
   } finally { fs.rmSync(stub.dir, { recursive: true, force: true }); }
 });
 
-test('CONTRACT INJECTED under --verify: the worker prompt carries the up-front bar', () => {
+for (const engine of ENGINES) test('CONTRACT INJECTED [' + engine + '] under --verify: the worker prompt carries the up-front bar', () => {
   const stub = makeStub();
   try {
-    const r = runLoop(stub, ['--verify', '--criteria', stub.crit, '--max-iters', '1'], { FAKE_VERDICT: 'refute' });
+    const r = runLoop(stub, ['--verify', '--criteria', stub.crit, '--max-iters', '1'], { FAKE_VERDICT: 'refute' }, engine);
     assert.ok(r.prompts.includes('COMPLETION CONTRACT'), 'the contract bar is prepended to the worker turn');
     assert.ok(r.prompts.includes('criterion one must be implemented'), 'the criteria are shown to the worker');
   } finally { fs.rmSync(stub.dir, { recursive: true, force: true }); }
 });
 
-test('EXIT ON PASS: a pass verdict falls through to DONE (independently verified)', () => {
+for (const engine of ENGINES) test('EXIT ON PASS [' + engine + ']: a pass verdict falls through to DONE (independently verified)', () => {
   const stub = makeStub();
   try {
-    const r = runLoop(stub, ['--verify', '--criteria', stub.crit], { FAKE_VERDICT: 'pass' });
+    const r = runLoop(stub, ['--verify', '--criteria', stub.crit], { FAKE_VERDICT: 'pass' }, engine);
     assert.ok(r.prompts.includes('Independent completion review'), 'the verifier WAS spawned at candidate-done');
     assert.match(r.out, /Result: COMPLETED/);
     assert.match(r.out, /independently verified/);
   } finally { fs.rmSync(stub.dir, { recursive: true, force: true }); }
 });
 
-test('REFUTE → continue + FEEDBACK: a refute never DONEs and feeds the reason into the next prompt', () => {
+for (const engine of ENGINES) test('REFUTE → continue + FEEDBACK [' + engine + ']: a refute never DONEs and feeds the reason into the next prompt', () => {
   const stub = makeStub();
   try {
-    const r = runLoop(stub, ['--verify', '--criteria', stub.crit], { FAKE_VERDICT: 'refute' });
+    const r = runLoop(stub, ['--verify', '--criteria', stub.crit], { FAKE_VERDICT: 'refute' }, engine);
     assert.ok(!/Result: COMPLETED/.test(r.out), 'a refuted candidate is never COMPLETED');
     assert.match(r.out, /not independently verified/);
     // the refutation reason is injected into a later worker turn's prompt
@@ -173,11 +204,12 @@ test('REFUTE → continue + FEEDBACK: a refute never DONEs and feeds the reason 
   } finally { fs.rmSync(stub.dir, { recursive: true, force: true }); }
 });
 
-test('TWO-KEY ORDERING: a RED --check never spawns the verifier (Layer 1 gates Layer 2)', () => {
+for (const engine of ENGINES) test('TWO-KEY ORDERING [' + engine + ']: a RED --check never spawns the verifier (Layer 1 gates Layer 2)', () => {
   const stub = makeStub();
   try {
-    // --check "false" never passes → candidate-done is never reached → the verifier is never spawned.
-    const r = runLoop(stub, ['--verify', '--criteria', stub.crit, '--check', 'false'], { FAKE_VERDICT: 'pass' });
+    // --check "exit 1" never passes → candidate-done never reached → verifier never spawned. (`exit 1` is red
+    // under bash AND PowerShell, so the same scenario drives both engines on every OS.)
+    const r = runLoop(stub, ['--verify', '--criteria', stub.crit, '--check', 'exit 1'], { FAKE_VERDICT: 'pass' }, engine);
     assert.ok(!r.prompts.includes('Independent completion review'), 'a red check must never spawn the independent verifier');
     assert.ok(!/Result: COMPLETED/.test(r.out), 'a red check can never reach DONE');
   } finally { fs.rmSync(stub.dir, { recursive: true, force: true }); }

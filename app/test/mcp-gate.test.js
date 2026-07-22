@@ -168,7 +168,7 @@ test('pin persistence round-trips and removes cleanly', () => {
   const back = mg.readPin('fake');
   assert.equal(back.sha256, rec.sha256);
   const st = fs.statSync(mg.pinPath('fake'));
-  assert.equal(st.mode & 0o777, 0o600, 'pin file is 0600');
+  if (process.platform !== 'win32') assert.equal(st.mode & 0o777, 0o600, 'pin file is 0600 (POSIX; profile ACL covers win32)');
   mg.removePin('fake');
   assert.equal(mg.readPin('fake'), null);
 });

@@ -34,12 +34,20 @@ LOGO
   printf "${R}    ${AM}ᚢᚱᚠᚨᛖᛚ${R}   ${D}Liquid Intelligence. At your service.${R}\n"
 }
 
-# Which platform are we on? Darwin = macOS, Linux = Linux. Everything else is unsupported.
+# Which platform are we on? Darwin = macOS, Linux = Linux (incl. WSL). A Git-Bash/MSYS/Cygwin uname means
+# someone double-clicked this on native Windows — point them at the real Windows installer instead of a bare
+# "unsupported" that flashes past.
 OS="$(uname)"
 case "$OS" in
   Darwin) ;;
   Linux)  ;;
-  *) printf "  ${RD}✗ Urfael supports macOS and Linux only (uname=%s).${R}\n" "$OS"; exit 1 ;;
+  MINGW*|MSYS*|CYGWIN*)
+    printf "  ${RD}✗ This is the macOS/Linux installer.${R}\n"
+    printf "  ${AM}●${R} On native Windows, open PowerShell and run:  ${CY}powershell -ExecutionPolicy Bypass -File .\\install.ps1${R}\n"
+    printf "  ${AM}●${R} Or use WSL (a full Linux environment), where this script works as-is.\n"
+    read -r -p "  Press Enter to close..." _ 2>/dev/null || true
+    exit 1 ;;
+  *) printf "  ${RD}✗ Urfael supports macOS, Linux, and Windows (via install.ps1) — uname=%s is unsupported.${R}\n" "$OS"; exit 1 ;;
 esac
 banner
 printf "\n  ${GB}I N S T A L L${R}   ${D}· idempotent · nothing risky enabled · keeps your vault & secrets${R}\n"

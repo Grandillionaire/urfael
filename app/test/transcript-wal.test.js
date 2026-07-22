@@ -6,6 +6,7 @@
 // byte-identical proof lives in daemon-transcript-wal-wiring.test.js (source-asserts every call is gated).
 const { test } = require('node:test');
 const assert = require('node:assert');
+const { assertOwnerOnly } = require('./_owner-only');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -36,8 +37,7 @@ test('a clean turn: record writes the journal, then clear removes it', () => {
 test('the journal file is created 0600 (owner-only)', () => {
   const dir = tmp();
   wal.record(dir, { user: 'secret-ish message' });
-  const mode = fs.statSync(wal.pathFor(dir)).mode & 0o777;
-  assert.strictEqual(mode, 0o600, 'journal must be 0600, got 0' + mode.toString(8));
+  assertOwnerOnly(assert, wal.pathFor(dir), 'journal must be 0600');
 });
 
 test('record stores the user message verbatim (same data the transcript holds, no extra redaction)', () => {

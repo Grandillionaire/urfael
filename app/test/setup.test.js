@@ -1,6 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
+const { assertOwnerOnly } = require('./_owner-only');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -19,7 +20,7 @@ test('writeEnv -> readEnv round-trips, strips quotes, drops empties, and is 0600
   assert.equal(back.ANTHROPIC_API_KEY, 'sk-ant-xyz');
   assert.equal(back.URFAEL_OPUS_MODEL, 'qwen2.5:32b');
   assert.ok(!('NOTHING' in back), 'empty values are not written');
-  assert.equal(fs.statSync(setup.PROVIDER_ENV).mode & 0o777, 0o600, 'provider.env must be owner-only');
+  assertOwnerOnly(assert, setup.PROVIDER_ENV, 'provider.env must be owner-only');
 });
 
 test('readEnv tolerates quotes, export prefix, comments, and blank lines (fail-soft)', () => {

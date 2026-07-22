@@ -23,7 +23,8 @@ function fetchOverSock(sockPath, reqObj) {
 
 // spin up a brokerd with injected resolver + upstream; returns { sock, stop, calls } where calls records fetchImpl args.
 function withBrokerd(t, { grant = GRANT, store = STORE, resolve, fetchImpl }) {
-  const sock = path.join(os.tmpdir(), 'ubd-' + crypto.randomBytes(6).toString('hex') + '.sock');
+  const tag = 'ubd-' + crypto.randomBytes(6).toString('hex');
+  const sock = process.platform === 'win32' ? '\\\\.\\pipe\\' + tag : path.join(os.tmpdir(), tag + '.sock');
   const calls = [];
   const fi = fetchImpl || (async (a) => { calls.push(a); return { status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from('{"ok":1}') }; });
   const h = startBrokerd({ sockPath: sock, grant, store, resolve: resolve || (async () => [PUBLIC_IP]), fetchImpl: fi, log: () => {} });

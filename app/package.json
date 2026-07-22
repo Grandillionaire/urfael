@@ -6,7 +6,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/*.test.js",
+    "test": "node test/run-tests.js",
     "e2e": "node test/e2e.js",
     "security": "node test/security-benchmark.js",
     "dist": "electron-builder",
@@ -26,7 +26,10 @@
       "!packaging/**"
     ],
     "extraResources": [
-      { "from": "../config", "to": "config" }
+      {
+        "from": "../config",
+        "to": "config"
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",
