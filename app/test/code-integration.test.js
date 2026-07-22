@@ -28,6 +28,7 @@ test('urfael code: checkpoint captures the tree, rewind restores tracked files a
   try {
     // a repo with one commit: a.txt = v0
     git('init', '-q');
+    git('config', 'core.autocrlf', 'false');   // pin: the test asserts byte round-trips; the machine's autocrlf (true on windows CI) must not rewrite them
     git('config', 'user.email', 'test@urfael.local'); git('config', 'user.name', 'Urfael Test');
     fs.writeFileSync(path.join(repo, 'a.txt'), 'v0\n');
     git('add', '-A'); git('commit', '-q', '-m', 'init');
