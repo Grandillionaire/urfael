@@ -99,9 +99,15 @@ test('prepend joins the block before the message, and is a no-op when empty', ()
 test('buildContext is total and bounded on hostile input', () => {
   assert.doesNotThrow(() => memctx.buildContext(null));
   assert.doesNotThrow(() => memctx.buildContext({ query: 42, turns: [null, {}, { user: null }], lessons: [null, { ref: 123 }] }));
-  const t0 = process.hrtime.bigint();
-  memctx.buildContext({ query: 'a '.repeat(50000), turns: [turn('t', 'a', 'b')], lessons: [{ id: 'x', ref: 'a', confidence: 1 }] });
-  assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 200, 'must stay linear');
+  // ReDoS/complexity guard. Measure SCALING, not absolute wall-clock: absolute ms is hostage to a cold JIT and a
+  // loaded CI runner (this false-failed on windows-latest at ~200ms). Warm the path once, then assert 10× the
+  // input is nowhere near 10²× the time — a catastrophic-backtracking blowup would be orders beyond this bound,
+  // while linear/near-linear code stays well under it on any runner. A small floor absorbs sub-ms timer noise.
+  const build = (n) => memctx.buildContext({ query: 'a '.repeat(n), turns: [turn('t', 'a', 'b')], lessons: [{ id: 'x', ref: 'a', confidence: 1 }] });
+  build(5000);                                                          // warm-up (discard cold-start)
+  const time = (n) => { const s = process.hrtime.bigint(); build(n); return Number(process.hrtime.bigint() - s) / 1e6; };
+  const small = Math.max(time(5000), 0.5), large = time(50000);         // 10× the input
+  assert.ok(large < small * 40, 'must stay ~linear (10× input ≪ 40× time; a ReDoS would be far worse) — got ' + large.toFixed(1) + 'ms vs ' + small.toFixed(1) + 'ms');
 });
 
 // ── the reinforcement loop: surfacing feeds the same consolidation evidence as helped/corrected ──
