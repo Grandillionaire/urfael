@@ -61,7 +61,9 @@ Sect 'VOICE & CONFIG' 'local speech model + whisper-server (both checksum-pinned
 New-Item -ItemType Directory -Force -Path $JDIR, (Join-Path $JDIR 'models'), $UBIN | Out-Null
 $model = Join-Path $JDIR 'models\ggml-base.en.bin'
 $MODEL_SHA = 'A03779C86DF3323075F5E796CB2CE5029F00EC8869EEE3FDFB897AFE36C6D002'
+$SkipDownloads = ($env:URFAEL_INSTALL_SKIP_DOWNLOADS -eq '1')   # CI smoke: everything but the two big downloads
 if (Test-Path $model) { Ok 'whisper model present' }
+elseif ($SkipDownloads) { Warn 'skipping whisper model download (URFAEL_INSTALL_SKIP_DOWNLOADS=1)' }
 else {
   Warn 'downloading whisper base.en model (~142MB, one time)...'
   try {
@@ -76,6 +78,7 @@ $wserver = Join-Path $UBIN 'whisper-server.exe'
 $WZIP_URL = 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.1/whisper-bin-x64.zip'
 $WZIP_SHA = '7D8BE46ECD31828E1EB7A2ECDD0D6B314FEAFD82163038AB6092594B0A063539'
 if (Test-Path $wserver) { Ok 'whisper-server present (local STT)' }
+elseif ($SkipDownloads) { Warn 'skipping whisper-server download (URFAEL_INSTALL_SKIP_DOWNLOADS=1)' }
 else {
   Warn 'downloading whisper.cpp v1.9.1 win64 build (one time)...'
   $wzip = Join-Path $env:TEMP 'urfael-whisper-bin-x64.zip'
@@ -133,9 +136,10 @@ else { Push-Location (Join-Path $REPO 'app'); npm install --silent; Pop-Location
 # a .cmd shim in %LOCALAPPDATA%\Urfael\bin + a one-time user-PATH append (no admin, no system PATH)
 $shim = Join-Path $UBIN 'urfael.cmd'
 Set-Content -Path $shim -Value ("@echo off`r`nnode `"$REPO\app\cli.js`" %*")
-$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+$userPath = [string][Environment]::GetEnvironmentVariable('Path', 'User')   # cast: a machine with NO user Path yields $null
 if ($userPath -notlike "*$UBIN*") {
-  [Environment]::SetEnvironmentVariable('Path', ($userPath.TrimEnd(';') + ';' + $UBIN), 'User')
+  $newPath = if ($userPath) { $userPath.TrimEnd(';') + ';' + $UBIN } else { $UBIN }
+  [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
   Ok "linked ``urfael`` CLI into $UBIN (added to your user PATH - open a NEW terminal to pick it up)"
 } else { Ok "linked ``urfael`` CLI into $UBIN" }
 

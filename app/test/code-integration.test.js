@@ -19,7 +19,7 @@ test('urfael code: checkpoint captures the tree, rewind restores tracked files a
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'urfael-code-it-'));
   const home = path.join(rootDir, 'home'); fs.mkdirSync(home);
   const repo = path.join(rootDir, 'repo'); fs.mkdirSync(repo);
-  const env = { ...process.env, HOME: home, URFAEL_MEMORY_DIR: 'Urfael-memory' };
+  const env = { ...process.env, HOME: home, USERPROFILE: home, URFAEL_MEMORY_DIR: 'Urfael-memory' };   // USERPROFILE: os.homedir() reads it on win32
   delete env.ELECTRON_RUN_AS_NODE;
   const git = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: ['ignore', 'pipe', 'ignore'], env }).toString();
   const cli = (...a) => execFileSync('node', [CLI, ...a], { stdio: ['ignore', 'pipe', 'ignore'], env, timeout: 30000 }).toString();

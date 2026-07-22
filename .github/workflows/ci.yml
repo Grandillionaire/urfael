@@ -38,3 +38,21 @@ jobs:
           FUZZ_ITERS: '6000'
       - name: SSRF red-team (differential, loopback)
         run: npm run redteam
+      # The Windows installer EXECUTES on every push (downloads skipped): vault scaffold + junction, config
+      # templates, the urfael shim + PATH append, autostart helpers — then the installed CLI must answer.
+      # Parse-checking alone would miss runtime breakage; nobody on the team runs Windows hardware.
+      - name: install.ps1 smoke (Windows; no big downloads)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+        env:
+          URFAEL_INSTALL_SKIP_DOWNLOADS: '1'
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\install.ps1
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
+          if (-not (Test-Path "$HOME\Urfael\CLAUDE.md")) { throw 'vault not scaffolded' }
+          if (-not (Test-Path "$HOME\Urfael\.claude")) { throw '.claude junction missing' }
+          if (-not (Test-Path "$HOME\Urfael\_urfael\goal-loop.js")) { throw 'goal-loop twin missing from vault' }
+          if (-not (Test-Path "$env:LOCALAPPDATA\Urfael\bin\urfael.cmd")) { throw 'urfael shim missing' }
+          node app\cli.js version
+          if ($LASTEXITCODE -ne 0) { throw 'installed CLI failed to answer' }
