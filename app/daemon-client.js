@@ -16,10 +16,12 @@
 //              transitions (socket error, timeout, natural stream end) all reach onError(err) with an
 //              err.phase of 'error' | 'timeout' | 'end', so a caller reproduces its exact per-phase marker.
 const http = require('http');
-const os = require('os');
-const path = require('path');
+const ipc = require('./ipc');
 
-const DEFAULT_SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
+// One resolver for every surface: the 0600 unix socket on POSIX, the per-user named pipe on native Windows
+// (see app/ipc.js). authHeaders() is {} on POSIX and the win32 token header otherwise — merged into every
+// request below so no caller ever hand-rolls the boundary.
+const DEFAULT_SOCK = ipc.daemonSock();
 
 // A single unix-socket round-trip. Resolves the raw response body string on end; rejects with the socket error
 // on 'error'; rejects new Error('timeout') on a timeout (after destroying the request, matching the copies).
@@ -27,7 +29,7 @@ function request(method, p, body, opts) {
   opts = opts || {};
   const socketPath = opts.socketPath || DEFAULT_SOCK;
   return new Promise((resolve, reject) => {
-    const options = { socketPath, method, path: p, headers: { 'Content-Type': 'application/json' } };
+    const options = { socketPath, method, path: p, headers: { 'Content-Type': 'application/json', ...ipc.authHeaders() } };
     if (opts.timeoutMs) options.timeout = opts.timeoutMs;
     const r = http.request(options, (res) => {
       let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => resolve(b));
@@ -50,7 +52,7 @@ function streamAsk(text, handlers, opts) {
   const reqPath = opts.path || '/ask';
   const body = ('body' in opts) ? opts.body : { text };
   const fail = (phase, err) => { if (onError) { const e = err || new Error(phase); e.phase = phase; onError(e); } };
-  const options = { socketPath, method: 'POST', path: reqPath, headers: { 'Content-Type': 'application/json' } };
+  const options = { socketPath, method: 'POST', path: reqPath, headers: { 'Content-Type': 'application/json', ...ipc.authHeaders() } };
   if (opts.timeoutMs) options.timeout = opts.timeoutMs;
   const r = http.request(options, (res) => {
     let buf = '';

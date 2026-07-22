@@ -57,7 +57,7 @@ function _mkWorkerArgs(prompt, model, allowed, nonce) {
 // touches the world (spawn, the planner/synthesis one-shots, the clock, the inflight set) is injected via deps,
 // so a fake-deps unit test exercises the whole protocol with no real claude.
 async function runCouncil(task, opts, emit, deps) {
-  const { spawn, CLAUDE_BIN, VAULT, scopedEnv, classifyModel, OPUS, budgetWindow, inflightScoped, store, jobId, now = Date.now } = deps;
+  const { spawn, CLAUDE_BIN, CLAUDE_PRE = [], VAULT, scopedEnv, classifyModel, OPUS, budgetWindow, inflightScoped, store, jobId, now = Date.now } = deps;
   const children = deps._children || new Set();
   const agentsCap = clampAgents(opts && opts.agents);
   const allowFloor = (opts && opts.webOk) ? COUNCIL_BASE_TOOLS.concat(COUNCIL_WEB_TOOLS) : COUNCIL_BASE_TOOLS;
@@ -91,7 +91,7 @@ async function runCouncil(task, opts, emit, deps) {
     const nonce = crypto.randomBytes(9).toString('hex');
     emit({ ev: 'orchestrator.dispatch', round, to: id, title: sub.title || '', prompt: sub.prompt, tools: allowed });
     let child;
-    try { child = spawn(CLAUDE_BIN, _mkWorkerArgs(sub.prompt, model, allowed, nonce), { cwd: VAULT, env: scopedEnv(), stdio: ['ignore', 'pipe', 'ignore'] }); }
+    try { child = spawn(CLAUDE_BIN, CLAUDE_PRE.concat(_mkWorkerArgs(sub.prompt, model, allowed, nonce)), { cwd: VAULT, env: scopedEnv(), stdio: ['ignore', 'pipe', 'ignore'] }); }
     catch { emit({ ev: 'agent.done', round, id, result: '(spawn failed)', tokens: 0, ok: false }); return resolve({ id, title: sub.title || '', result: '(spawn failed)' }); }
     children.add(child); if (inflightScoped) inflightScoped.add(child);
     let buf = '', acc = '', toks = 0, finished = false;

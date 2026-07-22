@@ -12,7 +12,8 @@ const path = require('path');
 const { spawn, execFileSync } = require('child_process');
 const dc = require('./daemon-client');                                  // shared unix-socket client (request + /ask NDJSON stream)
 
-const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
+const ipc = require('./ipc');
+const SOCK = ipc.daemonSock();   // 0600 unix socket on POSIX; per-user named pipe + token on native Windows (see app/ipc.js)
 const MEMORY_DIR = path.join(os.homedir(), process.env.URFAEL_MEMORY_DIR || 'Urfael-memory');
 const DAEMON = path.join(__dirname, 'daemon.js');
 const DASHBOARD = path.join(__dirname, 'dashboard.js');
@@ -491,7 +492,8 @@ function readStdinAdapter(maxBytes) {
     if (!rest.includes('--no-run')) {                                            // --no-run: just checkpoint + load memory, skip the brain
       const cenv = { ...process.env }; delete cenv.ELECTRON_RUN_AS_NODE;
       // `--` so a task that begins with a dash (e.g. "-c") is always the prompt, never parsed as a claude flag.
-      spawnSync('claude', ['--', prompt], { cwd: root, stdio: 'inherit', env: cenv });
+      const CBI = require('./claude-bin').resolve();   // exe/cli.js on win32, bare 'claude' on POSIX — never a shell
+      spawnSync(CBI.bin, CBI.pre.concat(['--', prompt]), { cwd: root, stdio: 'inherit', env: cenv });
     }
     // record the session: a HISTORY.md entry + an append-only code-log line, both in the git-versioned memory repo.
     if (!rest.includes('--no-memory')) {
@@ -517,8 +519,8 @@ function readStdinAdapter(maxBytes) {
     const model = flag(rest, '--model');
     const reportPath = flag(rest, '--report');
     const asJson = rest.includes('--json');
-    const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || 'claude';
-    const deps = { spawn: spawnChild, CLAUDE_BIN, scopedEnv: () => libScopedEnv(process.env) };
+    const CBR = require('./claude-bin').resolve();
+    const deps = { spawn: spawnChild, CLAUDE_BIN: CBR.bin, CLAUDE_PRE: CBR.pre, scopedEnv: () => libScopedEnv(process.env) };
     const emit = (e) => {
       if (asJson) return;
       if (e.ev === 'scan.start') process.stderr.write(gold('● urfael scan') + dim('  ' + path.basename(target) + '  ·  read-only, verified') + '\n');
@@ -585,8 +587,8 @@ function readStdinAdapter(maxBytes) {
       const fromLast = rest.includes('--from-last') || rest[1] === '--from-last';
       const source = fromLast ? '--from-last' : rest.find((a, i) => i >= 1 && !a.startsWith('--') && rest[i - 1] !== '--model');
       if (!source && !fromLast) { console.log('usage: urfael skills learn <dir | https-url | --from-last> [--model <m>]'); return; }
-      const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || 'claude';
-      const deps = { spawn: spawnChild, CLAUDE_BIN, scopedEnv: () => libScopedEnv(process.env) };
+      const CBR = require('./claude-bin').resolve();
+      const deps = { spawn: spawnChild, CLAUDE_BIN: CBR.bin, CLAUDE_PRE: CBR.pre, scopedEnv: () => libScopedEnv(process.env) };
       const emit = (e) => {
         if (e.ev === 'skill-learn.source') process.stderr.write(gold('● urfael skills learn') + dim('  ' + e.kind + '  ·  read-only, scanned, verified, never executed') + '\n');
         else if (e.ev === 'skill-learn.distill') process.stderr.write(dim('  distilling on the read-only floor…') + '\n');

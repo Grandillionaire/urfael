@@ -14,7 +14,7 @@ module.exports = function createSessionModule(deps) {
   const {
     spawn, logEvent, sendThinking, sendSay, deDash, classifyError, segmentSentences,
     providerSessions, providerList, secretFor, recordBrainPid, getOverlay, pluginMcpArgs,
-    CLAUDE_BIN, VAULT, MEMDIR_ADD, PERM_MODE, MAX_SPOKEN_CHARS, TURN_TIMEOUT_MS,
+    CLAUDE_BIN, CLAUDE_PRE = [], VAULT, MEMDIR_ADD, PERM_MODE, MAX_SPOKEN_CHARS, TURN_TIMEOUT_MS,
   } = deps;
 
   // One warm Claude process per model (stdin kept open). stderr is drained into a small ring buffer so a failed
@@ -41,13 +41,13 @@ module.exports = function createSessionModule(deps) {
           childEnv.URFAEL_OVERLAY = '1';
         }
       }
-      this.proc = spawn(CLAUDE_BIN, [
+      this.proc = spawn(CLAUDE_BIN, CLAUDE_PRE.concat([
         '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
         '--model', this.model, '--verbose', '--include-partial-messages', '--permission-mode', PERM_MODE,
         ...MEMDIR_ADD,   // the brain can READ its own memory (it lives outside the vault/project root)
         ...overlayArgs,  // persona = a VOICE overlay only; the moat is PERM_MODE + the vault settings, not this text
         ...pluginMcpArgs(),  // enabled plugins on the WARM (owner) session only; [] when none → byte-identical spawn. Scoped/remote/cron spawns stay --strict-mcp-config, so a plugin never reaches an untrusted turn.
-      ], { cwd: VAULT, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
+      ]), { cwd: VAULT, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'] });
       const p = this.proc; // bind handlers to THIS proc identity so a stale exit can't clobber a freshly-spawned one
       recordBrainPid(p.pid);
       p.stdout.on('data', (d) => this._onData(d));

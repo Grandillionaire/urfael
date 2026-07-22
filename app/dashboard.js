@@ -20,7 +20,8 @@ const MEMGRAPH = require('./lib').envOn(process.env.URFAEL_MEMGRAPH);
 const HOST = '127.0.0.1';                                  // loopback ONLY — never 0.0.0.0, never a LAN/public iface
 const PORT = Math.min(Math.max(parseInt(process.env.URFAEL_DASHBOARD_PORT, 10) || 7717, 1), 65535);
 const JDIR = path.join(os.homedir(), '.claude', 'urfael');
-const SOCK = path.join(JDIR, 'daemon.sock');
+const ipc = require('./ipc');
+const SOCK = ipc.daemonSock();   // 0600 unix socket on POSIX; per-user named pipe + token on native Windows (see app/ipc.js)
 const TOKENF = path.join(JDIR, 'dashboard.token');
 const MAX_BODY = 262144;                                   // 256KB request-body cap (mirror the daemon)
 

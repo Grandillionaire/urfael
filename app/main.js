@@ -17,7 +17,8 @@ const path = require('path');
 
 const JDIR = path.join(os.homedir(), '.claude', 'urfael');
 const TTS_ENV = path.join(JDIR, 'tts.env');
-const SOCK = path.join(JDIR, 'daemon.sock');
+const ipc = require('./ipc');
+const SOCK = ipc.daemonSock();   // 0600 unix socket on POSIX; per-user named pipe + token on native Windows (see app/ipc.js)
 const ONBOARDED = path.join(JDIR, 'onboarded'); // marker: first-run GUI onboarding done (shown once)
 const DAEMON = path.join(__dirname, 'daemon.js');
 const setup = require('./setup'); // reuse the wizard's provider.env read/write (no side effects on require)
@@ -45,13 +46,13 @@ function targetDisplay() { return screen.getDisplayNearestPoint(screen.getCursor
 // ---- brain daemon client ---------------------------------------------------
 function healthCheck(timeoutMs = 1200) {
   return new Promise((resolve) => {
-    const req = http.request({ socketPath: SOCK, method: 'GET', path: '/health', timeout: timeoutMs }, (res) => { res.resume(); resolve(true); });
+    const req = http.request({ socketPath: SOCK, method: 'GET', path: '/health', timeout: timeoutMs, headers: ipc.authHeaders() }, (res) => { res.resume(); resolve(true); });
     req.on('error', () => resolve(false));
     req.on('timeout', () => { req.destroy(); resolve(false); });
     req.end();
   });
 }
-function spawnDaemon() { try { const p = spawn(process.execPath, [DAEMON], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, detached: true, stdio: 'ignore' }); p.unref(); } catch {} }
+function spawnDaemon() { try { const p = spawn(process.execPath, [DAEMON], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, detached: true, stdio: 'ignore', windowsHide: true }); p.unref(); } catch {} }
 let ensuring = null;
 function ensureDaemon() {
   if (ensuring) return ensuring;
@@ -88,7 +89,7 @@ function askDaemon(text) {
     } catch { finish({ ok: false, text: '(brain unreachable)', model: '' }); }
   });
 }
-function daemonPost(p) { try { const req = http.request({ socketPath: SOCK, method: 'POST', path: p }, (res) => res.resume()); req.on('error', () => {}); req.end(); } catch {} }
+function daemonPost(p) { try { const req = http.request({ socketPath: SOCK, method: 'POST', path: p, headers: ipc.authHeaders() }, (res) => res.resume()); req.on('error', () => {}); req.end(); } catch {} }
 function daemonGet(p) {
   // parse the JSON reply, else null; a socket error/timeout resolves null (fail-soft for the always-on poller).
   return dc.request('GET', p, undefined, { socketPath: SOCK, timeoutMs: 1500 }).then((b) => { try { return JSON.parse(b); } catch { return null; } }, () => null);
@@ -201,7 +202,7 @@ ipcMain.on('urfael:interactive', (_e, on) => { if (win && !win.isDestroyed()) wi
 const PLIST = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.urfael.daemon.plist');
 function shutdownAll() {
   daemonPost('/shutdown');
-  try { spawn('launchctl', ['unload', PLIST], { stdio: 'ignore' }); } catch {}
+  if (process.platform === 'darwin') { try { spawn('launchctl', ['unload', PLIST], { stdio: 'ignore' }); } catch {} }   // other hosts have no launchd; /shutdown above already stops the daemon
   if (wakeWorker) { try { wakeWorker.postMessage('stop'); } catch {} }
   stopWhisper();
   setTimeout(() => app.quit(), 450);
@@ -470,7 +471,7 @@ ipcMain.handle('urfael:tts', async (_e, text) => { const b = await voice.synth(t
 ipcMain.handle('urfael:stt', async (_e, buf) => voice.transcribe(Buffer.from(buf), readTtsEnv()));                       // returns transcript text
 
 let whisperProc = null, whisperStopped = false, whisperRestarts = 0;
-function whisperBin() { for (const p of ['/opt/homebrew/bin/whisper-server', '/usr/local/bin/whisper-server', '/usr/bin/whisper-server']) { try { fs.accessSync(p); return p; } catch {} } return 'whisper-server'; } // Linux: whisper.cpp typically installs to /usr/bin or /usr/local/bin
+function whisperBin() { const cands = process.platform === 'win32' ? [path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Urfael', 'bin', 'whisper-server.exe')] : ['/opt/homebrew/bin/whisper-server', '/usr/local/bin/whisper-server', '/usr/bin/whisper-server']; for (const p of cands) { try { fs.accessSync(p); return p; } catch {} } return 'whisper-server'; } // Linux: /usr(/local)/bin; win32: the install.ps1 bin dir, else PATH
 // Whisper-server orphan reaper — mirror of the brain's brain.pids discipline (daemon.js recordBrainPid /
 // cleanupOrphanBrains, now the SAME lib.makePidLedger). The 168MB model server is a detached long-lived child;
 // on any Electron crash / force-quit / SIGKILL it would otherwise be orphaned forever, and only the OLDEST

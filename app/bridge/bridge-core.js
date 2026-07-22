@@ -10,7 +10,8 @@ const https = require('https');
 const lib = require('../lib');
 
 const JDIR = path.join(os.homedir(), '.claude', 'urfael');
-const SOCK = path.join(JDIR, 'daemon.sock');
+const ipc = require('../ipc');
+const SOCK = ipc.daemonSock();   // 0600 unix socket on POSIX; per-user named pipe + token on native Windows (see app/ipc.js)
 const ENVF = path.join(JDIR, 'bridge.env');
 const TEAMF = path.join(JDIR, 'team.json');
 const AUDIT = path.join(JDIR, 'bridge-audit.log');
@@ -88,7 +89,7 @@ function askDaemon(text, channel, principal) {
     // so a roster with no cap produces a byte-identical payload. The daemon re-validates it (normPinModel) on receipt.
     const payload = JSON.stringify(principal ? { text, channel, role: principal.role, principal: principal.name, ...(principal.model ? { model: principal.model } : {}) } : { text, channel });
     const req = http.request({ socketPath: SOCK, method: 'POST', path: '/ask',
-      headers: { 'Content-Type': 'application/json' }, timeout: 200000 }, (res) => {
+      headers: { 'Content-Type': 'application/json', ...ipc.authHeaders() }, timeout: 200000 }, (res) => {
       let buf = '', final = '';
       res.on('data', (d) => {
         buf += d.toString(); let i;
@@ -110,7 +111,7 @@ function askDaemon(text, channel, principal) {
 function notifyDaemon(text) {
   return new Promise((resolve) => {
     const payload = JSON.stringify({ text: String(text || '').slice(0, 1000) });
-    const req = http.request({ socketPath: SOCK, method: 'POST', path: '/notify', headers: { 'Content-Type': 'application/json' }, timeout: 15000 }, (res) => { res.resume(); res.on('end', () => resolve(true)); });
+    const req = http.request({ socketPath: SOCK, method: 'POST', path: '/notify', headers: { 'Content-Type': 'application/json', ...ipc.authHeaders() }, timeout: 15000 }, (res) => { res.resume(); res.on('end', () => resolve(true)); });
     req.on('error', () => resolve(false)); req.on('timeout', () => { req.destroy(); resolve(false); });
     req.end(payload);
   });
@@ -121,7 +122,7 @@ function notifyDaemon(text) {
 function tryPair(channel, senderId, text) {
   return new Promise((resolve) => {
     const payload = JSON.stringify({ channel, senderId: String(senderId), code: String(text || '').trim() });
-    const r = http.request({ socketPath: SOCK, method: 'POST', path: '/pair/redeem', headers: { 'Content-Type': 'application/json' }, timeout: 15000 }, (res) => {
+    const r = http.request({ socketPath: SOCK, method: 'POST', path: '/pair/redeem', headers: { 'Content-Type': 'application/json', ...ipc.authHeaders() }, timeout: 15000 }, (res) => {
       let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve({ error: 'bad' }); } });
     });
     r.on('error', () => resolve({ error: 'unreachable' })); r.on('timeout', () => { r.destroy(); resolve({ error: 'timeout' }); });

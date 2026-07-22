@@ -137,13 +137,13 @@ function distillContentPrompt(kind, content, nonce) {
 // fail-soft to '' on any failure. HONOURS is_error + the exit code so a usage-limit/overloaded turn is never mistaken
 // for a real result.
 function runAgent(promptText, deps, cwd, model, timeoutMs) {
-  const { spawn, CLAUDE_BIN, scopedEnv } = deps || {};
+  const { spawn, CLAUDE_BIN, CLAUDE_PRE = [], scopedEnv } = deps || {};
   return new Promise((resolve) => {
     const args = ['-p', promptText, '--permission-mode', 'acceptEdits', '--strict-mcp-config',
       '--allowedTools', READ_FLOOR.join(','), '--output-format', 'json'];
     if (model) args.push('--model', String(model));
     let child;
-    try { child = spawn(CLAUDE_BIN, args, { cwd, env: scopedEnv ? scopedEnv() : process.env, stdio: ['ignore', 'pipe', 'pipe'] }); }
+    try { child = spawn(CLAUDE_BIN, CLAUDE_PRE.concat(args), { cwd, env: scopedEnv ? scopedEnv() : process.env, stdio: ['ignore', 'pipe', 'pipe'] }); }
     catch { return resolve({ text: '', ok: false }); }
     let out = '', done = false, exitCode = null;
     const finish = () => {

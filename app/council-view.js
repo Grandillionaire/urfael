@@ -11,7 +11,8 @@ const rend = require('./tui-render');
 const themer = require('./tui-theme');
 const md = require('./md');
 
-const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
+const ipc = require('./ipc');
+const SOCK = ipc.daemonSock();   // 0600 unix socket on POSIX; per-user named pipe + token on native Windows (see app/ipc.js)
 const ALT_ON = '\x1b[?1049h', ALT_OFF = '\x1b[?1049l', CUR_HIDE = '\x1b[?25l', CUR_SHOW = '\x1b[?25h', RST = '\x1b[0m';
 
 function newState() { return { task: '', head: { plan: '', text: '', phase: 'planning' }, workers: [], answer: '', status: '', ms: 0, tokens: 0 }; }
@@ -159,7 +160,7 @@ function streamCouncil(task, agents, opts, onEvent, onEnd) {
 
 function req(method, p, body) {
   return new Promise((resolve, reject) => {
-    const r = http.request({ socketPath: SOCK, method, path: p, headers: { 'Content-Type': 'application/json' }, timeout: 4000 }, (res) => { let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(b); } }); });
+    const r = http.request({ socketPath: SOCK, method, path: p, headers: { 'Content-Type': 'application/json', ...ipc.authHeaders() }, timeout: 4000 }, (res) => { let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(b); } }); });
     r.on('error', reject); r.on('timeout', () => { r.destroy(); reject(new Error('timeout')); });
     if (body) r.write(JSON.stringify(body)); r.end();
   });
