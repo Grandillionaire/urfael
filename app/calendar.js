@@ -260,12 +260,15 @@ function toICS(events, opts = {}) {
 // load(filePath) NEVER throws: a missing or corrupt file yields an EMPTY store (fail-soft). The store is
 // run through coerceStore so even a partially-valid file loads its good rows.
 function load(filePath) {
-  try {
-    const raw = fs.readFileSync(filePath, 'utf8');
-    return coerceStore(JSON.parse(raw));
-  } catch {
+  let raw;
+  try { raw = fs.readFileSync(filePath, 'utf8'); } catch { return emptyStore(); }   // ENOENT → fresh, nothing to lose
+  let parsed; try { parsed = JSON.parse(raw); } catch { parsed = undefined; }
+  if (parsed === undefined) {
+    // unparseable — quarantine rather than silently wipe every calendar event (git-recoverable, but be explicit)
+    require('./lib').quarantineCorrupt(filePath, 'calendar');
     return emptyStore();
   }
+  return coerceStore(parsed);   // a parseable-but-partial store still loads its good rows
 }
 
 // save(filePath, store) -> true|false. Atomic (write a sibling .tmp then rename, so a crash mid-write can't

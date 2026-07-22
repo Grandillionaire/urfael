@@ -111,11 +111,13 @@ test('makePidLedger: record() captures the marker OFF the hot path (async ps), a
     append: (f, s) => files.set(f, (files.get(f) || '') + s),
     mkdir: () => {},
     kill: (pid) => killed.push(pid),
-    // execFileSync-shaped fake of `ps -o lstart= -p <pid>`: SYNCHRONOUS — reap()'s boot-path verify uses this.
-    run: (cmd, args) => { syncPsCalls++; const pid = parseInt(args[args.length - 1], 10); if (!startTimes.has(pid)) throw new Error('no such process'); return startTimes.get(pid) + '\n'; },
+    // pid extraction is arg-shape-agnostic (first integer in the argv) so this fake models BOTH the POSIX probe
+    // (`ps -o lstart= -p <pid>`) and the win32 one (`powershell … -Id <pid> …`) — the marker VALUE is OS-neutral.
+    // execFileSync-shaped fake: SYNCHRONOUS — reap()'s boot-path verify uses this.
+    run: (cmd, args) => { syncPsCalls++; const pid = parseInt((args.join(' ').match(/\d+/) || [])[0], 10); if (!startTimes.has(pid)) throw new Error('no such process'); return startTimes.get(pid) + '\n'; },
     // execFile-shaped ASYNC fake: record() uses this. The callback is QUEUED, not run inline, so record() returns
-    // before ps resolves — modelling the real non-blocking child_process.execFile off the spawn hot path.
-    runAsync: (cmd, args, cb) => { pending.push(() => { const pid = parseInt(args[args.length - 1], 10); if (!startTimes.has(pid)) return cb(new Error('no such process')); cb(null, startTimes.get(pid) + '\n'); }); },
+    // before the probe resolves — modelling the real non-blocking child_process.execFile off the spawn hot path.
+    runAsync: (cmd, args, cb) => { pending.push(() => { const pid = parseInt((args.join(' ').match(/\d+/) || [])[0], 10); if (!startTimes.has(pid)) return cb(new Error('no such process')); cb(null, startTimes.get(pid) + '\n'); }); },
   };
   const ledger = makePidLedger(io, '/x/brain.pids');
 

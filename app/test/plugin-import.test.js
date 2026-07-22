@@ -16,6 +16,15 @@ test('parseYamlSubset reads flat scalars + simple lists; nested is opaque, not g
   assert.deepEqual(y.provides_tools, ['a', 'b']);
   assert.deepEqual(y.requires_env, ['API_KEY']);
 });
+test('parseYamlSubset is CRLF-safe: a Windows-authored plugin.yaml does not silently parse to nothing', () => {
+  // before the fix, the (.*)$/ key regex could not match before a trailing \r, so a CRLF file → {} → a null
+  // manifest → a silent no-op import. Assert CRLF parses identically to LF.
+  const crlf = ic.parseYamlSubset('name: demo\r\nversion: 1.2.3\r\nprovides_tools:\r\n  - a\r\n  - b\r\n');
+  assert.equal(crlf.name, 'demo');
+  assert.equal(crlf.version, '1.2.3');
+  assert.deepEqual(crlf.provides_tools, ['a', 'b']);
+  assert.deepEqual(crlf, ic.parseYamlSubset('name: demo\nversion: 1.2.3\nprovides_tools:\n  - a\n  - b\n'));
+});
 test('detectFormat keys off the signature file', () => {
   assert.equal(ic.detectFormat(['openclaw.plugin.json', 'package.json']), 'openclaw');
   assert.equal(ic.detectFormat(['plugin.yaml']), 'hermes-plugin');

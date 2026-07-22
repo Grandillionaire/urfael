@@ -32,7 +32,7 @@ function stripJson5(text) {
 // never guessed (drives the refuse rule). Total.
 function parseYamlSubset(text) {
   const out = { _opaque: [] }; let curList = null;
-  for (const raw of String(text || '').split('\n')) {
+  for (const raw of String(text || '').split(/\r?\n/)) {   // CRLF-safe: a Windows-authored plugin.yaml must not silently parse to nothing
     const line = raw.replace(/\s+#.*$/, '');
     if (!line.trim()) continue;
     const indent = (line.match(/^\s*/) || [''])[0].length;

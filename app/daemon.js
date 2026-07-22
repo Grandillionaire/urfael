@@ -31,7 +31,7 @@ const crypto = require('crypto');
 // wins over the file. The file is 0600 and read via Node fs only (the agent's tools can't reach ~/.claude).
 (function loadProviderEnv() {
   try {
-    for (const line of fs.readFileSync(path.join(os.homedir(), '.claude', 'urfael', 'provider.env'), 'utf8').split('\n')) {
+    for (const line of fs.readFileSync(path.join(os.homedir(), '.claude', 'urfael', 'provider.env'), 'utf8').split(/\r?\n/)) {   // CRLF-safe: a hand-edited provider.env must not drop every key
       const m = line.match(/^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/);
       if (!m || line.trim().startsWith('#')) continue;
       let v = m[2].trim();
@@ -136,7 +136,18 @@ const CHAINFILE = path.join(MEMORY_DIR, 'audit-chain.jsonl');
 const CHAINED_EVENTS = new Set(['turn', 'remote_turn', 'cron_fire', 'hook_fire', 'job_create', 'job_cancel', 'learn_verify', 'reminder_fire', 'budget_block', 'pair_redeem', 'script_run', 'forget', 'daemon_start', 'self_setting', 'self_update', 'cal_add', 'cal_move', 'cal_cancel', 'schedule_apply', 'precompact', 'goal_contract', 'goal_verify', 'ref_inject']);
 let chainSeq = -1, chainLastHash = auditChain.GENESIS, chainSeeded = false;
 function seedChain() {
-  try { const lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean); if (lines.length) { const last = JSON.parse(lines[lines.length - 1]); if (typeof last.seq === 'number' && typeof last.h === 'string') { chainSeq = last.seq; chainLastHash = last.h; } } } catch {}
+  // Scan BACKWARD to the last PARSEABLE entry: a crash/ENOSPC can tear the final append, and seeding off a
+  // torn tail used to silently restart at seq 0 — permanently severing the ledger. The torn fragment stays
+  // in the file (the verifier reports it honestly); we just refuse to let it reset the chain position.
+  try {
+    const lines = fs.readFileSync(CHAINFILE, 'utf8').split('\n').filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const e = JSON.parse(lines[i]);
+        if (typeof e.seq === 'number' && typeof e.h === 'string') { chainSeq = e.seq; chainLastHash = e.h; break; }
+      } catch {}
+    }
+  } catch {}
   chainSeeded = true;
 }
 function appendChain(o, t) {
@@ -425,6 +436,13 @@ const { getSession, getSessionByKey, sessions } = require('./session')({
 });
 
 let transcript = [];
+// Server-side cap so the in-memory transcript can't grow without bound: distill() clears it only on
+// POST /conversation-end, which ONLY the Electron overlay fires — a CLI/TUI-driven or very long session
+// would otherwise leak one entry per turn for the daemon's whole lifetime. Trimming loses nothing durable:
+// every turn is already archived via recordSession(), and distill reads the tail. Every other buffer in the
+// daemon has a hard cap; this closes the last one that trusted a well-behaved client.
+const TRANSCRIPT_CAP = 400;
+function pushTranscript(entry) { transcript.push(entry); if (transcript.length > TRANSCRIPT_CAP) transcript.splice(0, transcript.length - TRANSCRIPT_CAP); }
 let convoModel = MODELS.sonnet;   // sticky: escalate to Opus and stay for the conversation (continuity)
 let softTurns = 0;                // consecutive non-hard turns while on Opus → de-escalate back to Sonnet
 let turnCounter = 0;
@@ -799,7 +817,7 @@ const brain = {
     // JARVIS: turn finished — flip the local terminal back to idle and broadcast the close to watchers. No prompt/reply text leaves here.
     try { clients.setActivity('local', { state: 'idle', task: '' }); watchBus.publish({ kind: 'turn.end', clientId: 'local', surface: 'overlay', state: 'idle', model, ms, turnId, t: Date.now() }); } catch {}
     if (reply !== '(stopped)') {   // don't persist an aborted turn into the transcript/archive or feed it to distill
-      transcript.push({ user: text, urfael: reply });
+      pushTranscript({ user: text, urfael: reply });
       recordSession({ t: new Date().toISOString(), channel: 'local', model, user: text, urfael: reply, ms });
       // only a normally-completed turn warrants a per-turn review — never aborts/timeouts/spawn failures
       if (reply && !session.lastFailed) { reviewTurn(text, reply); modelUser(text, reply); reinforceSurfaced(mem.surfaced); }   // never review an aborted/timed-out/failed turn
@@ -1356,7 +1374,7 @@ async function runNativeTurn({ text, providerId, model, onDelta, onThinking }) {
   const ms = Date.now() - t0;
   logEvent({ ev: 'native_turn', provider: winEntry.id, model: winModel, ms, ok: r.ok, steps: r.steps, tokIn: (r.usage && r.usage.inTok) || 0, tokOut: (r.usage && r.usage.outTok) || 0 });
   if (r.ok && r.text) {
-    transcript.push({ user: text, urfael: r.text });
+    pushTranscript({ user: text, urfael: r.text });
     recordSession({ t: new Date().toISOString(), channel: 'native:' + winEntry.id, model: winModel, user: text, urfael: r.text, ms });
   }
   return { ok: r.ok, text: r.text, error: r.error, model: winModel, usage: r.usage, steps: r.steps, engine: winAdapter };
@@ -2249,9 +2267,15 @@ function reflectPass() {
 function readBody(req) { // capped to MAX_BODY so an oversized body can't exhaust memory
   return new Promise((resolve) => {
     let b = '', over = false;
-    req.on('data', (c) => { if (over) return; b += c; if (b.length > MAX_BODY) { over = true; try { req.destroy(); } catch {} resolve(''); } });
-    req.on('end', () => { if (!over) resolve(b); });
-    req.on('error', () => resolve(''));
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    req.on('data', (c) => { if (over || settled) return; b += c; if (b.length > MAX_BODY) { over = true; try { req.destroy(); } catch {} done(''); } });
+    req.on('end', () => { if (!over) done(b); });
+    req.on('error', () => done(''));
+    // a mid-body client abort may emit neither 'end' nor 'error' on some Node versions; 'aborted'/'close'
+    // guarantee the awaiting handler is never left as a permanently-pending promise (a slow closure leak).
+    req.on('aborted', () => done(''));
+    req.on('close', () => done(over ? '' : b));
   });
 }
 let chain = Promise.resolve();
@@ -3218,13 +3242,34 @@ const server = http.createServer(async (req, res) => {
   } else { res.writeHead(404); res.end(); }
 });
 
-function listen() {
-  try { fs.unlinkSync(SOCK); } catch {}
+// EADDRINUSE = the endpoint is occupied. The old code unconditionally `fs.unlinkSync(SOCK)` before binding,
+// which DEFEATED EADDRINUSE: two near-simultaneous starts (launchd KeepAlive + overlay ensureDaemon) both
+// unlinked each other's socket and both bound → TWO daemons interleaving the tamper-evident ledger. Now we
+// bind WITHOUT unlinking and disambiguate on error: win32 pipe binds are exclusive (loser yields cleanly); on
+// POSIX the socket FILE persists past a crash, so we re-probe — a live answer means we lost the race (yield),
+// silence means the file is a stale leftover, so unlink ONCE and rebind. `bindRetried` bounds the retry.
+let bindRetried = false;
+function onBindError(e) {
+  const code = e && e.code;
+  if (code === 'EADDRINUSE' && !IPC_AUTH && !bindRetried) {
+    const p2 = http.request({ socketPath: SOCK, method: 'GET', path: '/health', timeout: 1000 }, (res) => { res.resume(); logEvent({ ev: 'daemon_already_running' }); process.exit(0); });
+    const reclaim = () => { bindRetried = true; try { fs.unlinkSync(SOCK); } catch {} server.listen(SOCK, onListening); };   // stale socket file → clear + rebind the SAME server
+    p2.on('error', reclaim); p2.on('timeout', () => { p2.destroy(); reclaim(); }); p2.end();
+    return;
+  }
+  if (code === 'EADDRINUSE') { logEvent({ ev: 'daemon_already_running' }); process.exit(0); }   // win32 pipe, or POSIX after one retry: another instance owns it → yield, never double-run
+  try { logEvent({ ev: 'daemon_listen_error', err: String((e && e.message) || e).slice(0, 300) }); } catch {}
+  process.exit(1);
+}
+// Runs ONLY after a confirmed EXCLUSIVE bind — a daemon that loses the single-instance race must never reach
+// here and mutate shared state (reconcile/WAL-recover) on its way to discovering it lost.
+function onListening() {
+  if (!IPC_AUTH) { try { fs.chmodSync(SOCK, 0o600); } catch {} } // 0600: only the owner can POST to the brain (POSIX; a win32 pipe has no mode — the token above is the boundary)
   cleanupOrphanBrains(); jobstore.reconcile();
   // CRASH-SAFE TRANSCRIPT WAL (opt-in URFAEL_TRANSCRIPT_WAL): a journal entry that SURVIVED a restart means the daemon
   // died mid-turn. Recover the user's message into the transcript, marked recovered, so the last exchange is never
   // silently lost. recover() removes the entry as it reads it (exactly-once, never double-fires), and is fail-safe.
-  if (TRANSCRIPT_WAL_ON) { try { const w = transcriptWal.recover(MEMORY_DIR); if (w) { transcript.push({ user: w.user, urfael: w.urfael || '(reply lost to a mid-turn crash; recovered by the transcript journal)', recovered: true }); logEvent({ ev: 'transcript_wal_recover', turnId: w.turnId || 0 }); } } catch {} }
+  if (TRANSCRIPT_WAL_ON) { try { const w = transcriptWal.recover(MEMORY_DIR); if (w) { pushTranscript({ user: w.user, urfael: w.urfael || '(reply lost to a mid-turn crash; recovered by the transcript journal)', recovered: true }); logEvent({ ev: 'transcript_wal_recover', turnId: w.turnId || 0 }); } } catch {} }
   // keep derived/transient sidecars out of the memory repo (lesson-staging handoff + the recall vector index)
   try {
     const gi = path.join(MEMORY_DIR, '.gitignore'); const cur = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : '';
@@ -3232,11 +3277,7 @@ function listen() {
     for (const name of ['.learned.json', '.recall-vectors.jsonl', '.recall-index.json']) if (!cur.includes(name) && !add.includes(name)) add += name + '\n';
     if (add) fs.appendFileSync(gi, (cur && !cur.endsWith('\n') ? '\n' : '') + add);
   } catch {}
-  // A bind failure (EADDRINUSE after a probe race, EACCES, a stale pipe) used to be a SILENT hang — the
-  // callback simply never fired. Log it as fatal and exit nonzero so launchd/systemd/the overlay can react.
-  server.on('error', (e) => { try { logEvent({ ev: 'daemon_listen_error', err: String((e && e.message) || e).slice(0, 300) }); } catch {} process.exit(1); });
-  server.listen(SOCK, () => {
-    if (!IPC_AUTH) { try { fs.chmodSync(SOCK, 0o600); } catch {} } // 0600: only the owner can POST to the brain (POSIX; a win32 pipe has no mode — the token above is the boundary)
+  {
     logEvent({ ev: 'daemon_start', heartbeatMins: HB_MINS || 0, review: REVIEW_ON ? REVIEW_EVERY : 0, curatorDays: CURATOR_DAYS, usermodel: MODEL_USER_ON ? MODEL_USER_EVERY : 0, reflect: REFLECT_ON ? 1 : 0 });
     loadEnabledPlugins();   // re-arm enabled (brain-tools-tier) plugins before the warm session spawns, so --mcp-config is set
     brain.warmUp();
@@ -3294,7 +3335,12 @@ function listen() {
     { const t = setInterval(() => { try {
         for (const key of chatRegistry.reapIdle(30 * 60000)) { const s = sessions.get(key); if (s) { try { s.proc && s.proc.kill('SIGKILL'); } catch {} sessions.delete(key); } logEvent({ ev: 'chat_reap', key }); }
       } catch {} }, 60000); if (t.unref) t.unref(); }
-  });
+  }
+}
+// Bind WITHOUT a pre-unlink (the fix above), attaching the disambiguating error handler first.
+function listen() {
+  server.on('error', onBindError);
+  server.listen(SOCK, onListening);
 }
 // single-instance: if a daemon already answers on the socket, don't double-run (safe for launchd + overlay both trying)
 const probe = http.request({ socketPath: SOCK, method: 'GET', path: '/health', timeout: 1000, headers: IPC_AUTH ? { 'x-urfael-token': IPC_TOKEN } : {} }, (res) => { res.resume(); logEvent({ ev: 'daemon_already_running' }); process.exit(0); });
