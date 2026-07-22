@@ -14,7 +14,7 @@ and PRs are all welcome.
 ```bash
 git clone https://github.com/Grandillionaire/urfael.git && cd urfael
 cd app && npm install
-npm test             # 1349 unit tests (fast, pure modules: lib, council, personas, seal, audit-chain, registry, recall, …); no credentials, ~0.5s
+npm test             # 1372 unit tests (fast, pure modules: lib, council, personas, seal, audit-chain, registry, recall, …); no credentials, ~0.5s
 npm run security     # 11/11 attack classes · 125/125 checks — boots a REAL daemon + dashboard and attacks them
 npm run e2e          # live end-to-end against a real daemon (uses your real claude login)
 ```
@@ -26,7 +26,7 @@ overlay + the `daemon.js` brain + `voice.js`); vault-side logic (commands, hooks
 `vault-template/_urfael/`.
 
 ## High-value contributions
-- **Linux / Windows ports** — the brain/daemon are portable; the blockers are macOS-only bits (launchd,
+- **Linux hardening / Windows mileage** — Linux paths are newer; native Windows just landed (pipe+token boundary, install.ps1) and wants real-world reports. The remaining macOS-only bits (launchd,
   AppleScript, `afplay`, `say`, `lsappinfo`). PRs that abstract these are very welcome.
 - **More local voice backends** — Piper TTS, faster-whisper, etc.
 - **New MCP "hands"** and slash commands.
@@ -34,7 +34,7 @@ overlay + the `daemon.js` brain + `voice.js`); vault-side logic (commands, hooks
 
 ## Pull requests
 1. Fork, branch, make your change.
-2. `npm test` (1349 unit tests) and `npm run security` (125/125 checks, 11/11 attack classes) pass, and the app still launches.
+2. `npm test` (1372 unit tests) and `npm run security` (125/125 checks, 11/11 attack classes) pass, and the app still launches.
 3. Describe the change and the "why." If it touches permissions or untrusted-data handling, call that out.
 
 ## Reporting bugs / security

@@ -266,7 +266,7 @@ function createToolset(cfg) {
           const lines = content.split('\n');
           for (let i = 0; i < lines.length && out.length < MAX_MATCHES; i++) {
             const line = lines[i].length > MAX_LINE ? lines[i].slice(0, MAX_LINE) : lines[i];
-            if (re.test(line)) out.push(path.relative(root, g.path) + ':' + (i + 1) + ': ' + line.trim().slice(0, 200));
+            if (re.test(line)) out.push(path.relative(root, g.path).split(path.sep).join('/') + ':' + (i + 1) + ': ' + line.trim().slice(0, 200));   // '/'-normalized: model-facing paths are OS-stable
           }
         }
       }
@@ -286,7 +286,7 @@ function createToolset(cfg) {
         for (const f of walkFiles(root, 50000)) {
           if (out.length >= MAX_LIST) break outer;
           if ((++scanned & 0xff) === 0 && Date.now() > deadline) { timedOut = true; break outer; }
-          const rel = path.relative(root, f);
+          const rel = path.relative(root, f).split(path.sep).join('/');   // '/'-normalized so **/*.md matches (and reads back) identically on every OS
           if (re.test(rel) || re.test(path.basename(f))) { const g = guardPath(f); if (!g.error) out.push(rel); }
         }
       }

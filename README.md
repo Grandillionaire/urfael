@@ -278,7 +278,7 @@ It runs on a flat-rate subscription, so there's nothing to meter, but you can st
 
 Honesty is a feature here, so this section exists. As of now:
 
-- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, the 8 core chat bridges degrading cleanly, and the skill-hub SSRF refusal + scanner, plus 1349 unit tests, several of them adversarial security regressions.
+- **Every feature is verified end-to-end** by an in-repo harness (`npm run e2e`) against a live daemon: streamed conversation, abort + recovery, ranked recall, reminders firing, jobs completing, the heartbeat, all CLI commands, the dashboard's full attack battery, voice synthesis, the 8 core chat bridges degrading cleanly, and the skill-hub SSRF refusal + scanner, plus 1372 unit tests, several of them adversarial security regressions.
 - **Code-complete, not yet certified against live accounts:** the Matrix, Signal, and WhatsApp bridges, the QQ, SimpleX, and PSTN phone bridges, and the eight native webhook channels (Mattermost, Google Chat, SMS, DingTalk, Home Assistant, BlueBubbles, Feishu, WeCom). Their parsing, signature verification, and fail-closed allowlist logic *is* unit-tested and frozen as benchmark checks; the live relay is not yet battle-hardened. The certified core, exercised against real accounts, is Telegram, Discord, Slack, iMessage, and Email. Treat them accordingly.
 - **Linux is newer than macOS.** The headless core, voice, and GUI run there, but it has far less mileage.
 - **Real-world scale is small.** This is a personal tool, honestly stated, not a 100k-deployment veteran. That's the one thing only time and users add.
@@ -294,7 +294,7 @@ Urfael is an original character: an old intelligence sworn to one person, woken 
 
 ## Contributing
 
-Issues and PRs welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Especially wanted: a hero demo GIF, a Windows port, hardening of the (newer) Linux paths, real-world reports on the Matrix/Signal/WhatsApp bridges, more local-voice backends, and new MCP hands.
+Issues and PRs welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Especially wanted: a hero demo GIF, real-world reports from the native Windows port (it is CI-tested, hungry for hardware mileage), hardening of the (newer) Linux paths, real-world reports on the Matrix/Signal/WhatsApp bridges, more local-voice backends, and new MCP hands.
 
 ## License
 

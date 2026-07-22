@@ -11,8 +11,9 @@ const store = require('./jobstore');
 const { delegateScope, scopedEnv } = require('./lib');
 
 const VAULT = path.join(os.homedir(), process.env.URFAEL_VAULT_DIR || 'Urfael');
-const CLAUDE_BIN = process.env.URFAEL_CLAUDE_BIN || ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude']
-  .find((p) => { try { fs.accessSync(p); return true; } catch { return false; } }) || 'claude';
+const CB = require('./claude-bin').resolve();   // { bin, pre } — POSIX identical to the old probe; win32 exe/cli.js
+const CLAUDE_BIN = CB.bin;
+const CLAUDE_PRE = CB.pre;
 const NOTIFY = path.join(__dirname, 'bridge', 'notify.js'); // best-effort; a no-op if no bridge.env
 
 // one-way phone push for "job done / needs you". Single-destination by construction (see the bridge).
@@ -36,7 +37,11 @@ function attribution(s) {
 function argvFor(job) {
   const s = job.spec || {};
   if (job.kind === 'goal') {
-    const args = ['bash', path.join(VAULT, '_urfael', 'goal-loop.sh'), String(s.goal || '')];
+    // POSIX runs the shipped bash loop; native Windows runs its line-for-line JS twin (goal-loop.js, scaffolded
+    // into the same vault dir) under our own node — same flags, same guard rails, no bash dependency.
+    const args = process.platform === 'win32'
+      ? [process.execPath, path.join(VAULT, '_urfael', 'goal-loop.js'), String(s.goal || '')]
+      : ['bash', path.join(VAULT, '_urfael', 'goal-loop.sh'), String(s.goal || '')];
     if (s.repo) args.push('--repo', String(s.repo));
     if (s.maxIters) args.push('--max-iters', String(s.maxIters));
     if (s.maxMins) args.push('--max-mins', String(s.maxMins));
@@ -72,7 +77,7 @@ function argvFor(job) {
   const prompt = a.header + '\n' + a.caveat + '\n\n' + String(s.prompt || s.goal || '') +
     '\n\nWhen done, write your findings to a logo-headed note in 03_Resources/ of this vault and open it.';
   const allowed = delegateScope(s.scope).allowedTools.join(',');
-  return [CLAUDE_BIN, '-p', prompt, '--model', String(s.model || 'sonnet'), '--permission-mode', 'acceptEdits',
+  return [CLAUDE_BIN, ...CLAUDE_PRE, '-p', prompt, '--model', String(s.model || 'sonnet'), '--permission-mode', 'acceptEdits',
     '--allowedTools', allowed, '--strict-mcp-config']; // scope-derived allowlist, never a shell
 }
 
@@ -112,11 +117,18 @@ function run(job) {
 }
 
 // Cancel = signal the whole process GROUP (detached gives the child its own pgid), TERM then KILL after grace.
+// win32 has no process groups / negative-pid kill: taskkill /T walks the child TREE, /F after the same grace.
 function cancel(id) {
   const j = store.get(id);
   if (!j || !j.pid || !store.isAlive(j.pid)) return false;
   store.update(id, { state: 'cancelling' });
   const pid = j.pid;
+  if (process.platform === 'win32') {
+    const { execFile } = require('child_process');
+    try { execFile('taskkill', ['/pid', String(pid), '/T'], { windowsHide: true }, () => {}); } catch {}
+    setTimeout(() => { if (store.isAlive(pid)) { try { execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }, () => {}); } catch {} } }, 8000);
+    return true;
+  }
   try { process.kill(-pid, 'SIGTERM'); } catch { try { process.kill(pid, 'SIGTERM'); } catch {} }
   // re-check liveness before the hard kill so a reaped+reused pid isn't signalled by mistake
   setTimeout(() => { if (store.isAlive(pid)) { try { process.kill(-pid, 'SIGKILL'); } catch {} } }, 8000);

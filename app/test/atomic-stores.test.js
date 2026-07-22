@@ -14,6 +14,7 @@ process.env.USERPROFILE = TMP_HOME;
 
 const { test } = require('node:test');
 const assert = require('node:assert');
+const { assertOwnerOnly } = require('./_owner-only');
 const lib = require('../lib');
 const scheduler = require('../scheduler');
 
@@ -46,7 +47,7 @@ test('atomicWriteJSON: a normal write round-trips, is 0600, and leaves no .tmp s
   const ret = lib.atomicWriteJSON(f, obj);
   assert.equal(ret, f, 'returns the target path on success');
   assert.deepEqual(JSON.parse(fs.readFileSync(f, 'utf8')), obj, 'round-trips byte-for-byte');
-  assert.equal(fs.statSync(f).mode & 0o777, 0o600, 'written owner-only (0600)');
+  assertOwnerOnly(assert, f, 'written owner-only (0600)');
   // exactly one file at that name — the tmp sibling was renamed away, not left behind
   assert.deepEqual(siblings(f), ['rt.json'], 'no leftover .tmp-* sidecar after a successful write');
 });
@@ -76,7 +77,7 @@ test('atomicWriteJSON: fsyncs the parent directory after the atomic rename (dura
 
   assert.equal(ret, f, 'returns the target path on success');
   assert.deepEqual(JSON.parse(fs.readFileSync(f, 'utf8')), obj, 'content still round-trips after the parent-dir fsync');
-  assert.equal(fs.statSync(f).mode & 0o777, 0o600, 'still written owner-only (0600)');
+  assertOwnerOnly(assert, f, 'still written owner-only (0600)');
   assert.ok(totalFsyncs >= 2, 'both the temp file fd AND the parent-dir fd were fsync\'d');
   assert.ok(dirFsyncs >= 1, 'the parent DIRECTORY fd was fsync\'d after the rename (best-effort durability path ran)');
   assert.deepEqual(siblings(f), ['dur.json'], 'no leftover .tmp-* sidecar after the durable write');
@@ -162,14 +163,14 @@ test('reminders + crons persist through the atomic writer and reload verbatim (0
   scheduler.start(() => {});
   const r = scheduler.add({ text: 'stretch break', inMins: 15 });
   assert.ok(r && r.id, 'a reminder was added');
-  assert.equal(fs.statSync(FILE).mode & 0o777, 0o600, 'reminders.json is written owner-only');
+  assertOwnerOnly(assert, FILE, 'reminders.json is written owner-only');
   const onDisk = JSON.parse(fs.readFileSync(FILE, 'utf8'));
   assert.ok(Array.isArray(onDisk) && onDisk.some((x) => x.id === r.id), 'the reminder is on disk as a JSON array');
 
   scheduler.startCron(() => {});
   const c = scheduler.addCron({ prompt: 'summarize my inbox', inMins: 30 });
   assert.ok(c && c.id, 'a cron job was added');
-  assert.equal(fs.statSync(CRON_FILE).mode & 0o777, 0o600, 'cronjobs.json is written owner-only');
+  assertOwnerOnly(assert, CRON_FILE, 'cronjobs.json is written owner-only');
 
   // reload from disk (fresh start) and confirm the survivors come back verbatim
   scheduler.start(() => {});

@@ -20,16 +20,20 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const APP = path.join(__dirname, '..');
-const STUB = path.join(__dirname, 'stub', 'claude');
+const ipc = require('../ipc');
+const WIN = process.platform === 'win32';
+// on win32 the shebang stub can't be exec'd directly — claude.js is the same stub behind the resolver's .js branch
+const STUB = path.join(__dirname, 'stub', WIN ? 'claude.js' : 'claude');
 
-let HOME, SOCK, daemon;
+let HOME, SOCK, TENV, daemon;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// unix-socket JSON GET/POST against the daemon
+// control-plane JSON GET/POST against the daemon (unix socket on POSIX; named pipe + token on win32)
+function hdrs() { return { 'Content-Type': 'application/json', ...(WIN ? ipc.authHeaders(TENV, 'win32', fs) : {}) }; }
 function sock(method, p, body) {
   return new Promise((resolve) => {
-    const req = http.request({ socketPath: SOCK, method, path: p, headers: { 'Content-Type': 'application/json' }, timeout: 20000 }, (res) => {
+    const req = http.request({ socketPath: SOCK, method, path: p, headers: hdrs(), timeout: 20000 }, (res) => {
       let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => resolve({ status: res.statusCode, raw: b, json: (() => { try { return JSON.parse(b); } catch { return null; } })() }));
     });
     req.on('error', () => resolve({ status: 0, raw: '', json: null }));
@@ -42,7 +46,7 @@ function sock(method, p, body) {
 function ask(text) {
   return new Promise((resolve) => {
     const events = [];
-    const req = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 30000 }, (res) => {
+    const req = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: hdrs(), timeout: 30000 }, (res) => {
       let buf = '';
       res.on('data', (d) => { buf += d.toString(); let i; while ((i = buf.indexOf('\n')) >= 0) { const ln = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (ln) try { events.push(JSON.parse(ln)); } catch {} } });
       res.on('end', () => resolve(events));
@@ -57,6 +61,7 @@ async function startDaemon() {
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;                    // never let electron-as-node reach the spawned node daemon
   env.HOME = HOME;                                    // os.homedir() honours $HOME on POSIX → isolates SOCK/JDIR/vault/memory
+  if (WIN) env.USERPROFILE = HOME;                    // …and USERPROFILE on win32 (os.homedir() reads it there)
   env.URFAEL_VAULT_DIR = 'vault';                     // relative to the temp $HOME
   env.URFAEL_MEMORY_DIR = 'memory';
   env.URFAEL_CLAUDE_BIN = STUB;                       // the deterministic offline brain (absolute path wins over PATH lookup)
@@ -71,13 +76,15 @@ async function startDaemon() {
 describe('composed daemon smoke (offline claude stub)', () => {
   before(async () => {
     HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'urfael-smoke-'));
-    SOCK = path.join(HOME, '.claude', 'urfael', 'daemon.sock');
+    TENV = { HOME, USERPROFILE: HOME };
+    SOCK = ipc.daemonSock(TENV);                      // same derivation the daemon runs on its own env (pipe on win32)
     fs.mkdirSync(path.join(HOME, '.claude', 'urfael'), { recursive: true });
     fs.mkdirSync(path.join(HOME, 'vault'), { recursive: true });
     fs.mkdirSync(path.join(HOME, 'memory', 'sessions'), { recursive: true });
     fs.writeFileSync(path.join(HOME, 'vault', 'CLAUDE.md'), 'You are Urfael, a terse test assistant.\n');
     try { require('child_process').execFileSync('git', ['-C', path.join(HOME, 'memory'), 'init', '-q'], { stdio: 'ignore' }); } catch {}
-    assert.ok(fs.existsSync(STUB) && (fs.statSync(STUB).mode & 0o111), 'the offline claude stub must be present and executable');
+    assert.ok(fs.existsSync(STUB), 'the offline claude stub must be present');
+    if (!WIN) assert.ok(fs.statSync(STUB).mode & 0o111, 'the stub must be executable (mode bits are a POSIX concept)');
     const up = await startDaemon();
     assert.ok(up, 'the real daemon must boot and answer /health over the temp 0600 socket');
   }, { timeout: 30000 });
@@ -89,12 +96,32 @@ describe('composed daemon smoke (offline claude stub)', () => {
     try { HOME && fs.rmSync(HOME, { recursive: true, force: true }); } catch {}
   });
 
-  it('the daemon listens on a unix socket (no inbound port) with 0600 perms', () => {
-    const st = fs.statSync(SOCK);
-    assert.equal(st.mode & 0o777, 0o600, 'the daemon socket must be 0600 (owner-only)');
+  it('the daemon guards its control plane: 0600 unix socket (POSIX) / token-gated named pipe (win32)', async () => {
+    if (!WIN) {
+      const st = fs.statSync(SOCK);
+      assert.equal(st.mode & 0o777, 0o600, 'the daemon socket must be 0600 (owner-only)');
+      return;
+    }
+    // win32: the boundary is the per-user token — it must exist, a tokenless request must be REFUSED with 401,
+    // and the token file must live inside the isolated profile (never the runner's real one).
+    const tok = ipc.loadToken(fs, TENV);
+    assert.match(tok, /^[0-9a-f]{64}$/, 'the daemon must have minted its token on boot');
+    assert.ok(ipc.tokenPath(TENV).startsWith(HOME), 'the token lives in the isolated profile');
+    const bare = await new Promise((resolve) => {
+      const req = http.request({ socketPath: SOCK, method: 'GET', path: '/health', timeout: 10000 }, (res) => { res.resume(); resolve(res.statusCode); });
+      req.on('error', () => resolve(0)); req.on('timeout', () => { req.destroy(); resolve(0); }); req.end();
+    });
+    assert.equal(bare, 401, 'a request WITHOUT the token must be refused');
   });
 
   it('the daemon hardens its umask so JDIR + its logs are owner-only, not just the socket', () => {
+    if (WIN) {
+      // mode bits are a POSIX concept; the win32 equivalent (profile ACLs + the token gate) is asserted above.
+      // Here, assert the same OBSERVABLE effect this test wants: the daemon created its state dir + wrote its log.
+      const JDIR = path.join(HOME, '.claude', 'urfael');
+      assert.ok(fs.existsSync(path.join(JDIR, 'urfael.log')), 'the daemon must have written its urfael.log on boot');
+      return;
+    }
     // Defense in depth: the daemon calls process.umask(0o077) at the top of boot and chmods JDIR to 0700, so the
     // state dir and the rotating logs it writes are owner-only on a multi-user box — not world/group-readable.
     const JDIR = path.join(HOME, '.claude', 'urfael');

@@ -20,7 +20,8 @@ const ctxreport = require('./context-report');   // per-category context attribu
 const hist = require('./tui-history');
 const dc = require('./daemon-client');   // shared unix-socket client (request + /ask NDJSON stream)
 
-const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
+const ipc = require('./ipc');
+const SOCK = ipc.daemonSock();   // 0600 unix socket on POSIX; per-user named pipe + token on native Windows (see app/ipc.js)
 
 // ── io seam: the terminal, the wall clock, the animation timer, the daemon transport + history sink, all behind
 // ONE injectable object. run() uses REAL_IO (the default), so live behaviour is byte-for-byte unchanged; a test

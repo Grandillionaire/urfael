@@ -47,16 +47,22 @@ function has(bin) { // scan PATH for an executable — no shell (avoids the shel
 }
 function claudePath() { // include the native Claude Code install dirs (~/.local/bin is now the default) so we resolve it even when PATH is bare (e.g. a launchd cron)
   const home = os.homedir();
+  if (process.platform === 'win32') {
+    // the shared resolver knows every win32 install shape (native .exe, npm cli.js, PATH shim) — display
+    // whatever it found; '' only when it fell through to the bare-name fallback (i.e. truly not found).
+    const r = require('./claude-bin').resolve();
+    return r.pre[0] || (r.bin !== 'claude' ? r.bin : (has('claude') ? 'claude' : ''));
+  }
   return ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude', path.join(home, '.local', 'bin', 'claude'), path.join(home, '.claude', 'local', 'claude')].find((p) => { try { fs.accessSync(p); return true; } catch { return false; } }) || (has('claude') ? 'claude' : ''); }
 
 // Best-effort auto-detect of who the user is, so we can fill the CLAUDE.md {{PLACEHOLDERS}} instead of making
 // them hand-edit (a step everyone forgets — then the brain literally addresses you as "{{USER_NAME}}").
 function detectPersona() {
-  const tryCmd = (c) => { try { return spawnSync('sh', ['-c', c], { stdio: ['ignore', 'pipe', 'ignore'] }).stdout.toString().trim(); } catch { return ''; } };
-  let name = tryCmd('git config user.name');
-  const email = tryCmd('git config user.email');
+  const tryGit = (k) => { try { return spawnSync('git', ['config', k], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).stdout.toString().trim(); } catch { return ''; } };   // argv-vector git: same on every OS, no shell
+  let name = tryGit('user.name');
+  const email = tryGit('user.email');
   if (!name && email) name = email.split('@')[0];
-  if (!name) name = process.env.USER || process.env.LOGNAME || '';
+  if (!name) name = process.env.USER || process.env.LOGNAME || process.env.USERNAME || '';
   let tz = '', locale = '';
   try { const o = Intl.DateTimeFormat().resolvedOptions(); tz = o.timeZone || ''; locale = o.locale || ''; } catch {}
   const city = tz.includes('/') ? tz.split('/').pop().replace(/_/g, ' ') : '';
@@ -88,6 +94,17 @@ function restartDaemon() {
     const r = spawnSync('launchctl', ['kickstart', '-k', `gui/${process.getuid()}/${label}`], { stdio: 'ignore' });
     return r.status === 0;
   }
+  if (process.platform === 'win32') {
+    // no service manager involved: ask the running daemon to exit over its own control plane, then relaunch it
+    // detached (the same shape main.js's spawnDaemon uses). Fire-and-forget on both legs, like the units above.
+    try {
+      const dc = require('./daemon-client');
+      dc.request('POST', '/shutdown', {}, { timeoutMs: 3000 }).catch(() => {});
+      const { spawn } = require('child_process');
+      setTimeout(() => { try { const c = spawn(process.execPath, [path.join(__dirname, 'daemon.js')], { detached: true, stdio: 'ignore', windowsHide: true }); c.unref(); } catch {} }, 1200);
+      return true;
+    } catch { return false; }
+  }
   const r = spawnSync('systemctl', ['--user', 'restart', 'urfael-daemon'], { stdio: 'ignore' });
   return r.status === 0;
 }
@@ -109,7 +126,7 @@ async function run() {
     p('    ' + (cb ? ok('✓') : warn('!')) + '  claude CLI       ' + (cb ? dim(cb) : warn('not found — install Claude Code first: https://claude.com/claude-code')));
     p('    ' + (has('ffmpeg') ? ok('✓') : dim('·')) + '  ffmpeg           ' + (has('ffmpeg') ? dim('(voice capture)') : dim('optional — for voice')));
     p('    ' + (has('whisper-cli') || has('whisper-cpp') || has('main') ? ok('✓') : dim('·')) + '  whisper.cpp      ' + dim('optional — local speech-to-text'));
-    p('    ' + (fs.existsSync(VAULT) ? ok('✓') : dim('·')) + '  vault            ' + (fs.existsSync(VAULT) ? dim(VAULT) : dim('not scaffolded yet — run ./install.sh for the full setup')));
+    p('    ' + (fs.existsSync(VAULT) ? ok('✓') : dim('·')) + '  vault            ' + (fs.existsSync(VAULT) ? dim(VAULT) : dim('not scaffolded yet — run ' + (process.platform === 'win32' ? 'install.ps1' : './install.sh') + ' for the full setup')));
     p('');
 
     // 2) the key question: how does Urfael reach Claude?
@@ -130,7 +147,7 @@ async function run() {
     if (choice === '1') {
       p('');
       p('  ' + ok('Subscription mode.') + ' Urfael will use your ' + bold('claude') + ' login — nothing to paste.');
-      if (cb) { const logged = spawnSync(cb, ['-p', 'reply with: ok'], { stdio: 'ignore', timeout: 20000 }); if (logged.status !== 0) p('  ' + warn('Heads up:') + ' run ' + gold('claude') + ' once to sign in, then come back.'); }
+      if (cb) { const R = require('./claude-bin').resolve(); const logged = spawnSync(R.bin, R.pre.concat(['-p', 'reply with: ok']), { stdio: 'ignore', timeout: 20000, windowsHide: true }); if (logged.status !== 0) p('  ' + warn('Heads up:') + ' run ' + gold('claude') + ' once to sign in, then come back.'); }
       else p('  ' + warn('Install + sign into Claude Code first: https://claude.com/claude-code'));
     } else if (choice === '2') {
       p('');

@@ -35,7 +35,7 @@ No. Multiple people can use Urfael, each a sandboxed principal through the same 
 
 ## Which OS?
 
-macOS on Apple Silicon or Intel is the primary, best-tested target. Linux is supported but newer and less battle-tested: the headless core, voice, and Electron GUI run there, with far less mileage. The installer detects Linux and writes `systemd --user` units instead of launchd plists. There is no Windows port yet. See start/install.md.
+macOS on Apple Silicon or Intel is the primary, best-tested target. Linux is supported but newer and less battle-tested: the headless core, voice, and Electron GUI run there, with far less mileage. The installer detects Linux and writes `systemd --user` units instead of launchd plists. Native Windows is supported in beta — `install.ps1` in PowerShell (or WSL for the POSIX-only extras). See start/install.md.
 
 ## Is it production-ready?
 

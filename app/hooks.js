@@ -13,7 +13,8 @@ const path = require('path');
 
 const HOST = '127.0.0.1';                                                       // loopback ONLY — never 0.0.0.0 / LAN
 const PORT = Math.min(Math.max(parseInt(process.env.URFAEL_HOOKS_PORT, 10) || 7718, 1), 65535);
-const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
+const ipc = require('./ipc');
+const SOCK = ipc.daemonSock();   // 0600 unix socket on POSIX; per-user named pipe + token on native Windows (see app/ipc.js)
 const MAX_BODY = 65536;                                                         // 64KB payload cap
 
 // per-IP token bucket — all loopback shares 127.0.0.1, so this just bounds raw POST volume to protect the brain
@@ -38,7 +39,7 @@ function readBody(req) {
 function daemonFire(id, secret, payload) {
   return new Promise((resolve) => {
     const data = JSON.stringify({ secret, payload });
-    const r = http.request({ socketPath: SOCK, method: 'POST', path: '/hook/' + id, headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) }, timeout: 20000 }, (res) => {
+    const r = http.request({ socketPath: SOCK, method: 'POST', path: '/hook/' + id, headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), ...ipc.authHeaders() }, timeout: 20000 }, (res) => {
       let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => resolve({ status: res.statusCode || 502, body: b }));
     });
     r.on('error', () => resolve({ status: 502, body: '{"error":"daemon unreachable"}' }));

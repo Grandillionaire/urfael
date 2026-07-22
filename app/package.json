@@ -1,12 +1,12 @@
 {
   "name": "urfael-app",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Urfael, voice overlay, brain daemon, and CLI on Claude Code + Obsidian",
   "author": "MYG Media SRL <contact@myg-media.com>",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/*.test.js",
+    "test": "node test/run-tests.js",
     "e2e": "node test/e2e.js",
     "security": "node test/security-benchmark.js",
     "dist": "electron-builder",
@@ -26,7 +26,10 @@
       "!packaging/**"
     ],
     "extraResources": [
-      { "from": "../config", "to": "config" }
+      {
+        "from": "../config",
+        "to": "config"
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",

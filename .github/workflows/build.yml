@@ -23,12 +23,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS Apple Silicon (macos-latest) + Linux. Intel macOS (macos-13) is omitted for now:
-        # the hosted Intel runners queued indefinitely here and blocked the whole release.
-        # Native Windows is intentionally absent: the daemon's security boundary is a
-        # 0600 unix-domain socket (a POSIX guarantee that does not hold on native
-        # Windows), so Windows is supported via WSL, not a native build.
-        os: [macos-latest, ubuntu-latest]
+        # macOS Apple Silicon (macos-latest) + Linux + native Windows (NSIS). Intel macOS (macos-13) is
+        # omitted for now: the hosted Intel runners queued indefinitely here and blocked the whole release.
+        # Windows used to be WSL-only because the daemon's boundary was a 0600 unix-domain socket; the native
+        # port replaced that boundary on win32 with a per-user named pipe + a required, ACL-protected token
+        # (see app/ipc.js), so a native build no longer weakens the model. The .exe ships unsigned until a
+        # Windows code-signing cert exists (SmartScreen will warn); WSL remains fully supported.
+        os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:

@@ -117,6 +117,9 @@ curl -s --unix-socket ~/.claude/urfael/daemon.sock -X POST http://x/remind \
   Convert the user's natural language to whichever shape fits ("every weekday at 9" → `{"days":"weekdays","at":"09:00"}`).
 - List: `curl -s --unix-socket ~/.claude/urfael/daemon.sock http://x/reminders`
 - Cancel: `curl -s --unix-socket ~/.claude/urfael/daemon.sock -X POST http://x/reminder/<id>/cancel`
+- **On native Windows** there is no unix socket, so every `curl --unix-socket …` example in this file becomes
+  `node _urfael/daemonctl.js <METHOD> <path> [json]` — e.g. `node _urfael/daemonctl.js POST /remind {"text":"Call Stefan","inMins":20}`
+  or `node _urfael/daemonctl.js GET "/recall?q=kubernetes+deploy&k=10"`. Same daemon, same routes.
 Confirm in one spoken line what you scheduled and when it fires. Phrase the reminder `text` as you would
 say it aloud — it is spoken verbatim.
 

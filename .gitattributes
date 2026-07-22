@@ -1,0 +1,10 @@
+# Force LF in every working tree, including Windows checkouts. Several tests assert BYTE-IDENTICAL fixtures
+# (dashboard baselines, source-scan regexes over \n, goal-loop prompt parity); a windows-latest runner sets
+# core.autocrlf=true machine-wide, which would rewrite the checkout to CRLF and fail them all. Node, bash,
+# PowerShell 5.1+, and git handle LF files fine on Windows, so LF everywhere is the honest single truth.
+* text=auto eol=lf
+# real binaries — never normalized
+*.png binary
+*.icns binary
+*.ico binary
+*.bin binary

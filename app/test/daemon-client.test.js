@@ -66,10 +66,12 @@ function midHandler(c) {
 describe('daemon-client (golden NDJSON fixtures over a real unix socket)', () => {
   before(async () => {
     DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'urf-dc-'));
-    SOCK = path.join(DIR, 's.sock');
+    // win32 cannot bind a filesystem path — use unique named pipes there; the client treats both identically
+    const pipe = (n) => process.platform === 'win32' ? '\\\\.\\pipe\\urf-dc-' + path.basename(DIR) + '-' + n : path.join(DIR, n + '.sock');
+    SOCK = pipe('s');
     server = http.createServer(handler);
     await new Promise((r) => server.listen(SOCK, r));
-    MIDSOCK = path.join(DIR, 'mid.sock');
+    MIDSOCK = pipe('mid');
     midServer = net.createServer(midHandler);
     await new Promise((r) => midServer.listen(MIDSOCK, r));
   });
@@ -164,6 +166,6 @@ describe('daemon-client (golden NDJSON fixtures over a real unix socket)', () =>
   });
 
   it('request rejects when the socket cannot be reached', async () => {
-    await assert.rejects(() => dc.request('GET', '/health', undefined, { socketPath: path.join(DIR, 'nope.sock'), timeoutMs: 500 }));
+    await assert.rejects(() => dc.request('GET', '/health', undefined, { socketPath: process.platform === 'win32' ? '\\\\.\\pipe\\urf-dc-nope-' + path.basename(DIR) : path.join(DIR, 'nope.sock'), timeoutMs: 500 }));
   });
 });

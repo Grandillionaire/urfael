@@ -114,7 +114,14 @@ function runGitUpdate(root) {
             const branch = String(br || '').trim() || 'main';
             git(root, ['pull', '--ff-only', '--quiet', 'origin', branch], (e5) => {
               if (e5) return resolve({ ok: false, error: 'pull failed (a non-fast-forward?) — resolve it in ' + root });
-              execFile('npm', ['install', '--silent'], { cwd: path.join(root, 'app'), timeout: 300000 }, (e6) => {
+              // npm on win32 is npm.cmd (not spawnable shell-free); run its npm-cli.js under OUR node instead.
+              // Falls back to bare 'npm' when the layout is unexpected — that ENOENT just sets npmWarned.
+              let cmd = 'npm', pre = [];
+              if (process.platform === 'win32') {
+                const cli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+                try { require('fs').accessSync(cli); cmd = process.execPath; pre = [cli]; } catch {}
+              }
+              execFile(cmd, pre.concat(['install', '--silent']), { cwd: path.join(root, 'app'), timeout: 300000, windowsHide: true }, (e6) => {
                 resolve({ ok: true, branch, npmWarned: !!e6 });
               });
             });

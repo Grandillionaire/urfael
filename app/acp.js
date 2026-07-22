@@ -15,7 +15,8 @@ const crypto = require('crypto');
 const acp = require('./acp-translate');
 const runScope = require('./run-scope');   // OPT-IN (URFAEL_RUN_SCOPE=1, default OFF) origin-scoped session resume; inert unless the flag is set
 
-const SOCK = path.join(os.homedir(), '.claude', 'urfael', 'daemon.sock');
+const ipc = require('./ipc');
+const SOCK = ipc.daemonSock();   // 0600 unix socket on POSIX; per-user named pipe + token on native Windows (see app/ipc.js)
 // ORIGIN-SCOPED SESSION RESUME (opt-in, default OFF): each ACP bridge process is ONE editor connection, so its
 // sessions belong to a single per-process origin. When the flag is on, a session is stamped with the origin that
 // created it and a session/prompt reusing it must present the SAME origin, so a session can never be driven by a
@@ -29,7 +30,7 @@ const notify = (sessionId, update) => out(acp.rpcNotify('session/update', { sess
 // a one-shot daemon call over the socket (for /model, /persona, /abort, /health). Resolves the parsed JSON or null.
 function call(method, p, body) {
   return new Promise((resolve) => {
-    const r = http.request({ socketPath: SOCK, method, path: p, headers: { 'Content-Type': 'application/json' }, timeout: 30000 }, (res) => {
+    const r = http.request({ socketPath: SOCK, method, path: p, headers: { 'Content-Type': 'application/json', ...ipc.authHeaders() }, timeout: 30000 }, (res) => {
       let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } });
     });
     r.on('error', () => resolve(null)); r.on('timeout', () => { r.destroy(); resolve(null); });
@@ -43,7 +44,7 @@ function streamPrompt(sessionId, text, reqId) {
   const ctx = acp.newPromptCtx();
   let settled = false;
   const finish = (stopReason) => { if (settled) return; settled = true; out(acp.rpcResult(reqId, { stopReason })); };
-  const r = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json' }, timeout: 300000 }, (res) => {
+  const r = http.request({ socketPath: SOCK, method: 'POST', path: '/ask', headers: { 'Content-Type': 'application/json', ...ipc.authHeaders() }, timeout: 300000 }, (res) => {
     let buf = '';
     res.on('data', (d) => {
       buf += d.toString(); let i;

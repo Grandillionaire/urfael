@@ -4,6 +4,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert');
+const { assertOwnerOnly } = require('./_owner-only');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -149,8 +150,7 @@ test('savePrefs writes 0600 atomically and round-trips through loadPrefs', () =>
   const r = ui.savePrefs(fp, { theme: 'mono', animation: 'scry', accent: 'oklch(0.7 0.1 80)', character: 'urfael', extra: 'nope' });
   assert.strictEqual(r.ok, true);
   assert.ok(fs.existsSync(fp), 'file written');
-  const mode = fs.statSync(fp).mode & 0o777;
-  assert.strictEqual(mode, 0o600, 'file must be owner-only, got ' + mode.toString(8));
+  assertOwnerOnly(assert, fp, 'file must be owner-only');
   // no temp leftovers in the dir
   const leftovers = fs.readdirSync(path.dirname(fp)).filter((f) => f.includes('.tmp'));
   assert.deepStrictEqual(leftovers, [], 'no temp file left behind');

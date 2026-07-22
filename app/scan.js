@@ -98,13 +98,13 @@ function extractVerdict(text) {
 // Spawn ONE read-only claude -p over `cwd`; resolve its final text (fail-soft to ''). The argv is the fortress
 // read-only floor + strict-mcp + acceptEdits: no Write/Edit/Bash and no ambient MCP can ever reach the agent.
 function runAgent(promptText, deps, cwd, model) {
-  const { spawn, CLAUDE_BIN, scopedEnv } = deps;
+  const { spawn, CLAUDE_BIN, CLAUDE_PRE = [], scopedEnv } = deps;
   return new Promise((resolve) => {
     const args = ['-p', promptText, '--permission-mode', 'acceptEdits', '--strict-mcp-config',
       '--allowedTools', READ_FLOOR.join(','), '--output-format', 'json'];
     if (model) args.push('--model', String(model));
     let child;
-    try { child = spawn(CLAUDE_BIN, args, { cwd, env: scopedEnv(), stdio: ['ignore', 'pipe', 'pipe'] }); }
+    try { child = spawn(CLAUDE_BIN, CLAUDE_PRE.concat(args), { cwd, env: scopedEnv(), stdio: ['ignore', 'pipe', 'pipe'] }); }
     catch { return resolve({ text: '', ok: false }); }
     let out = '', done = false, exitCode = null;
     const finish = () => {

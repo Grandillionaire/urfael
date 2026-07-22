@@ -10,6 +10,7 @@
 // never executed, the capture is ledgered, and the default path is byte-identical (opt-in; single reused scanner).
 const { test } = require('node:test');
 const assert = require('node:assert');
+const { assertOwnerOnly } = require('./_owner-only');
 const { EventEmitter } = require('events');
 const fs = require('fs');
 const os = require('os');
@@ -67,7 +68,7 @@ test('runSkillLearn: distils a fixture dir, scans+pins+verifies, then writes an 
   const dest = path.join(d.skills, 'deploy-preview.md');
   assert.ok(fs.existsSync(dest), 'the vetted skill is written to the index');
   assert.equal(fs.readFileSync(dest, 'utf8'), CLEAN_SKILL, 'the stored bytes are the distilled body, verbatim');
-  assert.equal(fs.statSync(dest).mode & 0o777, 0o600, 'stored 0600 — data, never executable');
+  assertOwnerOnly(assert, dest, 'stored 0600 — data, never executable');
   const items = ledger.load(d.ledger).filter((it) => it.type === 'skill');
   assert.equal(items.length, 1);
   assert.equal(items[0].status, 'trusted');

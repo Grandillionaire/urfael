@@ -22,9 +22,12 @@ function sandbox() {
 }
 
 test('isUnder: boundary is path-segment aware (/vault-evil is NOT under /vault)', () => {
-  assert.strictEqual(isUnder('/vault/a', '/vault'), true);
-  assert.strictEqual(isUnder('/vault', '/vault'), true);
-  assert.strictEqual(isUnder('/vault-evil/a', '/vault'), false);
+  // isUnder's contract is "absolute + NORMALIZED" (every caller path.resolve()s first) — so the test resolves
+  // too, which keeps the same statement on win32 (C:\vault-evil is not under C:\vault) without loosening it.
+  const R = (p) => path.resolve(p);
+  assert.strictEqual(isUnder(R('/vault/a'), R('/vault')), true);
+  assert.strictEqual(isUnder(R('/vault'), R('/vault')), true);
+  assert.strictEqual(isUnder(R('/vault-evil/a'), R('/vault')), false);
 });
 
 test('read: an in-vault file works; a relative path resolves against the vault', async () => {
