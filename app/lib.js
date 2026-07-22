@@ -49,6 +49,21 @@ function fsyncDir(dir) {
   }
 }
 
+// Quarantine a corrupt state file instead of silently resetting to empty (which loses the owner's data under
+// the sovereignty promise). Rename to <file>.corrupt-<n> (never clobbering an earlier quarantine), log loudly so
+// it is recoverable. Best-effort: if the rename itself fails, we say so and the caller still starts fresh. This is
+// the shared version of the discipline scheduler.js pioneered for reminders/crons; learn + calendar reuse it.
+function quarantineCorrupt(file, label) {
+  try {
+    let n = 0, dest;
+    do { dest = file + '.corrupt-' + n; n++; } while (fs.existsSync(dest) && n < 10000);
+    fs.renameSync(file, dest);
+    console.error('[urfael] ' + label + ' store at ' + file + ' was corrupt; quarantined to ' + dest + ' and started fresh (your data is recoverable there).');
+  } catch (e) {
+    console.error('[urfael] ' + label + ' store at ' + file + ' was corrupt and could not be quarantined: ' + ((e && e.message) || e));
+  }
+}
+
 // Model tiers, as Claude Code aliases ('sonnet'/'opus') so they always resolve to the latest
 // model your plan supports — no pinned IDs to rot, no source edits when Anthropic ships a new one.
 // Override per machine via env (set in the daemon plist's EnvironmentVariables), e.g. a Pro plan with
@@ -797,10 +812,19 @@ function reapOrphanPids(text, isAlive) {
 // "unverifiable" and, being fail-closed, never reap it.
 function plausiblePid(pid) { return Number.isInteger(pid) && pid > 0 && pid <= 0x7fffffff; }
 function normMarker(out) { return String(out == null ? '' : out).replace(/\s+/g, ' ').trim(); } // one normalizer so the sync + async probes can never diverge
+// The (pid → start-time) probe argv, per OS. POSIX: `ps -o lstart=`. Native Windows has no `ps`, which left
+// the orphan-reaper INERT there (every marker '' → nothing ever reaped → leaked children pile up after a crash);
+// win32 reads the immutable StartTime.Ticks via PowerShell instead. A dead pid makes either probe exit non-zero
+// → the caller's catch/err path yields '' (unverifiable → never reaped), same fail-closed contract on both.
+function markerArgv(pid) {
+  if (process.platform === 'win32') return ['powershell', ['-NoProfile', '-Command', '(Get-Process -Id ' + Number(pid) + ' -ErrorAction Stop).StartTime.Ticks']];
+  return ['ps', ['-o', 'lstart=', '-p', String(pid)]];
+}
 function pidStartMarker(pid, run) {
   if (typeof run !== 'function') return '';
   if (!plausiblePid(pid)) return '';
-  let out; try { out = run('ps', ['-o', 'lstart=', '-p', String(pid)]); } catch { return ''; } // non-zero exit (no such pid) throws → ''
+  const [cmd, args] = markerArgv(pid);
+  let out; try { out = run(cmd, args); } catch { return ''; } // non-zero exit (no such pid) throws → ''
   return normMarker(out);
 }
 
@@ -814,8 +838,9 @@ function pidStartMarkerAsync(pid, runAsync, cb) {
   const done = (m) => { try { if (typeof cb === 'function') cb(m); } catch {} };
   if (!plausiblePid(pid) || typeof runAsync !== 'function') return done('');
   let fired = false;
+  const [cmd, args] = markerArgv(pid);
   try {
-    runAsync('ps', ['-o', 'lstart=', '-p', String(pid)], (err, out) => {
+    runAsync(cmd, args, (err, out) => {
       if (fired) return; fired = true;
       done(err ? '' : normMarker(out));                                   // ps non-zero exit (no such pid) → err → ''
     });
@@ -1074,9 +1099,19 @@ function nextOccurrence(rem, now = Date.now()) {
     rem.at = n;
     return true;
   }
-  const step = rem.repeat === 'daily' ? 86400000
-    : rem.repeat === 'weekly' ? 604800000
-    : (rem.repeat && rem.repeat.everyMins) ? rem.repeat.everyMins * 60000 : 0;
+  // daily/weekly advance by LOCAL WALL-CLOCK, not fixed 24h/168h of absolute time: a fixed step drifts one
+  // hour at every DST transition and stays wrong for months ("daily at 9:00" firing at 10:00). setDate()
+  // preserves the local H:M across the transition — the same guarantee the days/cron shapes already made.
+  if (rem.repeat === 'daily' || rem.repeat === 'weekly') {
+    const stepDays = rem.repeat === 'daily' ? 1 : 7;
+    const d = new Date(rem.at);
+    let guard = 0;
+    while (d.getTime() <= now && ++guard < 400) d.setDate(d.getDate() + stepDays);
+    if (d.getTime() <= now) return false;              // pathological clock — refuse rather than loop
+    rem.at = d.getTime();
+    return true;
+  }
+  const step = (rem.repeat && rem.repeat.everyMins) ? rem.repeat.everyMins * 60000 : 0;   // interval repeats are absolute BY DESIGN
   if (!step) return false;
   while (rem.at <= now) rem.at += step;
   return true;
@@ -1335,4 +1370,4 @@ async function resolvePromptText({ argv = [], readFile, readStdin, stdinIsTTY, m
   return text;
 }
 
-module.exports = { atomicWriteJSON, resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, pidStartMarkerAsync, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseCouncilDirective, moaGate, asyncCouncilGate, envOn, parseSimplexEvent };
+module.exports = { atomicWriteJSON, resolvePromptText, classifyError, fallbackModelFor, MODELS, classifyModel, normPinModel, capModel, routeOverride, budgetLimits, budgetState, turnCostEst, rollupUsage, segmentSentences, resolveProfile, delegateScope, narrowScope, scopedEnv, profileFor, buildRoster, resolvePrincipal, TEAM_CHANNELS, CHANNEL_MATURITY, addPrincipal, removePrincipal, normalizeReminder, normalizeCron, normalizeJobAction, normalizeScript, normalizeWatch, watchFireArgs, reapOrphanPids, pidStartMarker, pidStartMarkerAsync, stillOursProbe, makePidLedger, CHAIN_MAX, makeCronGate, dedupePending, nextOccurrence, parseCron, nextCronTime, parseDays, nextDaysTime, buildHeartbeatPrompt, HOOK_ACTIONS, normalizeHook, hashHookSecret, hookSecretOk, isPrivateHost, quarantineCorrupt, newPairCode, redeemPairCode, editDistance, suggestCommand, sparkline, parseModelDirective, parsePersonaDirective, parseCouncilDirective, moaGate, asyncCouncilGate, envOn, parseSimplexEvent };

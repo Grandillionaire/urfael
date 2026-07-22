@@ -25,7 +25,7 @@ const WIN = process.platform === 'win32';
 // on win32 the shebang stub can't be exec'd directly — claude.js is the same stub behind the resolver's .js branch
 const STUB = path.join(__dirname, 'stub', WIN ? 'claude.js' : 'claude');
 
-let HOME, SOCK, TENV, daemon;
+let HOME, SOCK, TENV, daemon, DAEMON_ENV;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -68,6 +68,7 @@ async function startDaemon() {
   env.PATH = path.join(__dirname, 'stub') + path.delimiter + (env.PATH || '');   // stub also FIRST on PATH, per spec
   env.URFAEL_UPDATE_CHECK = '0';                      // no network self-update probe during the test
   delete env.URFAEL_HEARTBEAT_MINS; delete env.URFAEL_YOLO;
+  DAEMON_ENV = env;
   daemon = spawn(process.execPath, [path.join(APP, 'daemon.js')], { env, stdio: 'ignore' });
   for (let i = 0; i < 60; i++) { await sleep(250); const h = await sock('GET', '/health'); if (h.json && h.json.ok) return true; }
   return false;
@@ -195,5 +196,15 @@ describe('composed daemon smoke (offline claude stub)', () => {
     const u = await sock('GET', '/usage');
     assert.equal(u.status, 200);
     assert.ok(u.json && u.json.today && u.json.last7d && u.json.last30d, '/usage must return today/last7d/last30d windows');
+  });
+
+  it('single-instance guard: a SECOND daemon against the same endpoint YIELDS, and the first keeps serving', async () => {
+    // regression for the two-daemon race: the old unlink-before-bind let both survive and interleave the ledger.
+    // Spawn a rival with the identical env; it must exit on its own (0 = yielded), and the original must still answer.
+    const rival = spawn(process.execPath, [path.join(APP, 'daemon.js')], { env: DAEMON_ENV, stdio: 'ignore' });
+    const code = await new Promise((resolve) => { rival.on('exit', (c) => resolve(c)); setTimeout(() => { try { rival.kill('SIGKILL'); } catch {} resolve('timeout'); }, 15000); });
+    assert.equal(code, 0, 'the rival daemon must yield (exit 0), never run a second instance');
+    const h = await sock('GET', '/health');
+    assert.ok(h.json && h.json.ok, 'the original daemon must still be serving after the rival yields');
   });
 });

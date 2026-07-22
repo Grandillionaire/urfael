@@ -67,9 +67,9 @@ test('record is journaled BEFORE session.ask (the turn STARTS), clear is on the 
   const askIdx = daemon.indexOf('let reply = await session.ask(mem.promptText');
   const recIdx = daemon.indexOf('transcriptWal.record(');
   assert.ok(recIdx > 0 && askIdx > 0 && recIdx < askIdx, 'record must precede session.ask on the same turn');
-  const pushIdx = daemon.indexOf('transcript.push({ user: text, urfael: reply })');
+  const pushIdx = daemon.indexOf('pushTranscript({ user: text, urfael: reply })');   // capped push helper (server-side bound)
   const clearIdx = daemon.indexOf('transcriptWal.clear(');
-  assert.ok(clearIdx > pushIdx && pushIdx > 0, 'clear must come after the transcript.push on clean completion');
+  assert.ok(clearIdx > pushIdx && pushIdx > 0, 'clear must come after the transcript push on clean completion');
 });
 
 // ── BOOT RECOVERY: recover runs in listen() right after jobstore.reconcile(), and the recovered turn is marked ──
@@ -78,7 +78,7 @@ test('boot recovery runs right after jobstore.reconcile() and marks the entry re
   const recoverIdx = daemon.indexOf('transcriptWal.recover(');
   assert.ok(reconcileIdx > 0 && recoverIdx > reconcileIdx, 'recover must follow jobstore.reconcile() at boot');
   const line = daemon.split('\n').find((l) => /transcriptWal\.recover\(/.test(l));
-  assert.match(line, /transcript\.push\(\{ user: w\.user/, 'recovered user message is pushed into the transcript');
+  assert.match(line, /pushTranscript\(\{ user: w\.user/, 'recovered user message is pushed into the transcript');
   assert.match(line, /recovered: true/, 'the recovered entry is marked recovered');
   assert.match(line, /logEvent\(\{ ev: 'transcript_wal_recover'/, 'a recovery is logged');
 });

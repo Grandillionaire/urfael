@@ -105,13 +105,19 @@ function run(job) {
     return null;
   }
   store.update(id, { state: 'running', pid: proc.pid, startedAt: new Date().toISOString() });
-  proc.on('exit', (code, signal) => {
+  // `settled` guards the exit/error pair: spawn failures (ENOENT/EMFILE/ENOMEM/bad cwd) arrive as an ASYNC
+  // 'error' event, not the sync throw above. Without this handler the fd leaked, the job stayed 'running'
+  // forever (reconcile only runs at boot), and four such wedges permanently 429'd all new jobs.
+  let settled = false;
+  const finish = (state, extra) => {
+    if (settled) return; settled = true;
     if (typeof fd === 'number') try { fs.closeSync(fd); } catch {}
-    const state = signal ? 'cancelled' : (code === 0 ? 'done' : 'failed');
-    store.update(id, { state, pid: null, endedAt: new Date().toISOString(), exitCode: code });
+    store.update(id, { state, pid: null, endedAt: new Date().toISOString(), ...extra });
     const a = attribution(job.spec || {});
     notify('Urfael job ' + id + ' (' + job.kind + ') ' + state + '. ' + a.header + ' ' + a.caveat);
-  });
+  };
+  proc.on('exit', (code, signal) => finish(signal ? 'cancelled' : (code === 0 ? 'done' : 'failed'), { exitCode: code }));
+  proc.on('error', (e) => finish('error', { result: 'spawn failed: ' + String((e && e.message) || e) }));
   proc.unref();
   return proc.pid;
 }

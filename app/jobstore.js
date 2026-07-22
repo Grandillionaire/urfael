@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { atomicWriteJSON } = require('./lib');   // tmp+fsync+rename — jobs are "durable by design", so their store must be too
 
 const JOBS_DIR = path.join(os.homedir(), '.claude', 'urfael', 'jobs');
 const ID_RE = /^[a-z0-9-]{4,64}$/i; // opaque ids only — never interpolate an unvalidated id into a path/shell
@@ -21,11 +22,11 @@ function create(spec) {
   const id = newId();
   const job = { id, kind: spec.kind, state: 'queued', spec, pid: null,
     createdAt: new Date().toISOString(), startedAt: null, endedAt: null, exitCode: null, result: null };
-  fs.writeFileSync(jobFile(id), JSON.stringify(job, null, 2));
+  atomicWriteJSON(jobFile(id), job);   // a torn create/update used to make the job VANISH from list()/reconcile()
   return job;
 }
 function get(id) { if (!safeId(id)) return null; try { return JSON.parse(fs.readFileSync(jobFile(id), 'utf8')); } catch { return null; } }
-function update(id, patch) { const j = get(id); if (!j) return null; Object.assign(j, patch); try { fs.writeFileSync(jobFile(id), JSON.stringify(j, null, 2)); } catch {} return j; }
+function update(id, patch) { const j = get(id); if (!j) return null; Object.assign(j, patch); try { atomicWriteJSON(jobFile(id), j); } catch {} return j; }
 function list() {
   ensure();
   try {

@@ -37,12 +37,15 @@ function id() { return crypto.randomBytes(6).toString('hex') + (_ctr++).toString
 
 // Read the ledger array. Missing / empty / corrupt / non-array all fail-closed to []; never throws.
 function load(dir) {
-  try {
-    const raw = fs.readFileSync(path.join(dir, LEDGER_FILE), 'utf8');
-    if (!raw.trim()) return [];
-    const v = JSON.parse(raw);
-    return Array.isArray(v) ? v : [];
-  } catch { return []; }
+  const file = path.join(dir, LEDGER_FILE);
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return []; }   // ENOENT/unreadable → fresh, nothing to lose
+  if (!raw.trim()) return [];
+  let v; try { v = JSON.parse(raw); } catch { v = undefined; }
+  if (Array.isArray(v)) return v;
+  // corrupt (unparseable, or a non-array) — quarantine rather than silently discard every learned lesson
+  require('./lib').quarantineCorrupt(file, 'learn-ledger');
+  return [];
 }
 
 // Atomic write: serialize to a unique tmp file in the same dir, then rename over the target (rename is

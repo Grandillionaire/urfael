@@ -74,7 +74,8 @@ function detectPersona() {
 // read provider.env into a {KEY:val} map (so we edit non-destructively), and write it back atomic + 0600
 function readEnv() {
   const out = {};
-  try { for (const l of fs.readFileSync(PROVIDER_ENV, 'utf8').split('\n')) { const m = l.match(/^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/); if (m && !l.trim().startsWith('#')) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, ''); } } catch {}
+  // CRLF-safe split (matches loadProviderEnv) so a hand-edited provider.env doesn't drop every key on Windows
+  try { for (const l of fs.readFileSync(PROVIDER_ENV, 'utf8').split(/\r?\n/)) { const m = l.match(/^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/); if (m && !l.trim().startsWith('#')) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, ''); } } catch {}
   return out;
 }
 function writeEnv(map) {

@@ -14,6 +14,9 @@ const dc = require('./daemon-client');                                  // share
 
 const ipc = require('./ipc');
 const SOCK = ipc.daemonSock();   // 0600 unix socket on POSIX; per-user named pipe + token on native Windows (see app/ipc.js)
+// Spawn claude shell-free on every OS: native claude.exe or the npm shim unwrapped to cli.js under our own node.
+// A bare execFileSync('claude', …) ENOENTs on Windows (claude is a .cmd shim). CB.bin + CB.pre.concat(args).
+const CB = require('./claude-bin').resolve();
 const MEMORY_DIR = path.join(os.homedir(), process.env.URFAEL_MEMORY_DIR || 'Urfael-memory');
 const DAEMON = path.join(__dirname, 'daemon.js');
 const DASHBOARD = path.join(__dirname, 'dashboard.js');
@@ -268,7 +271,11 @@ function readStdinAdapter(maxBytes) {
     try { execFileSync('git', ['-C', root, 'pull', '--ff-only', '--quiet', 'origin', branch], { stdio: ['ignore', 'inherit', 'inherit'] }); }
     catch { console.error('✗ pull failed (a non-fast-forward?). Resolve it in ' + root); process.exit(1); }
     process.stdout.write(dim('installing dependencies…\n'));
-    try { execFileSync('npm', ['install', '--silent'], { cwd: __dirname, stdio: ['ignore', 'ignore', 'inherit'], timeout: 300000 }); } catch { console.error(dim('  (npm install reported an issue; check it manually)')); }
+    try {
+      let ncmd = 'npm', npre = [];
+      if (process.platform === 'win32') { const cli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'); try { fs.accessSync(cli); ncmd = process.execPath; npre = [cli]; } catch {} }   // npm is npm.cmd on win32 — run its cli.js under our node
+      execFileSync(ncmd, npre.concat(['install', '--silent']), { cwd: __dirname, stdio: ['ignore', 'ignore', 'inherit'], timeout: 300000, windowsHide: true });
+    } catch { console.error(dim('  (npm install reported an issue; check it manually)')); }
     console.log(gold('✓ updated') + dim('  ·  restart the daemon to run the new code:  ') + gold('urfael shutdown') + dim(' then your next command'));
     return;
   }
@@ -649,7 +656,7 @@ function readStdinAdapter(maxBytes) {
 
     // active connectors come from the brain's own config, not our guess
     if (sub === 'installed' || sub === 'active' || sub === 'doctor') {
-      try { execFileSync('claude', ['mcp', 'list'], { stdio: 'inherit', cwd: VAULT }); }
+      try { execFileSync(CB.bin, CB.pre.concat(['mcp', 'list']), { stdio: 'inherit', cwd: VAULT }); }
       catch { console.error('✗ could not run `claude mcp list` — is the Claude CLI installed and on PATH?'); process.exit(1); }
       return;
     }
@@ -676,8 +683,16 @@ function readStdinAdapter(maxBytes) {
       // instructions) and run the SAME static scanner over it. FAIL CLOSED: a poisoned description refuses the add;
       // a clean manifest is sha-pinned so a later swap (rug-pull) fails closed. Fetching may be skipped offline.
       const mg = require('./mcpgate');
-      const gate = await mg.gateAdd(e, { secrets }).catch(() => ({ ok: true, listed: false, reason: 'gate error' }));
+      // FAIL CLOSED on a gate error (mirrors gateVerify's catch): a poison-scan that threw must REFUSE the add,
+      // never wave it through with ok:true. gate.scan may be absent on this path, so the refusal block below
+      // guards for it.
+      const gate = await mg.gateAdd(e, { secrets }).catch(() => ({ ok: false, listed: false, reason: 'gate error' }));
       if (!gate.ok) {
+        if (gate.reason === 'gate error' || !gate.scan) {
+          console.error('\n\x1b[31m✗ refusing to connect — the poison-scan gate could not complete (' + (gate.reason || 'unknown') + ')\x1b[0m');
+          console.error(dim('  fail-closed: a connector is never added when its tool manifest cannot be scanned. Retry, or check the server.'));
+          process.exit(1);
+        }
         console.error('\n\x1b[31m✗ refusing to connect — the advertised tool manifest is POISONED\x1b[0m');
         console.error(dim("  the server's own tool descriptions carry instruction-override / exfil / hidden-unicode content the brain would read as commands:"));
         for (const f of gate.scan.flags.filter((x) => x.level === 'danger')) console.error('  ' + gold('[DANGER]') + ' ' + f.tool + ': ' + f.why + (f.sample ? dim('  «' + f.sample + '»') : ''));
@@ -690,7 +705,7 @@ function readStdinAdapter(maxBytes) {
       const ok = await promptYesNo('\nAdd this connector?' + (danger ? gold(' (DANGER flags present!)') : ''));
       if (!ok) { console.log(dim('aborted — nothing added')); return; }
       let args; try { args = con.buildAddArgs(e, secrets); } catch (err) { console.error('✗ ' + ((err && err.message) || err)); process.exit(1); }
-      try { execFileSync('claude', args, { stdio: 'inherit', cwd: VAULT }); }  // execFile array → secrets never hit the shell / history
+      try { execFileSync(CB.bin, CB.pre.concat(args), { stdio: 'inherit', cwd: VAULT }); }  // execFile array → secrets never hit the shell / history
       catch (err) { console.error('✗ `claude mcp add` failed: ' + ((err && err.message) || err)); process.exit(1); }
       if (gate.listed && gate.pin) { mg.approve(e, gate.pin); console.log(dim('  tool manifest pinned — a later description/schema swap (rug-pull) fails closed until you re-approve.')); }
       console.log(gold('✓ connected ') + e.name + dim('  — owner turns only; sandboxed turns never load it'));
@@ -726,7 +741,7 @@ function readStdinAdapter(maxBytes) {
     }
     if ((sub === 'remove' || sub === 'rm') && rest[1]) {
       const e = con.find(list, rest[1]) || { id: con.slugify(rest[1]) };
-      try { execFileSync('claude', con.buildRemoveArgs(e), { stdio: 'inherit', cwd: VAULT }); }
+      try { execFileSync(CB.bin, CB.pre.concat(con.buildRemoveArgs(e)), { stdio: 'inherit', cwd: VAULT }); }
       catch (err) { console.error('✗ remove failed: ' + ((err && err.message) || err)); process.exit(1); }
       console.log(gold('✓ removed ') + e.id);
       return;
@@ -947,6 +962,17 @@ function readStdinAdapter(maxBytes) {
     // part is deferred (a note, never a false red). SCOPE: the dashboard is a SEPARATE opt-in process that DOES
     // bind loopback TCP, so this is scoped strictly to the DAEMON — its self-report, and (best-effort) an lsof on
     // the daemon's OWN pid, never a bare `lsof -iTCP` that would false-red while the dashboard is up.
+    // win32: the boundary is a named pipe + required token, not an on-disk 0600 socket — statting the pipe path
+    // would false-red "not a unix socket". Audit the real win32 invariant instead: the token file exists and the
+    // daemon self-reports a non-TCP (pipe) bind. Everything below the `if` is the POSIX unix-socket audit.
+    if (ipc.needsAuth()) {
+      const tokenOk = (() => { try { return /^[0-9a-f]{64}$/.test(String(fs.readFileSync(ipc.tokenPath(), 'utf8')).trim()); } catch { return false; } })();
+      const boundOk = !!(h && h.bound && h.bound.unix && !h.bound.tcpPort);
+      if (h && !boundOk) add(false, bad('✗'), 'fortress', bad('daemon self-reports a TCP bind — principle #1 is no inbound port'), 'investigate the daemon');
+      else if (!h) note('fortress', 'brain asleep; named-pipe boundary check deferred');
+      else if (!tokenOk) add(false, bad('✗'), 'fortress', bad('daemon token missing/malformed — the named-pipe boundary is unproven'), 'restart the daemon to re-mint ~/.claude/urfael/daemon.token');
+      else add(true, ok('✓'), 'fortress', dim('no inbound port · per-user named pipe + required token (owner-only)'));
+    } else {
     let sst = null; try { sst = fs.statSync(SOCK); } catch {}
     const f = require('./fortress').auditFortress({ stat: sst, health: h });
     if (f.socket.present && !f.socket.ok) {
@@ -970,6 +996,7 @@ function readStdinAdapter(maxBytes) {
       }
       add(true, ok('✓'), 'fortress', dim(detail));
       if (!f.tcp.determined) note('fortress', 'brain asleep; TCP-listener check deferred (socket verdict only)');
+    }
     }
     if (rest.includes('--json')) { console.log(JSON.stringify({ ok: attention === 0, healthy, attention, checks }, null, 2)); return; }
     const head = attention === 0
@@ -1151,7 +1178,7 @@ function readStdinAdapter(maxBytes) {
       let delta; try { delta = prov.resolveEnv(e, env[e.authEnv], {}); } catch (err) { console.error('✗ ' + err.message + ' — set it first: urfael model use ' + e.id); process.exit(1); }
       const probeEnv = { ...process.env }; for (const k of delta.clear) delete probeEnv[k]; Object.assign(probeEnv, delta.set);
       console.log(dim('probing ' + e.label + ' …'));
-      try { const o = execFileSync('claude', ['-p', 'reply with exactly: ok'], { env: probeEnv, timeout: 60000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); console.log(gold('✓ reachable') + dim('  — replied: ' + o.slice(0, 40))); }
+      try { const o = execFileSync(CB.bin, CB.pre.concat(['-p', 'reply with exactly: ok']), { env: probeEnv, timeout: 60000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); console.log(gold('✓ reachable') + dim('  — replied: ' + o.slice(0, 40))); }
       catch (err) { console.error('✗ unreachable' + (e.proxy !== 'none' ? dim('  — is your proxy running? ' + (e.proxyHint || '')) : '') + dim('  (' + String((err && err.message) || err).slice(0, 70) + ')')); process.exit(1); }
       return;
     }
@@ -1538,9 +1565,14 @@ function readStdinAdapter(maxBytes) {
     // posture.noInboundPort is VERIFIED, never asserted: the fortress audit reads the on-disk 0600 unix socket and
     // the daemon's own server.address() self-report. If the daemon is unreachable this is falsy, so attest.js
     // render() prints "unknown" rather than overclaiming "none" — the honesty contract this report is built on.
-    const fortressStat = (() => { try { return fs.statSync(SOCK); } catch { return null; } })();
     const fortressHealth = await req('GET', '/health').catch(() => null);
-    const posture = { noInboundPort: require('./fortress').auditFortress({ stat: fortressStat, health: fortressHealth }).noInboundPort, untrustedProfile: 'read-only, no shell, no write, no egress, credential-deny', mode: process.env.URFAEL_YOLO === '1' ? 'Full' : 'Fortress' };
+    // noInboundPort, per OS: POSIX reads the on-disk 0600 unix socket + the daemon self-report; win32 has no
+    // such socket, so it is proven by the token file + a non-TCP (pipe) self-reported bind. Falsy when the
+    // daemon is unreachable → attest.js renders "unknown", never overclaiming.
+    const noInboundPort = ipc.needsAuth()
+      ? (() => { const tok = (() => { try { return /^[0-9a-f]{64}$/.test(String(fs.readFileSync(ipc.tokenPath(), 'utf8')).trim()); } catch { return false; } })(); return !!(tok && fortressHealth && fortressHealth.bound && fortressHealth.bound.unix && !fortressHealth.bound.tcpPort); })()
+      : require('./fortress').auditFortress({ stat: (() => { try { return fs.statSync(SOCK); } catch { return null; } })(), health: fortressHealth }).noInboundPort;
+    const posture = { noInboundPort, untrustedProfile: 'read-only, no shell, no write, no egress, credential-deny', mode: process.env.URFAEL_YOLO === '1' ? 'Full' : 'Fortress' };
     // fold in the signed transparency-log checkpoint so the bundle carries a third-party-verifiable Merkle root.
     const cpr = await req('GET', '/audit/checkpoint').catch(() => null);
     const checkpoint = (cpr && cpr.ok) ? { origin: cpr.origin, treeSize: cpr.treeSize, root: cpr.root, fp: cpr.fp, note: cpr.note } : null;

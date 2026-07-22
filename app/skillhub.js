@@ -262,18 +262,34 @@ function capabilityLines(result) {
 // fetch at 127.0.0.1, 169.254.169.254 (cloud metadata), or an internal box. Single source of truth in lib.js
 // (shared with the webhook-relay reply sender), so the guard can't drift between the two outbound paths.
 const { isPrivateHost } = require('./lib');
-function fetchMd(url, depth = 0) {
+const dns = require('dns');
+const net = require('net');
+// Resolve a hostname to its A/AAAA addresses (all of them). Injectable for tests; real DNS by default.
+function resolveHost(host) {
+  return new Promise((resolve) => dns.lookup(host, { all: true }, (err, addrs) => resolve(err ? [] : (addrs || []).map((a) => a.address))));
+}
+function fetchMd(url, depth = 0, deps = {}) {
+  const lookup = deps.resolve || resolveHost;
   return new Promise((resolve, reject) => {
     let u;
     try { u = new URL(url); } catch { return reject(new Error('invalid url')); }
     if (u.protocol !== 'https:') return reject(new Error('refusing non-https url (got ' + u.protocol + ')'));
+    // A literal private host is refused up front; a NAME is resolved and EVERY resolved IP re-checked, then the
+    // socket is PINNED to a vetted IP (host:ip + servername) — closing the DNS-rebind gap that a literal-only
+    // check leaves open (attacker.com → A 169.254.169.254). Mirrors the plugin egress broker's resolve-once-pin.
     if (isPrivateHost(u.hostname)) return reject(new Error('refusing private/loopback host (SSRF): ' + u.hostname));
     if (depth > 3) return reject(new Error('too many redirects'));
-    const req = https.request({ hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search, method: 'GET', timeout: 30000, headers: { 'User-Agent': 'urfael-skillhub', Accept: 'text/markdown, text/plain' } }, (res) => {
+    lookup(u.hostname).then((ips) => {
+      ips = (Array.isArray(ips) ? ips : []).filter((x) => net.isIP(String(x)) !== 0);
+      if (!ips.length) return reject(new Error('could not resolve host: ' + u.hostname));
+      const bad = ips.find((ip) => isPrivateHost(ip));
+      if (bad) return reject(new Error('host resolves to a private/loopback ip (SSRF): ' + u.hostname + ' → ' + bad));
+      const pinIp = ips[0];
+    const req = https.request({ host: pinIp, servername: u.hostname, port: u.port || 443, path: u.pathname + u.search, method: 'GET', timeout: 30000, headers: { Host: u.hostname, 'User-Agent': 'urfael-skillhub', Accept: 'text/markdown, text/plain' } }, (res) => {
       const code = res.statusCode || 0;
-      if (code >= 300 && code < 400 && res.headers.location) { // follow redirects, but re-validate each hop (https-only, depth-capped)
+      if (code >= 300 && code < 400 && res.headers.location) { // follow redirects, but re-validate each hop (https-only, resolve+pin, depth-capped)
         res.resume();
-        return resolve(fetchMd(new URL(res.headers.location, u).toString(), depth + 1));
+        return resolve(fetchMd(new URL(res.headers.location, u).toString(), depth + 1, deps));
       }
       if (code !== 200) { res.resume(); return reject(new Error('http ' + code)); }
       const ct = String(res.headers['content-type'] || '').toLowerCase();
@@ -288,6 +304,7 @@ function fetchMd(url, depth = 0) {
     req.on('error', reject);
     req.on('timeout', () => req.destroy(new Error('timeout')));
     req.end();
+    }).catch(reject);   // a DNS-resolution failure rejects the fetch, never opens it
   });
 }
 
