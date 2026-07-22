@@ -6,7 +6,7 @@ Urfael is an always-on local brain that runs your installed `claude` CLI as a su
 
 - **Claude Code on a paid plan (Pro or Max), signed in.** Run `claude` once and log in before you start Urfael. The brain shells out to that CLI, so it rides your existing subscription. (Opus escalation needs Max. On Pro, set `URFAEL_OPUS_MODEL=sonnet` so hard turns stay on Sonnet instead of failing.)
 - **Node 20 or newer.** `app/package.json` declares `"engines": { "node": ">=20" }`, the single source of truth for the floor.
-- **An operating system Urfael supports.** macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the headless brain and the Electron GUI, but it is newer and has far less mileage. There is no Windows build of the daemon today.
+- **An operating system Urfael supports.** macOS on Apple Silicon or Intel is the primary, best-tested target. Linux runs the headless brain and the Electron GUI, but it is newer and has far less mileage. **Native Windows is supported in beta**: `install.ps1` installs the daemon + CLI (the control plane rides a per-user named pipe with a required token instead of the POSIX 0600 socket), and the full unit/fuzz/red-team suite gates it in CI on every push. WSL remains fully supported and is the path to the POSIX-only extras (docker/ssh goal sandboxes, host-reaching plugin cells).
 - **Obsidian** with its Local REST API community plugin, for the vault.
 - For local voice (the free default): `ffmpeg`, `whisper-cpp`, and `coreutils` on macOS. The installer downloads the speech model (checksum-pinned). Docker is optional and only needed for sandboxed autonomous coding.
 
@@ -35,6 +35,21 @@ If you prefer a one-liner, a bootstrap clones the repo and runs `install.sh` for
 curl -fsSL https://raw.githubusercontent.com/Grandillionaire/urfael/main/get.sh | bash
 ```
 
+### Native Windows (beta)
+
+The same path, in PowerShell. Do not double-click `install.sh` — that is the macOS/Linux installer; Windows has its own:
+
+```powershell
+git clone https://github.com/Grandillionaire/urfael.git; cd urfael
+powershell -ExecutionPolicy Bypass -File .\install.ps1   # deps check, speech model + whisper-server (both SHA-pinned), vault, `urfael` on PATH
+urfael setup                                              # same onboarding wizard (open a NEW terminal first so PATH refreshes)
+cd app; npm start                                         # the Console opens
+```
+
+Or the one-line bootstrap, short enough to read first: `irm https://raw.githubusercontent.com/Grandillionaire/urfael/main/get.ps1 | iex`
+
+Windows differences, stated plainly: the daemon's control plane is a per-user named pipe plus a required token file under your profile (the POSIX build uses a `0600` unix socket — same trust statement, different kernel); autostart is a Run-key command the installer prints but never adds for you; `--check` commands for goal jobs run under PowerShell; docker/ssh goal sandboxes and host-reaching plugin cells stay POSIX/WSL-only for now. The brain's `curl --unix-socket` examples become `node _urfael/daemonctl.js …` (the installer scaffolds it).
+
 ## Path 2: the packaged desktop app
 
 The repo ships an `electron-builder` config in `app/package.json`. Building it produces a `.dmg` and `.zip` on macOS, an `AppImage` on Linux, and an NSIS installer on Windows:
@@ -50,7 +65,7 @@ Note plainly: the packaged app is the Console (the Electron overlay UI). It is a
 - **`~/Urfael`**: your Obsidian vault, scaffolded from the template, with a `.claude` symlink to `_urfael`. This is the archive the brain reads.
 - **`~/Urfael-memory`**: a private local git repo for what Urfael learns. Per-day conversation logs land in `~/Urfael-memory/sessions/` as JSONL.
 - **`~/.claude/urfael/`**: config templates (`tts.env`, `api-keys.env`, and others) written from the examples at `chmod 600`.
-- **The daemon socket**: once the daemon is running it listens only on a `0600` unix socket at `~/.claude/urfael/daemon.sock`. No TCP port is opened.
+- **The daemon socket**: once the daemon is running it listens only on a `0600` unix socket at `~/.claude/urfael/daemon.sock` (on native Windows: a per-user named pipe gated by `~/.claude/urfael/daemon.token`). No TCP port is opened on any OS.
 
 The `~/Urfael` vault and `~/Urfael-memory` repo are yours. They are kept separate from the cloned source (note the capitalisation) so an uninstall of the code never touches your data.
 

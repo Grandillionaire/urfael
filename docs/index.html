@@ -467,7 +467,7 @@ This restores your tracked files to that snapshot. The current state is checkpoi
   <section id="compare">
     <h2>The honest part</h2>
     <p class="lede">Against Hermes Agent and OpenClaw, Urfael wins where it counts for a machine that lives on your desk: no inbound port, a flat bill, an attack benchmark you run yourself, and a ledger that proves what it did. It loses on raw scale and channel count, and we put that in the same table.</p>
-    <p class="lede" style="margin-top:12px">The security posture is verified by a command and frozen by 1349 tests. The newer bridges, Discord voice, and the Android host are code-complete but not yet certified against live accounts, and we label them that way.</p>
+    <p class="lede" style="margin-top:12px">The security posture is verified by a command and frozen by 1372 tests. The newer bridges, Discord voice, and the Android host are code-complete but not yet certified against live accounts, and we label them that way.</p>
     <p style="text-align:center;margin:24px 0 0">
       <a href="/compare" style="font-family:ui-monospace,Menlo,monospace;font-size:14px;letter-spacing:.5px;color:#ecd3a0;border:1px solid rgba(212,168,90,.25);padding:11px 22px;border-radius:10px;display:inline-block;margin:5px">The full comparison &rsaquo;</a>
       <a href="/honesty" style="font-family:ui-monospace,Menlo,monospace;font-size:14px;letter-spacing:.5px;color:#ecd3a0;border:1px solid rgba(212,168,90,.25);padding:11px 22px;border-radius:10px;display:inline-block;margin:5px">What&rsquo;s lightly tested &rsaquo;</a>
@@ -480,9 +480,9 @@ This restores your tracked files to that snapshot. The current state is checkpoi
     <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:6px 0 4px">
       <a class="btn primary" href="https://github.com/Grandillionaire/urfael/releases/latest/download/Urfael-arm64.dmg">Download for macOS</a>
       <a class="btn primary" href="https://github.com/Grandillionaire/urfael/releases/latest/download/Urfael-x86_64.AppImage">Download for Linux</a>
-      <a class="btn" href="/manual/#/start/install">Windows (via WSL)</a>
+      <a class="btn" href="/manual/#/start/install">Windows (native beta)</a>
     </div>
-    <p class="cap">macOS (Apple Silicon) and Linux ship native installers, not yet notarized. <b style="color:var(--gold-soft)">To open on macOS the first time:</b> drag Urfael to Applications, then open System Settings, go to Privacy and Security, and click <b>Open Anyway</b> (or run <code>xattr -dr com.apple.quarantine /Applications/Urfael.app</code> in Terminal). Intel Macs run from source; Windows runs through WSL. Or use the two-line source install below.</p>
+    <p class="cap">macOS (Apple Silicon) and Linux ship native installers, not yet notarized. <b style="color:var(--gold-soft)">To open on macOS the first time:</b> drag Urfael to Applications, then open System Settings, go to Privacy and Security, and click <b>Open Anyway</b> (or run <code>xattr -dr com.apple.quarantine /Applications/Urfael.app</code> in Terminal). Intel Macs run from source. On Windows, run <code>install.ps1</code> in PowerShell (native beta; SmartScreen will warn on the unsigned .exe) — WSL also works. Or use the two-line source install below.</p>
     <pre>git clone https://github.com/Grandillionaire/urfael.git &amp;&amp; cd urfael
 ./install.sh        # checks deps, scaffolds your vault, no keys
 cd app &amp;&amp; npm start # the Console opens</pre>
@@ -596,7 +596,7 @@ cd app &amp;&amp; npm start # the Console opens</pre>
 
 <script>
 /* ---- ground truth: every number on this page reads from here, so it cannot drift from `npm run security` ---- */
-const URFAEL = { classes:11, checks:125, unitTests:1349 };
+const URFAEL = { classes:11, checks:125, unitTests:1372 };
 const RM = matchMedia('(prefers-reduced-motion:reduce)').matches;
 
 document.getElementById('navSeal').textContent = 'ᚢ '+URFAEL.classes+'/'+URFAEL.classes;

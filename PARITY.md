@@ -35,7 +35,7 @@ deliberate non-goal). Verdict: **Urfael matches or beats Hermes on every *real* 
   universal relay, pairing self-enroll (wired in the Telegram bridge so far). Secure-by-default off, not absent.
 - **Deliberate non-goals** (a choice, not a loss): Claude-only vs 300+ providers / model routing; no paid
   serverless exec backends (local + Docker + SSH exist; Modal/Daytona do not).
-- **Verification-gated:** the Electron GUI ships unsigned; Windows is code-complete but unproven (no hardware);
+- **Verification-gated:** the Electron GUI ships unsigned; native Windows runs the FULL unit/fuzz/red-team suite in CI (windows-latest) but awaits its first hands-on hardware cert;
   the skill-hub registry URL 404s until stocked; voice/STT/TTS depend on install + opt-in.
 
 ## Surfaces
@@ -58,8 +58,8 @@ deliberate non-goal). Verdict: **Urfael matches or beats Hermes on every *real* 
 | Packaged installer | ✓ | one-line curl | ✓ **one-line curl** (`get.sh` — clones + runs install.sh, read-it-first short) **and** electron-builder + CI pipeline (dmg/AppImage/nsis); GUI-installer signing still needs certs |
 | Release engineering | ✓ | ✓ tagged releases | ✓ **was a real gap, now closed**: a `CHANGELOG.md` (Keep-a-Changelog), semver in `package.json` (0.6.0), an annotated git tag, `RELEASE.md`, and `urfael version` / `urfael update` (the update pulls + reinstalls your own git checkout, refusing on a dirty tree). The pure semver compare + a `docs-consistency` guard (derives the benchmark/class/channel/version counts from source, fails the build on doc drift) are unit-tested |
 | Runtime dependencies / supply chain | large npm tree | large npm tree | ✦ **the always-on daemon + CLI have ZERO required runtime dependencies** (Node built-ins only; `package.json` dependencies is `{}`). The Discord-voice stack and Picovoice wake-word are optional/install-on-demand; Electron is the GUI only. `npm audit`: the runtime is vuln-free; the lone remaining advisory is in the Electron GUI framework (cert-gated/unsigned, upgrade planned). Minimal install, minimal supply-chain attack surface |
-| OS coverage | broad | broad | ◐ macOS solid · Linux supported · Windows code-complete (notify/voice branches), unverified; **+ Android via Termux** (portability layer, code-complete) |
-| OS coverage | broad | broad | ◐ macOS solid · Linux supported · Windows code-complete (notify/voice branches), unverified; **+ Android via Termux** (portability layer, code-complete) |
+| OS coverage | broad | broad | ◐ macOS solid · Linux supported · **Windows native (beta)**: pipe+token daemon boundary, installer (`install.ps1`), CI-green suite — hands-on cert pending; docker/ssh goal sandboxes + host-reaching plugins stay POSIX/WSL-only · **+ Android via Termux** (portability layer, code-complete) |
+| OS coverage | broad | broad | ◐ macOS solid · Linux supported · **Windows native (beta)**: pipe+token daemon boundary, installer (`install.ps1`), CI-green suite — hands-on cert pending; docker/ssh goal sandboxes + host-reaching plugins stay POSIX/WSL-only · **+ Android via Termux** (portability layer, code-complete) |
 
 ## Channels
 | | OpenClaw | Hermes | Urfael |
@@ -188,5 +188,5 @@ REMAINING — only VERIFICATION-blocked residuals + deliberate non-goals (*itali
 1. ~~*200+ model providers*~~ — **ADDRESSED**: the registry now ships **30 named providers** (OpenAI, Azure, Gemini, xAI, Copilot, Mistral, Groq, Cerebras, Fireworks, Together, Perplexity, NVIDIA NIM, Novita, HuggingFace, Qwen, Kimi, GLM, MiniMax, DeepSeek, the locals, the proxies) and **OpenRouter alone unlocks 300+ models** on one key, so total reach matches the field. Still honest: reach is not hosting, the flat-rate Claude subscription stays the default + thesis. Non-Anthropic models reach the CLI engine via a translating proxy, OR run **directly on the native in-process engine** (OpenAI-compatible + Anthropic API, no proxy, fully offline on a local model — see the Engine row), which is live-certified but opt-in.
 2. *Serverless exec backends (Modal/Daytona)* — paid third-party infra; SSH covers remote.
 3. Channel breadth — **answered architecturally** (the universal `relay` channel + Matrix federation hub), so breadth is one verified code path, not 21 bespoke adapters. A few platforms still warrant a *native* first-class bridge (richer than a webhook relay); those are account-gated to verify, so we won't ship them claiming they work.
-4. Windows port — code-complete (notify/voice branches), **hardware-gated** verification; richer TUI (modal pickers, live multi-session) is polish.
+4. Windows port — **native beta shipped** (pipe+token boundary, claude-bin resolver, goal-loop twin, install.ps1, windows-latest CI); remaining: first hands-on hardware cert, then the POSIX-only extras (docker/ssh goal sandboxes, host-reaching plugin cells). Richer TUI (modal pickers, live multi-session) is polish.
 5. *Battle-testing at scale* — only real users and time add this.
